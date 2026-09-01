@@ -1,0 +1,2 @@
+Drop-in folder for future original art or sound (D18). Files here are only loaded when
+assets/manifest.json lists them by id; nothing scans this directory.

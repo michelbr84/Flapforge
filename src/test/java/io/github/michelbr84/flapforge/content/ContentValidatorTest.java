@@ -1,6 +1,7 @@
 package io.github.michelbr84.flapforge.content;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -12,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /** The minimal M1 rules of {@link ContentValidator} (E19), driven from mutated fixtures. */
@@ -203,6 +205,84 @@ class ContentValidatorTest {
         assertEquals(1, e.errors().size(), e.getMessage());
         assertTrue(e.errors().get(0).startsWith("birds.json#/0/speed: unknown key 'speed'"),
                 e.errors().get(0));
+    }
+
+    /** The string-key rules of D25, checked against tables the test controls. */
+    @Nested
+    class StringKeys {
+
+        private Map<String, String> englishWithout(String... removed) {
+            Map<String, String> table = new LinkedHashMap<>(Strings.tableOf("en"));
+            for (String key : removed) {
+                assertTrue(table.remove(key) != null, "fixture key does not exist: " + key);
+            }
+            return table;
+        }
+
+        @Test
+        void theShippedContentAndStringsAgree() {
+            ContentValidator.StringReport report = ContentValidator.checkStrings(
+                    GameContent.load());
+
+            assertEquals(List.of(), report.errors());
+            assertEquals(List.of(), report.warnings(), "pt_BR is complete today");
+            assertTrue(report.ok());
+        }
+
+        @Test
+        void everyStringKeyMustExistInEnglish() {
+            ContentValidator.StringReport report = ContentValidator.checkStrings(
+                    TestContent.frozen(), englishWithout(StringKey.MENU_PLAY.key()),
+                    Map.of());
+
+            assertEquals(List.of("strings/en.json#/menu.play: missing string for "
+                    + "StringKey.MENU_PLAY"), report.errors());
+            assertFalse(report.ok());
+        }
+
+        @Test
+        void everyContentEntryNeedsANameAndADescription() {
+            ContentValidator.StringReport report = ContentValidator.checkStrings(
+                    TestContent.frozen(),
+                    englishWithout("bird.classic.desc", "cosmetic.classic.ember.name",
+                            "tier.hard.name"),
+                    Map.of());
+
+            assertEquals(List.of(
+                    "strings/en.json#/bird.classic.desc: missing content string",
+                    "strings/en.json#/cosmetic.classic.ember.name: missing content string",
+                    "strings/en.json#/tier.hard.name: missing content string"),
+                    report.errors());
+        }
+
+        @Test
+        void theRequiredKeysFollowTheContentInHand() {
+            assertTrue(ContentValidator.contentKeys(TestContent.frozen())
+                    .containsAll(List.of("bird.classic.name", "bird.classic.desc",
+                            "cosmetic.classic.voidglass.name", "tier.nightmare.desc")));
+        }
+
+        @Test
+        void aKeyMissingFromATranslationIsAWarningNotAnError() {
+            Map<String, String> partial = new LinkedHashMap<>(Strings.tableOf("pt_BR"));
+            partial.remove(StringKey.MENU_QUIT.key());
+            partial.put("menu.leftover", "Sobra");
+
+            ContentValidator.StringReport report = ContentValidator.checkStrings(
+                    TestContent.frozen(), Strings.tableOf("en"), Map.of("pt_BR", partial));
+
+            assertEquals(List.of(), report.errors());
+            assertEquals(List.of(
+                    "strings/pt_BR.json#/menu.quit: missing translation, falls back to English",
+                    "strings/pt_BR.json#/menu.leftover: key is not in strings/en.json"),
+                    report.warnings());
+        }
+
+        @Test
+        void loadingTheShippedContentRaisesMissingStrings() {
+            assertTrue(ContentValidator.validateStrings(GameContent.load()).ok(),
+                    "GameContent.load() validates the shipped strings too");
+        }
     }
 
     @Test

@@ -1,0 +1,400 @@
+package io.github.michelbr84.flapforge.audio;
+
+import io.github.michelbr84.flapforge.core.MathUtil;
+import io.github.michelbr84.flapforge.event.EventBus;
+import io.github.michelbr84.flapforge.event.GameEvent;
+import io.github.michelbr84.flapforge.persistence.Settings;
+import java.util.Objects;
+
+/**
+ * Turns game events into sounds (D16, D19). It is the only thing in the game that decides which
+ * cue a moment deserves; screens and systems publish facts and never name a sound id.
+ *
+ * <p>It subscribes once, to {@link GameEvent} itself, so a new event type cannot silently slip
+ * past a missing registration — {@link #sfxIdFor(GameEvent)} is a total function over the sealed
+ * hierarchy and answers {@code null} for the events that are deliberately silent (near misses,
+ * XP, currency book-keeping, the run-ended summary that a crash has already scored).
+ *
+ * <p>It also owns the three volumes and the mute flag from {@link Settings}. The master fader
+ * goes to the backend, where it applies to future music voices too; the effect volume is folded
+ * into each play. Muting does both: the fader drops to zero <em>and</em> plays are skipped, so a
+ * muted game queues nothing at all.
+ *
+ * <p>Nothing here blocks. Every path ends in {@link AudioBackend#play(String, float, float)},
+ * which is a bounded, drop-on-full queue offer, so the loop thread pays a handful of nanoseconds
+ * per event however busy the mixer is.
+ *
+ * <p>The backend can be replaced once, by {@link #setBackend(AudioBackend)}: opening a real line
+ * takes hundreds of milliseconds, so the application starts with {@link NullAudio} and the boot
+ * screen's warm-up step installs the mixer it opened on the boot thread (D19). The field is
+ * {@code volatile} because that hand-over crosses threads, and a manager that has already been
+ * closed closes the incoming backend instead of adopting it, so a boot step finishing after a
+ * quit can never leave a device open.
+ */
+public final class AudioManager {
+
+    /** Gain for an ability coming off cooldown: present, but quieter than using it. */
+    private static final float ABILITY_READY_GAIN = 0.45f;
+    /** Gain for the menu-movement blip, which fires often. */
+    private static final float UI_MOVE_GAIN = 0.7f;
+
+    private volatile AudioBackend backend;
+    private boolean closed;
+    private EventBus bus;
+    private EventBus.Subscription subscription;
+    private double masterVolume = 0.8;
+    private double sfxVolume = 1.0;
+    private double musicVolume = 0.6;
+    private boolean muted;
+    private long played;
+    private long suppressed;
+
+    /**
+     * Creates a manager over a backend. Volumes start at the {@link Settings} defaults; call
+     * {@link #applySettings(Settings)} once the settings file has been read.
+     *
+     * @param backend the output
+     */
+    public AudioManager(AudioBackend backend) {
+        this.backend = Objects.requireNonNull(backend, "backend");
+        pushMasterGain();
+    }
+
+    /**
+     * The backend this manager drives.
+     *
+     * @return the backend
+     */
+    public AudioBackend backend() {
+        return backend;
+    }
+
+    /**
+     * Replaces the output, pushing the current fader into it.
+     *
+     * @param next the new backend; closed immediately when this manager is already closed
+     */
+    public void setBackend(AudioBackend next) {
+        Objects.requireNonNull(next, "next");
+        if (closed) {
+            next.close();
+            return;
+        }
+        AudioBackend previous = backend;
+        backend = next;
+        pushMasterGain();
+        if (previous != null && previous != next) {
+            previous.close();
+        }
+    }
+
+    /**
+     * Starts listening on a bus. Subscribing twice replaces the first registration, so calling
+     * this again after a bus swap is safe.
+     *
+     * @param bus the presentation event bus, driven by the loop thread
+     */
+    public void attach(EventBus bus) {
+        Objects.requireNonNull(bus, "bus");
+        detach();
+        this.bus = bus;
+        this.subscription = bus.subscribe(GameEvent.class, this::handle);
+    }
+
+    /** Stops listening. Safe to call when not attached. */
+    public void detach() {
+        if (subscription != null) {
+            subscription.cancel();
+            subscription = null;
+        }
+        bus = null;
+    }
+
+    /**
+     * Whether this manager is currently subscribed.
+     *
+     * @return {@code true} while attached
+     */
+    public boolean isAttached() {
+        return subscription != null;
+    }
+
+    /**
+     * Reads the volumes and the mute flag out of the settings.
+     *
+     * @param settings the current settings
+     */
+    public void applySettings(Settings settings) {
+        Objects.requireNonNull(settings, "settings");
+        setVolumes(settings.masterVolume, settings.sfxVolume, settings.musicVolume);
+        setMuted(settings.muted);
+    }
+
+    /**
+     * Sets all three volumes at once. Values outside {@code [0, 1]} are clamped.
+     *
+     * @param master the global fader
+     * @param sfx the sound-effect volume
+     * @param music the music volume, stored for the M8 sequencer
+     */
+    public void setVolumes(double master, double sfx, double music) {
+        masterVolume = clampVolume(master);
+        sfxVolume = clampVolume(sfx);
+        musicVolume = clampVolume(music);
+        pushMasterGain();
+    }
+
+    /**
+     * Mutes or unmutes every output.
+     *
+     * @param muted {@code true} to silence the game
+     */
+    public void setMuted(boolean muted) {
+        this.muted = muted;
+        pushMasterGain();
+        if (muted) {
+            backend.stopAll();
+        }
+    }
+
+    /**
+     * Whether the game is muted.
+     *
+     * @return {@code true} when muted
+     */
+    public boolean isMuted() {
+        return muted;
+    }
+
+    /**
+     * The global fader, in {@code [0, 1]}.
+     *
+     * @return the master volume
+     */
+    public double masterVolume() {
+        return masterVolume;
+    }
+
+    /**
+     * The sound-effect volume, in {@code [0, 1]}.
+     *
+     * @return the effect volume
+     */
+    public double sfxVolume() {
+        return sfxVolume;
+    }
+
+    /**
+     * The music volume, in {@code [0, 1]}. Stored now, consumed by {@code MusicSequencer} in M8.
+     *
+     * @return the music volume
+     */
+    public double musicVolume() {
+        return musicVolume;
+    }
+
+    /**
+     * Sounds actually handed to the backend.
+     *
+     * @return the count
+     */
+    public long played() {
+        return played;
+    }
+
+    /**
+     * Sounds skipped because the game is muted or the effect volume is zero.
+     *
+     * @return the count
+     */
+    public long suppressed() {
+        return suppressed;
+    }
+
+    /**
+     * Plays an effect at full gain, centred.
+     *
+     * @param id the sound id, normally a {@link ToneSynth} constant
+     */
+    public void playSfx(String id) {
+        playSfx(id, 1.0f, 0.0f);
+    }
+
+    /**
+     * Plays an effect.
+     *
+     * @param id the sound id
+     * @param gain per-cue gain in {@code [0, 1]}, before the effect volume
+     * @param pan {@code -1} hard left to {@code +1} hard right
+     */
+    public void playSfx(String id, float gain, float pan) {
+        if (id == null) {
+            return;
+        }
+        if (muted || sfxVolume <= 0.0) {
+            suppressed++;
+            return;
+        }
+        played++;
+        backend.play(id, (float) (gain * sfxVolume), pan);
+    }
+
+    /** Menu focus moved. */
+    public void uiMove() {
+        playSfx(ToneSynth.UI_MOVE, UI_MOVE_GAIN, 0.0f);
+    }
+
+    /** Menu item confirmed. */
+    public void uiSelect() {
+        playSfx(ToneSynth.UI_SELECT, 1.0f, 0.0f);
+    }
+
+    /** Menu dismissed or cancelled. */
+    public void uiBack() {
+        playSfx(ToneSynth.UI_BACK, 1.0f, 0.0f);
+    }
+
+    /** Asks the backend to decode or generate every sound ahead of time (boot screen, D19). */
+    public void warmUp() {
+        backend.warmUp();
+    }
+
+    /**
+     * Decodes every sound on the calling thread and returns when the bank is warm — what the boot
+     * step runs, so the splash's progress bar reflects work that actually happened and the decode
+     * never lands between two device writes.
+     */
+    public void warmUpBlocking() {
+        backend.warmUpBlocking();
+    }
+
+    /** Stops every voice immediately, for a screen change or a pause. */
+    public void stopAll() {
+        backend.stopAll();
+    }
+
+    /** Detaches from the bus and closes the backend. */
+    public void close() {
+        detach();
+        closed = true;
+        backend.close();
+    }
+
+    /**
+     * Reacts to one event. Public so a test — or a screen with an event it builds by hand — can
+     * drive the manager without a bus.
+     *
+     * @param event the event
+     */
+    public void handle(GameEvent event) {
+        if (event == null) {
+            return;
+        }
+        if (event instanceof GameEvent.SettingsChanged changed) {
+            applySettings(changed.settings());
+            return;
+        }
+        String id = sfxIdFor(event);
+        if (id != null) {
+            playSfx(id, gainFor(event), 0.0f);
+        }
+    }
+
+    /**
+     * The sound an event maps to. A total function over {@link GameEvent}: {@code null} means the
+     * event is deliberately silent, not that a case was forgotten.
+     *
+     * @param event the event
+     * @return the sound id, or {@code null} for a silent event
+     */
+    public static String sfxIdFor(GameEvent event) {
+        if (event instanceof GameEvent.Flapped) {
+            return ToneSynth.FLAP;
+        }
+        if (event instanceof GameEvent.GatePassed) {
+            return ToneSynth.SCORE;
+        }
+        if (event instanceof GameEvent.CoinCollected) {
+            return ToneSynth.COIN;
+        }
+        if (event instanceof GameEvent.Crashed) {
+            return ToneSynth.CRASH;
+        }
+        if (event instanceof GameEvent.AbilityActivated
+                || event instanceof GameEvent.AbilityReady) {
+            return ToneSynth.ABILITY;
+        }
+        if (event instanceof GameEvent.ShieldAbsorbed) {
+            return ToneSynth.SHIELD;
+        }
+        if (event instanceof GameEvent.Revived) {
+            return ToneSynth.REVIVE;
+        }
+        if (event instanceof GameEvent.StreakChanged streak) {
+            // A broken streak is a loss, not an achievement: only the step up is scored.
+            return streak.streak() > 0 && streak.step() > 0 ? ToneSynth.STREAK : null;
+        }
+        if (event instanceof GameEvent.SynergyActivated) {
+            return ToneSynth.SYNERGY;
+        }
+        if (event instanceof GameEvent.RuleShift) {
+            return ToneSynth.RULE_SHIFT;
+        }
+        if (event instanceof GameEvent.BossWarning || event instanceof GameEvent.BossStarted) {
+            return ToneSynth.BOSS_WARNING;
+        }
+        if (event instanceof GameEvent.BossCleared
+                || event instanceof GameEvent.UnlockGranted
+                || event instanceof GameEvent.AchievementUnlocked
+                || event instanceof GameEvent.ObjectiveMet) {
+            return ToneSynth.UNLOCK;
+        }
+        if (event instanceof GameEvent.LevelUp
+                || event instanceof GameEvent.ChallengeCompleted) {
+            return ToneSynth.LEVEL_UP;
+        }
+        if (event instanceof GameEvent.RunStarted
+                || event instanceof GameEvent.ModifierChosen
+                || event instanceof GameEvent.LanguageChanged) {
+            return ToneSynth.UI_SELECT;
+        }
+        // A screen transition and a modifier offer get the soft movement blip, not the confirm
+        // one: the button that caused them already played `ui_select` through uiSelect().
+        if (event instanceof GameEvent.ScreenChanged
+                || event instanceof GameEvent.ModifierOffered) {
+            return ToneSynth.UI_MOVE;
+        }
+        if (event instanceof GameEvent.SaveFailed) {
+            return ToneSynth.UI_BACK;
+        }
+        // Silent on purpose: NearMiss (the gate blip is enough), RunEnded (the crash already
+        // played), CurrencyChanged and XpGained (book-keeping that fires in bursts),
+        // DailyRecorded, and SettingsChanged (handled before this method is reached).
+        return null;
+    }
+
+    /**
+     * The per-cue gain for an event, before the effect volume.
+     *
+     * @param event the event
+     * @return a gain in {@code [0, 1]}
+     */
+    public static float gainFor(GameEvent event) {
+        if (event instanceof GameEvent.AbilityReady) {
+            return ABILITY_READY_GAIN;
+        }
+        if (event instanceof GameEvent.ModifierOffered
+                || event instanceof GameEvent.ScreenChanged) {
+            return UI_MOVE_GAIN;
+        }
+        return 1.0f;
+    }
+
+    private void pushMasterGain() {
+        backend.setMasterGain(muted ? 0.0f : (float) masterVolume);
+    }
+
+    private static double clampVolume(double value) {
+        return Double.isFinite(value) ? MathUtil.clamp(value, 0.0, 1.0) : 0.0;
+    }
+}

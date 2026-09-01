@@ -2,6 +2,8 @@ package io.github.michelbr84.flapforge.ui;
 
 import io.github.michelbr84.flapforge.app.FramePresenter;
 import io.github.michelbr84.flapforge.core.geom.Vec2;
+import io.github.michelbr84.flapforge.event.EventBus;
+import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.RawInput;
@@ -25,6 +27,14 @@ import java.util.Objects;
  *       trigger twice;</li>
  *   <li>map mouse coordinates from window to logical space through the loop-owned
  *       {@link Viewport};</li>
+ *   <li>publish {@code ScreenChanged} on the presentation bus whenever the top of the stack
+ *       changes, so the audio manager, the particle system and the debug overlay hear a
+ *       transition without every screen having to announce itself (D16);</li>
+ *   <li>handle the three global keys that belong to no screen — {@code F11} (fullscreen),
+ *       {@code F3} (debug overlay) and {@code M} (mute) — through the handlers the application
+ *       installs, so each key changes the <em>setting</em> and reaches the engine the way every
+ *       other setting does; with no handler installed (a bare manager in a test) the key still
+ *       flips the local state directly;</li>
  *   <li>handle window events: {@code Resized} updates the viewport and the presenter,
  *       {@code FullscreenToggled} or the {@code FULLSCREEN} action toggles fullscreen through the
  *       presenter (which is the source of truth for the current state, so a window started with
@@ -55,6 +65,12 @@ public final class ScreenManager implements FrameRenderer {
     private final List<Runnable> pendingOps = new ArrayList<>();
     private FramePresenter presenter;
     private Runnable closeHandler;
+    private Runnable muteHandler;
+    private Runnable fullscreenHandler;
+    private Runnable debugOverlayHandler;
+    private Runnable tickTask;
+    private EventBus events;
+    private String announcedScreen;
     private boolean fullscreen;
     private boolean iconified;
     private boolean debugOverlay;
@@ -66,6 +82,7 @@ public final class ScreenManager implements FrameRenderer {
     private long tickCount;
     private double mouseX;
     private double mouseY;
+    private int stackVersion;
     private int letterboxRgb = 0x0e1116;
 
     /**
@@ -93,6 +110,71 @@ public final class ScreenManager implements FrameRenderer {
      */
     public void setCloseHandler(Runnable closeHandler) {
         this.closeHandler = closeHandler;
+    }
+
+    /**
+     * Installs the action the mute key ({@code M}) runs. The manager owns the key because muting
+     * must work on every screen; what muting <em>means</em> — flipping the setting, applying it
+     * and persisting it — belongs to the application.
+     *
+     * @param muteHandler the callback, or {@code null} to make the key inert
+     */
+    public void setMuteHandler(Runnable muteHandler) {
+        this.muteHandler = muteHandler;
+    }
+
+    /**
+     * Installs the action the fullscreen key ({@code F11}) and a window-raised
+     * {@code FullscreenToggled} run. The application points it at the settings path, so the stored
+     * {@code fullscreen} flag follows the window; without a handler the manager toggles the
+     * presenter itself.
+     *
+     * @param fullscreenHandler the callback, or {@code null} to toggle the presenter directly
+     */
+    public void setFullscreenHandler(Runnable fullscreenHandler) {
+        this.fullscreenHandler = fullscreenHandler;
+    }
+
+    /**
+     * Installs the action the debug key ({@code F3}) runs. The application points it at the
+     * settings path, so the stored {@code showFps} flag follows the overlay; without a handler the
+     * manager flips its own flag.
+     *
+     * @param debugOverlayHandler the callback, or {@code null} to flip the flag directly
+     */
+    public void setDebugOverlayHandler(Runnable debugOverlayHandler) {
+        this.debugOverlayHandler = debugOverlayHandler;
+    }
+
+    /**
+     * Installs work the loop runs at the top of every tick, before any screen sees input.
+     *
+     * <p>The application uses it to marshal results that arrived on a background thread — a
+     * settings write that failed — back onto the loop thread, which is where the event bus and the
+     * toast layer live.
+     *
+     * @param tickTask the task, or {@code null} for none
+     */
+    public void setTickTask(Runnable tickTask) {
+        this.tickTask = tickTask;
+    }
+
+    /**
+     * Installs the bus this manager announces transitions on.
+     *
+     * @param events the presentation bus, or {@code null} for none
+     */
+    public void setEvents(EventBus events) {
+        this.events = events;
+    }
+
+    /**
+     * The bus transitions are announced on.
+     *
+     * @return the bus, or {@code null}
+     */
+    public EventBus events() {
+        return events;
     }
 
     /**
@@ -171,10 +253,29 @@ public final class ScreenManager implements FrameRenderer {
         for (Runnable op : ops) {
             op.run();
         }
+        announceTop();
+    }
+
+    /**
+     * Publishes {@code ScreenChanged} when the batch of operations just applied left a different
+     * screen on top. Announcing once per batch rather than once per push means a
+     * {@link #replace(Screen)} or a {@link #setRoot(Screen)} is one transition, not two.
+     */
+    private void announceTop() {
+        Screen top = top();
+        String name = top == null ? null : top.getClass().getSimpleName();
+        if (Objects.equals(name, announcedScreen)) {
+            return;
+        }
+        announcedScreen = name;
+        if (events != null && name != null) {
+            events.publish(new GameEvent.ScreenChanged(name));
+        }
     }
 
     private void doPush(Screen screen) {
         stack.add(screen);
+        stackVersion++;
         screen.onEnter();
         markTransition();
     }
@@ -184,6 +285,7 @@ public final class ScreenManager implements FrameRenderer {
             return;
         }
         Screen top = stack.remove(stack.size() - 1);
+        stackVersion++;
         top.onExit();
         markTransition();
     }
@@ -227,6 +329,16 @@ public final class ScreenManager implements FrameRenderer {
      */
     public List<Screen> screens() {
         return new ArrayList<>(stack);
+    }
+
+    /**
+     * A counter bumped by every push and pop, so a per-frame reader (the {@code F3} overlay's
+     * screen list) can cache what it derived from the stack instead of rebuilding it every frame.
+     *
+     * @return the current version
+     */
+    public int stackVersion() {
+        return stackVersion;
     }
 
     /** Asks the application to quit (same path as the window close button). */
@@ -371,6 +483,9 @@ public final class ScreenManager implements FrameRenderer {
      */
     public void tick(InputFrame frame) {
         tickCount++;
+        if (tickTask != null) {
+            tickTask.run();
+        }
         if (fullscreenGraceTicks > 0) {
             fullscreenGraceTicks--;
         }
@@ -381,10 +496,13 @@ public final class ScreenManager implements FrameRenderer {
         mouseX = mapped.mouseX();
         mouseY = mapped.mouseY();
         if (mapped.isJustPressed(InputAction.FULLSCREEN)) {
-            toggleFullscreen();
+            requestFullscreenToggle();
         }
         if (mapped.isJustPressed(InputAction.DEBUG)) {
-            debugOverlay = !debugOverlay;
+            requestDebugOverlayToggle();
+        }
+        if (mapped.isJustPressed(InputAction.MUTE) && muteHandler != null) {
+            muteHandler.run();
         }
         if (stripEdgesNextTick) {
             stripEdgesNextTick = false;
@@ -410,12 +528,30 @@ public final class ScreenManager implements FrameRenderer {
                     presenter.onResize(r.width(), r.height());
                 }
             } else if (event instanceof RawInput.FullscreenToggled) {
-                toggleFullscreen();
+                requestFullscreenToggle();
             } else if (event instanceof RawInput.CloseRequested) {
                 requestClose();
             } else if (event instanceof RawInput.Iconified ic) {
                 iconified = ic.iconified();
             }
+        }
+    }
+
+    /** Runs the installed fullscreen action, or toggles the presenter when there is none. */
+    private void requestFullscreenToggle() {
+        if (fullscreenHandler != null) {
+            fullscreenHandler.run();
+        } else {
+            toggleFullscreen();
+        }
+    }
+
+    /** Runs the installed debug-overlay action, or flips the local flag when there is none. */
+    private void requestDebugOverlayToggle() {
+        if (debugOverlayHandler != null) {
+            debugOverlayHandler.run();
+        } else {
+            debugOverlay = !debugOverlay;
         }
     }
 

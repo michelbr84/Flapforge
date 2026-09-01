@@ -2,6 +2,7 @@ package io.github.michelbr84.flapforge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.michelbr84.flapforge.app.FrameLimiter;
 import io.github.michelbr84.flapforge.app.GameLoop;
 import io.github.michelbr84.flapforge.app.NullPresenter;
+import io.github.michelbr84.flapforge.content.StringKey;
+import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.geom.Vec2;
 import io.github.michelbr84.flapforge.input.InputFrame;
@@ -28,6 +31,7 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.HashSet;
 import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -89,11 +93,19 @@ class MenuNavigationTest {
             closed = true;
             loop.stop();
         });
+        // The screen captures the active table; give it a fresh English one so a previous test
+        // cannot leave another language behind.
+        Strings.use(Strings.load("en"));
         menu = new MainMenuScreen(screens);
         screens.push(menu);
         screens.applyPending();
         loop.start();
         ticks(GRACE);
+    }
+
+    @AfterEach
+    void tearDown() {
+        Strings.use(Strings.load("en"));
     }
 
     private void ticks(int n) {
@@ -143,6 +155,26 @@ class MenuNavigationTest {
         ticks(GRACE);
         click(settings.backButton());
         assertSame(menu, screens.top(), "click on Back pops to the menu");
+    }
+
+    @Test
+    void aLanguageSwitchRelabelsTheMenuOnTheNextTick() {
+        // M2's "switch to pt_BR live": the settings screen reloads the shared table and pops back,
+        // and the menu below has to notice on its own -- nothing tells it. This is exactly what
+        // GameContext.applyLanguage does: reload the active instance, then re-publish it.
+        assertEquals(Strings.load("en").get(StringKey.MENU_PLAY), menu.playButton().text());
+
+        Strings active = Strings.active();
+        active.reload("pt_BR");
+        Strings.use(active);
+        ticks(1);
+
+        Strings pt = Strings.load("pt_BR");
+        assertEquals(pt.get(StringKey.MENU_PLAY), menu.playButton().text(), "Play was relabelled");
+        assertEquals(pt.get(StringKey.MENU_SETTINGS), menu.settingsButton().text());
+        assertEquals(pt.get(StringKey.MENU_QUIT), menu.quitButton().text());
+        assertNotEquals(Strings.load("en").get(StringKey.MENU_PLAY), menu.playButton().text(),
+                "the two languages must actually differ for this to prove anything");
     }
 
     @Test

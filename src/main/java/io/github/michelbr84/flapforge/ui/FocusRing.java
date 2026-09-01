@@ -25,6 +25,11 @@ import java.util.Objects;
  *       it. Hover flags are refreshed every tick.</li>
  * </ul>
  * Every activation goes through {@link UiNode#activate()}.
+ *
+ * <p>Both outcomes of a tick are announced through {@link UiCues}: a focus that actually moved
+ * plays the movement blip and an activation plays the confirm one. The focus the ring takes on its
+ * own — the fallback that focuses the first node when nothing is focused — is silent, so entering
+ * a screen does not blip.
  */
 public final class FocusRing {
 
@@ -144,6 +149,8 @@ public final class FocusRing {
         if (focused == null) {
             focusFirst();
         }
+        // Everything after this point is focus the player asked for, and only that is audible.
+        UiNode before = focused;
 
         double mx = input.mouseX();
         double my = input.mouseY();
@@ -185,7 +192,11 @@ public final class FocusRing {
             activated = focused;
         }
         if (activated != null) {
+            // A click both focuses and activates; the confirm cue stands in for the move.
+            UiCues.select();
             activated.activate();
+        } else if (focused != before) {
+            UiCues.move();
         }
         return activated;
     }

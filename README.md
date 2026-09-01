@@ -554,8 +554,12 @@ and
 
 Menus are fully usable with either input device: arrow keys or `Tab` move
 focus, `Enter`/`Space` activate, `Esc` goes back, and every control also
-responds to mouse hover and click. Keyboard bindings become rebindable in the
-Settings screen; the mouse buttons are fixed.
+responds to mouse hover and click. All seven keyboard bindings above are
+rebindable in the Settings screen; the arrow keys, `Esc`-to-go-back and the
+mouse buttons are fixed.
+
+`M`, `F3` and `F11` work on every screen and are remembered: each one changes
+the matching setting, so the game starts up the way you left it.
 
 Input is sampled per simulation tick (60 Hz), so a tap shorter than a frame
 is never lost and key auto-repeat never produces an extra flap.
@@ -619,6 +623,7 @@ if you want to send a change.
 ./gradlew fatJar
 java -jar build/libs/flapforge-<version>-all.jar
 java -jar build/libs/flapforge-<version>-all.jar --fullscreen --no-audio
+java -jar build/libs/flapforge-<version>-all.jar --lang pt_BR
 ```
 
 The jar bundles Gson and needs only a JRE/JDK 17+. Packaged app images
@@ -645,13 +650,13 @@ Launch flags (some arrive with later milestones, see
 | `--tier ID` | difficulty tier (`normal`, `hard`, `nightmare`) |
 | `--scale N` | initial window scale (integer multiple of the 420×640 playfield); default: the largest scale whose window fits the screen |
 | `--fullscreen` | start in borderless fullscreen (`F11` toggles) |
-| `--no-audio` | disable the audio backend |
-| `--home DIR` | use `DIR` instead of the default save/settings directory |
-| `--headless-run N` | simulate `N` frames without a window and print a summary line (the state hash used by CI arrives with the simulation) |
+| `--no-audio` | start silent: no sound device is opened at all |
+| `--home DIR` | use `DIR` instead of the default settings/save directory (`~/.flapforge`, `%APPDATA%\Flapforge`, `~/Library/Application Support/Flapforge`) |
+| `--headless-run N` | simulate `N` frames without a window and print a summary line plus the determinism hash CI compares across platforms |
 | `--no-window` | run without a window |
 | `--help`, `-h` | print the usage text |
 | `--reset-save` | delete the save file (a backup is kept) and start fresh |
-| `--lang CODE` | UI language: `auto`, `en`, `pt_BR` |
+| `--lang CODE` | UI language for this launch: `auto` (system locale), `en`, `pt_BR`; it can also be changed live in Settings |
 
 ---
 

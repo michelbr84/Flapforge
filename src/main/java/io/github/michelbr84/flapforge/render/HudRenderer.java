@@ -36,7 +36,7 @@ public final class HudRenderer {
 
     private static final Color SEED_COLOR = new Color(0x1C, 0x3A, 0x3E, 0xB0);
 
-    private final String readyHint;
+    private String readyHint;
     private int ticks;
     private int scoreShown = -1;
     private String scoreText = "";
@@ -48,6 +48,24 @@ public final class HudRenderer {
      */
     public HudRenderer(String readyHint) {
         this.readyHint = readyHint;
+    }
+
+    /**
+     * Replaces the READY hint (a live language switch, D25).
+     *
+     * @param readyHint the new text
+     */
+    public void setReadyHint(String readyHint) {
+        this.readyHint = readyHint;
+    }
+
+    /**
+     * The text blinked while the run waits for its first flap.
+     *
+     * @return the hint
+     */
+    public String readyHint() {
+        return readyHint;
     }
 
     /** Advances the blink by one tick. */

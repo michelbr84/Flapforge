@@ -178,6 +178,125 @@ for attribution; those versions were never Flapforge releases.
 - `gameplay/harness/ScriptedPilot` moved to `src/test/.../support` — a replay
   helper has no production caller, and Appendix A §3 puts it there.
 
+### Added — M2: presentation base (boot, settings, sound, strings)
+
+- Persistence (`persistence`): `SavePaths` (per-OS profile directory,
+  `--home`/`flapforge.home`/`FLAPFORGE_HOME` overrides), `AtomicFiles`
+  (temp file + fsync + `ATOMIC_MOVE`, three immediate retries, non-atomic
+  `REPLACE_EXISTING` fallback, then `IO_FAILED`; never sleeps, never throws),
+  `JsonCodec`, `Settings` (the full §4 shape) and `SettingsStore` — missing
+  keys default, unknown keys survive a round trip, a version mismatch archives
+  the old file as `settings.v<N>.json` and restores the defaults with a warning
+  toast. Writes run on `Threads.saveExecutor()`; a failed write comes back to
+  the loop thread as a `SaveFailed` event and a toast.
+- Event bus (`event`): `EventBus` (synchronous, thread-confined, exact-type
+  delivery, nested publishes queued rather than nested) and the complete
+  `GameEvent` hierarchy, defined in full from this milestone so later
+  milestones add subscribers instead of reopening the file.
+- Audio (`audio`): `AudioBackend` with `SoftwareMixer` (one pre-opened
+  44.1 kHz/16-bit/stereo `SourceDataLine`, one daemon mixing thread, bounded
+  drop-on-full command queue, soft `tanh` limiter, underrun counter),
+  `SoundBank` (manifest → classpath → synthesis, resampled and widened once at
+  load time), `ToneSynth` (16 procedural cues), `Voice`, `NullAudio` and
+  `AudioManager`, which is the only thing that decides which cue a moment
+  deserves and owns the three volumes and the mute flag.
+- Internationalisation (`content`): `Strings` + `StringKey` with
+  `data/strings/en.json` (source of truth) and `pt_BR.json`, `{n}` placeholder
+  substitution, English fallback for a missing translation, `language: auto`
+  against the system locale, and a live switch that re-labels every screen.
+- Rendering (`render`): `AssetManager` + `AssetResolver` (manifest-only id
+  resolution, `worlds/<world>/<id>` → `<id>` → procedural), `Sprite`,
+  `SpriteSheet`, `Animation`, `Camera` and `ParticleSystem`, plus
+  `assets/manifest.json` (empty list on purpose) and the `.gitkeep` folders for
+  future art packs. `GameRenderer` resolves a bird sheet per run, so a manifest
+  entry really replaces the procedural art.
+- UI (`ui`): `Slider`, `Toggle`, `ListView`, `Toast`/`ToastLayer`, `UiCues`,
+  `BootScreen` + `app/BootSequence` (font and audio warm-up on a daemon thread
+  while the splash is on screen), the completed `MainMenuScreen` and the real
+  `SettingsScreen` — language, three volumes, mute, fullscreen, integer
+  scaling, frame-rate cap, smoothing, FPS overlay, reduce flashing, text scale,
+  hold-to-flap and key rebinding, all applied live and written after a debounce.
+- `app.GameContext` gained `applySettings` as the single place that knows which
+  engine object owns which setting, `applyAndSave`, `drainSaveResults` and the
+  three global hotkey actions; `--no-audio` and `--lang CODE` reach the game.
+- Tests: `SettingsStoreTest`, `AtomicFilesTest`, `EventBusTest`, `StringsTest`,
+  `FontsTest`, `AudioWiringTest`, `SettingsScreenTest`, the `audio/*` suite,
+  `render/AssetManagerTest`, `render/ParticleSystemTest`, and an extended
+  `ProceduralRenderTest` (every screen in both languages, a manifest entry
+  replacing the procedural bird) and `SmokeWindowTest` (the settings screen
+  driven through the toolkit).
+- Docs: `docs/ARCHITECTURE.md` gained the audio pipeline, the event-bus rules
+  and the i18n layer; `docs/DEVELOPMENT.md` gained the profile-directory
+  layout, the `--no-audio`/`--lang`/`--home` flags and the recipe for adding a
+  string key.
+
+### Changed — M2
+
+- `F11`, `F3` and `M` no longer poke the engine directly. `ScreenManager` still
+  owns the keys, but runs handlers that flip the matching field of
+  `settings.json`, apply it and persist it — otherwise `applySettings` pushed
+  the stored value straight back and the state was lost on restart (§4 persists
+  `fullscreen` and `showFps`).
+- `SettingsStore` gained `hold(...)`, which adopts a state as the one in force
+  without writing it, and `GameContext.applySettings` calls it: with a debounced
+  write pending, `settings()` used to report the last *saved* state, so a hotkey
+  built on it reverted the edit the player was making. `SettingsScreen` also
+  subscribes to `SettingsChanged` and re-reads its working copy from a change it
+  did not raise, so the pending flush cannot resurrect a stale copy.
+- A failed settings write is reported by draining the store's completed-write
+  queue on the loop thread instead of reading `lastWrite()` on the line after
+  `save()`, which returned the *previous* write's result on the real
+  (asynchronous) save executor.
+- The audio device is opened in the `BOOT_AUDIO` boot step, on the boot thread,
+  instead of on the launch thread: `AudioBackend.create` costs ~240 ms on a cold
+  device and the window was already visible and unpainted. The step now also
+  decodes the sound bank synchronously (`warmUpBlocking`), so the splash's
+  progress reflects work that happened and the decode never lands between two
+  device writes.
+- `SoftwareMixer` opens the line with four write-passes of headroom (it had
+  exactly one, so any slow pass starved the device) and samples the underrun
+  counter immediately before the write instead of at the top of the pass, where
+  the buffer has just been refilled and a drained line can never be seen.
+- `SoundBank`'s multichannel downmix folds channels above the second into
+  *both* outputs, as its javadoc always said; the even/odd split it implemented
+  would have sent a 5.1 centre channel only to the left and the LFE only to the
+  right.
+- `Fonts` keeps its caches in `AtomicReferenceArray`s with acquire/release
+  access: the boot warm-up fills them from `flapforge-boot` while the loop
+  thread draws the splash, and `java.awt.Font` has no final fields.
+- `GameApplication.detectRefreshRate()` caches the display mode. Resolving it
+  is a 6.5 ms XRandR round trip and `applySettings` resolves the frame-rate cap
+  on every slider step.
+- One `AssetManager` is now built per launch and shared by the sound bank and
+  the new `AssetResolver` the renderers read; manifest paths accept both the
+  documented `sprites/...` form and §4's `assets/...` form.
+- `KeyBindings.toMap()` writes only the seven rebindable actions, matching §4;
+  the focus arrows and `BACK` are fixed defaults and are no longer dead keys in
+  the file.
+- `SettingsStore` treats a `settings.json` with no `version` key as a file with
+  a missing key (defaults fill it in) rather than a version mismatch, and a
+  second reset from the same version keeps the first archive
+  (`settings.v<N>-2.json`).
+- `GameWindow` is created with the merged fullscreen state, so a stored
+  `fullscreen: true` opens fullscreen instead of opening windowed and jumping on
+  the first loop tick.
+- `gameover.retry_hint` no longer advertises `Enter: summary`; the summary
+  screen arrives in M3 and the key does nothing in M2.
+- `SmokeWindowTest`: Robot key taps get the same bounded retry clicks already
+  had (re-sent only when the press had no effect at all, so the "exactly one
+  edge" assertions still hold), every focus wait is a wall-clock deadline rather
+  than a frame count, each rig starts from a fresh `build/smoke/home`, and the
+  test that starts the real application passes `--home build/smoke/app-home` —
+  it previously read and could rewrite the developer's own `~/.flapforge`.
+- `ProceduralRenderTest`'s per-frame allocation budget moved to the `perf` tag
+  (§7 keeps budgets in `perfTest`), and its two-language sweep now asserts the
+  English and Portuguese frames differ instead of only being non-uniform.
+
+### Removed — M2
+
+- `ui/UiText`, the M0 placeholder for player-facing strings: `content.Strings`
+  and `StringKey` replace it, and every screen now reads the shipped tables.
+
 ---
 
 ## Inherited upstream history (kingyuluk/FlappyBird)

@@ -15,8 +15,22 @@ import java.util.Objects;
  * <p>Defaults: flap Space/Up, ability X/Shift, pause Esc, confirm Enter, back Esc, arrows,
  * mute M, debug F3, fullscreen F11. The mapping serialises to {@code Map<String, List<Integer>>}
  * keyed by action name so the settings store can persist it without knowing the enum.
+ *
+ * <p>Only {@link #PERSISTED} is written: §4's {@code keyBindings} block lists exactly the seven
+ * actions the settings screen can rebind. {@code BACK} and the four focus arrows are fixed, so
+ * writing them would put keys in the file that no screen can edit and that a hand edit could
+ * silently double-bind. {@link #fromMap} falls back to the defaults for anything absent, so a file
+ * written by an older build still loads.
  */
 public final class KeyBindings {
+
+    /**
+     * The actions {@link #toMap()} writes and the settings screen may rebind, in §4's order. The
+     * rest keep their defaults.
+     */
+    public static final List<InputAction> PERSISTED = List.of(InputAction.FLAP,
+            InputAction.ABILITY, InputAction.PAUSE, InputAction.CONFIRM, InputAction.MUTE,
+            InputAction.DEBUG, InputAction.FULLSCREEN);
 
     private static final Map<InputAction, List<Integer>> DEFAULTS;
 
@@ -102,13 +116,13 @@ public final class KeyBindings {
     }
 
     /**
-     * Serialises the bindings to a plain map.
+     * Serialises the rebindable bindings to a plain map.
      *
-     * @return action name to key codes (insertion ordered by action)
+     * @return action name to key codes for every action in {@link #PERSISTED}, in that order
      */
     public Map<String, List<Integer>> toMap() {
         Map<String, List<Integer>> out = new LinkedHashMap<>();
-        for (InputAction a : InputAction.values()) {
+        for (InputAction a : PERSISTED) {
             out.put(a.name(), new ArrayList<>(byAction.get(a)));
         }
         return out;

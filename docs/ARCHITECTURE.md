@@ -216,8 +216,145 @@ the placeholder with `GameScreen` + `PauseOverlay` + `GameOverOverlay`, and
 later milestones add the remaining screens on the same stack. The screen
 manager ticks only the top screen, so anything that must keep moving under an
 overlay is driven by that overlay (the game-over screen ticks the renderer's
-cloud drift). UI strings live in `ui.UiText` only until
-`content.Strings`/`StringKey` replace it in M2.
+cloud drift). M2 replaced the M0 `ui.UiText` placeholder with
+`content.Strings`/`StringKey` and added the boot splash, the real settings
+screen and the `Slider`/`Toggle`/`ListView`/`Toast` components.
+
+Three keys belong to no screen and are handled by the manager: `F11`
+(fullscreen), `F3` (the debug overlay) and `M` (mute). All three change a
+**setting**, so the manager only owns the key — it runs a handler that
+`GameApplication` points at `GameContext.toggleFullscreen()` /
+`toggleDebugOverlay()` / `toggleMute()`, each of which flips one field, applies
+it and persists it. Nothing may poke the presenter or the overlay flag behind
+the stored state's back: §4 persists `fullscreen` and `showFps`, so a hotkey
+that only changed the engine would be undone by the next `applySettings` and
+lost across restarts. The manager also runs one application-installed
+`tickTask` at the top of every tick; that is how a settings write that failed
+on the save thread re-enters the loop thread as an event and a toast.
+
+## Presentation services `[M2]`
+
+### Settings and how a change reaches the engine
+
+`GameContext.applySettings(Settings)` is the **single** place that knows which
+engine object owns which behaviour: it pushes `integerScaling` to the viewport,
+`maxFps` to the frame limiter, the key bindings to the input queue, `textScale`
+to `Fonts`, `smoothing` to `ProceduralArt`, `reduceFlashing` to
+`ParticleSystem`, `showFps` and `fullscreen` to the screen manager, reloads the
+string table when the language changed, and publishes `SettingsChanged` for
+everything that subscribes instead (the audio manager reads the three volumes
+and the mute flag off that event). A screen never reaches into the engine: it
+edits a `Settings` copy and hands it here.
+
+It also calls `SettingsStore.hold(...)`, which adopts the state as the one in
+force **without writing it**. That matters because the settings screen debounces
+its writes: without `hold`, `context.settings()` would still report the last
+*saved* state, and a hotkey that built on it would silently revert whatever the
+player was in the middle of editing. Writing is a separate step
+(`saveSettings` → `SettingsStore.save`), and the settings screen additionally
+subscribes to `SettingsChanged` so a hotkey pressed while it is open re-syncs its
+working copy instead of being overwritten by the pending flush.
+
+The write itself runs on `Threads.saveExecutor()` (one daemon thread, queue
+depth 1, latest submission wins), so its outcome is **not** readable when
+`save()` returns. Each finished write is queued inside the store and drained by
+`GameContext.drainSaveResults()` on the loop thread, which turns a failure into
+a `SaveFailed` event and a warning toast — the write that actually failed, once
+(D15). `AtomicFiles` does tmp + fsync + `ATOMIC_MOVE`, three immediate retries,
+then a non-atomic `REPLACE_EXISTING` fallback, then `IO_FAILED`; it never
+sleeps and never throws (E13).
+
+### Audio pipeline (D19)
+
+```
+game fact ──► EventBus ──► AudioManager ──► AudioBackend ──► SourceDataLine
+              (loop)       (picks the cue)   (bounded queue)  (mixing thread)
+```
+
+- **`AudioManager`** is the only thing that decides which cue a moment
+  deserves. It subscribes once, to `GameEvent` itself, so a new event type
+  cannot slip past a missing registration; `sfxIdFor` is total over the sealed
+  hierarchy and answers `null` for the deliberately silent events. It owns the
+  three volumes and the mute flag: the master fader goes to the backend, the
+  effect volume is folded into each play, and muting both drops the fader to
+  zero and skips the play, so a muted game queues nothing at all. Screens and
+  systems publish facts and never name a sound id; menu blips go through
+  `ui.UiCues`, which the application points at the manager.
+- **`SoftwareMixer`** opens exactly one 44.1 kHz/16-bit/stereo line and sums
+  every active `Voice` into it on one daemon thread. The loop never touches the
+  line: `play` offers a small command to a bounded queue and returns, dropping
+  the request when the queue is full (a dropped blip is invisible; a stalled
+  loop is a dropped frame). The device buffer is four write-passes deep so a
+  single slow pass cannot starve it, and the underrun counter is sampled
+  immediately *before* the write, which is the only moment a drained line is
+  visible. A soft `tanh` limiter above 0.8 keeps a burst of simultaneous sounds
+  from clipping.
+- **`SoundBank`** resolves an id to a ready-to-mix buffer: `assets/manifest.json`
+  first, then the classpath, then `ToneSynth`. Resampling and mono-to-stereo
+  widening happen once, at load time. The shipped manifest is empty, so every
+  cue is currently synthesised.
+- **`NullAudio`** is the fallback, and it is a real implementation, not a stub:
+  `--no-audio` selects it, and so does any machine where no line opens.
+  `AudioBackend.create` never throws — every failure becomes one logged line and
+  a `NullAudio` (E30.j).
+- **Where the device is opened.** Opening a line costs hundreds of milliseconds
+  on a cold device, so it happens in the `BOOT_AUDIO` step of `BootSequence`, on
+  the boot thread, while the splash is on screen — never on the launch thread
+  with a visible unpainted window, and never on the loop. The manager starts on
+  `NullAudio` and the step hands it the opened mixer with `setBackend`, then
+  decodes the bank with `warmUpBlocking()` so the splash's progress reflects
+  work that actually happened. A manager already closed by a quit closes the
+  incoming backend instead of adopting it.
+
+### Event bus rules (D16)
+
+`event.EventBus` is synchronous, single-threaded and delivery is by **exact**
+event type: a listener for `GatePassed` sees gate events and nothing else, and a
+listener for `GameEvent` itself sees everything. The rules:
+
+- **One thread.** The first `subscribe` or `publish` claims the bus; every later
+  call from another thread fails fast with a message naming both threads.
+  `adopt()` hands ownership to the loop thread, which is what
+  `GameApplication` does when the loop starts on a bus built during start-up. A
+  listener that touched renderer or mixer state from a foreign thread would be a
+  race that surfaced as a rare visual glitch, so it is an error, not a warning.
+- **Nested publishes are queued, not nested.** An event published from inside a
+  listener is appended and drained by the outermost `publish`, first in first
+  out, so listeners always observe events in publication order and the stack
+  never grows.
+- **The pure layers never touch it.** `gameplay` and `progression` do not import
+  `event` (E31.b): they return immutable facts (`TickReport`,
+  `ProgressionOutcome`) and `GameScreen` converts those into events. That is
+  what keeps the simulation replayable and the bus free of gameplay logic.
+- **The full event list exists from M2** even where only later milestones have
+  producers, so a milestone adds subscribers instead of reopening the file.
+
+### Internationalisation (D25)
+
+Every player-facing string goes through `content.Strings`. `data/strings/en.json`
+is the source of truth and `pt_BR.json` carries exactly the same keys; both are
+flat `key → value` tables. `StringKey` is an enum over the keys the code names,
+so a typo is a compile error, and `ContentValidator` reports a key that the code
+uses but a table lacks.
+
+- `Strings.load(language)` merges the requested table **over** `en.json`, so a
+  missing translation falls back to English instead of showing a raw key. The
+  test suite asserts that both shipped tables carry identical key sets, because
+  the fallback would otherwise hide a dropped key.
+- `{0}`, `{1}` … placeholders are substituted by `format`; the validator checks
+  that a translation uses the same placeholders as the source.
+- `language: auto` resolves against the default locale; `--lang CODE` overrides
+  it for the launch.
+- **Switching live.** `GameContext.applyLanguage` reloads the *shared* `Strings`
+  instance in place and republishes it, so every screen holding a reference sees
+  the new table. Each screen remembers the language it last drew and re-labels
+  itself when it differs — that is what makes the main menu behind the settings
+  screen come back translated. `LanguageChanged` is published for anything that
+  wants to react instead of poll.
+- Fonts must be able to draw the result: `Fonts.canDisplay` is asserted over
+  every shipped string, and the font caches are lock-free arrays with
+  acquire/release access because the boot warm-up fills them from another thread
+  while the loop draws the splash.
 
 ## Simulation and meta layers (overview, `[M1+]`)
 

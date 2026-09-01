@@ -3,14 +3,18 @@ package io.github.michelbr84.flapforge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.michelbr84.flapforge.app.NullPresenter;
+import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.render.AssetManager;
+import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -18,6 +22,8 @@ import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.render.WorldPalette;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
+import io.github.michelbr84.flapforge.support.DirectExecutor;
+import io.github.michelbr84.flapforge.ui.screens.BootScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
@@ -29,19 +35,32 @@ import java.awt.Font;
 import java.awt.image.BufferedImage;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
- * Headless rendering of everything M0 draws (D18): the icon at every size and each screen
+ * Headless rendering of everything the game draws (D18): the icon at every size and every screen
  * through {@link NullPresenter} into a {@link BufferedImage}, asserting non-blank output and no
- * exception. Also checks that the active font renders Portuguese accents (D25).
+ * exception, with an empty asset manifest so every pixel comes from {@link ProceduralArt}.
+ *
+ * <p>From M2 the sweep runs in <b>both shipped languages</b> and covers the boot splash, the
+ * menu, the settings screen with and without an open key capture, and the four phases of a run.
+ * A language with a longer word, a missing string or a screen that only builds its labels in the
+ * constructor shows up here as an exception or a blank frame.
  */
 class ProceduralRenderTest {
 
     private static final String ACCENTED = "ção Ω";
+    /** A manifest declaring the test sheet under the id the bird resolves (D18). */
+    private static final String TEST_SHEET_MANIFEST = "{\"version\": 1, \"assets\": ["
+            + "{\"id\": \"bird\", \"path\": \"sprites/test_sheet.png\", \"kind\": \"SHEET\","
+            + " \"frameWidth\": 16, \"frameHeight\": 16,"
+            + " \"license\": \"CC0-1.0\", \"source\": \"drawn for this test\"}]}";
     /** Per-frame allocation budget of the game screen, in bytes. */
     private static final long ALLOCATION_BUDGET_BYTES = 24 * 1024;
 
@@ -73,9 +92,9 @@ class ProceduralRenderTest {
     }
 
     @Test
-    void settingsStubRendersNonBlank() {
+    void settingsScreenRendersNonBlank() {
         BufferedImage frame = renderScreen(SettingsScreen::new, 5);
-        assertTrue(distinctColours(frame, 2) >= 2, "settings stub is uniform");
+        assertTrue(distinctColours(frame, 2) >= 2, "settings screen is uniform");
     }
 
     @Test
@@ -111,11 +130,14 @@ class ProceduralRenderTest {
     }
 
     @Test
+    @Tag("perf")
     void aGameFrameStaysWithinItsAllocationBudget() {
         // The renderers cache every palette colour and reuse their shapes, and the HUD rebuilds
         // its score string only when the score changes (D18), so a steady frame must allocate far
         // less than a naive one would. Measured per thread, so other JVM activity cannot inflate
-        // it; skipped when the JVM does not expose per-thread allocation counters.
+        // it; skipped when the JVM does not expose per-thread allocation counters. Section 7 keeps
+        // budgets in `perfTest` because they drift with the JDK and the machine -- and because an
+        // assumeTrue skip must not hide inside the milestone's own `test` gate.
         com.sun.management.ThreadMXBean threads = allocationCounter();
         assumeTrue(threads != null, "no per-thread allocation counter on this JVM");
         Rig rig = new Rig();
@@ -133,6 +155,107 @@ class ProceduralRenderTest {
         System.out.println("[render] game frame allocates " + perFrame + " bytes");
         assertTrue(perFrame < ALLOCATION_BUDGET_BYTES, "a game frame allocated " + perFrame
                 + " bytes, budget " + ALLOCATION_BUDGET_BYTES);
+    }
+
+    @Test
+    void aManifestEntryReplacesTheProceduralBird() {
+        // D18's drop-in path: with the shipped (empty) manifest the bird is drawn by
+        // ProceduralArt; declaring a sheet for the id must actually change the pixels, or the
+        // whole AssetManager/AssetResolver layer is dead code.
+        Rig procedural = new Rig();
+        procedural.driveTo(Phase.FLYING);
+        assertNull(procedural.game.renderer().bird().sheet(), "the shipped game is procedural");
+        BufferedImage before = copy(procedural.frame(0.0));
+
+        AssetResolver.use(new AssetResolver(AssetManager.fromJson(TEST_SHEET_MANIFEST)));
+        try {
+            Rig withSheet = new Rig();
+            withSheet.driveTo(Phase.FLYING);
+            assertNotNull(withSheet.game.renderer().bird().sheet(),
+                    "the manifest entry must reach BirdRenderer");
+            BufferedImage after = withSheet.frame(0.0);
+            assertFalse(identical(before, after), "the sheet must change what is drawn");
+        } finally {
+            AssetResolver.use(AssetResolver.empty());
+        }
+
+        Rig backToProcedural = new Rig();
+        backToProcedural.driveTo(Phase.FLYING);
+        assertNull(backToProcedural.game.renderer().bird().sheet());
+    }
+
+    @Test
+    void everyScreenRendersInBothLanguages() {
+        String original = Strings.active().language();
+        Map<String, BufferedImage> byLanguage = new LinkedHashMap<>();
+        try {
+            for (String language : Strings.LANGUAGES) {
+                Strings.use(Strings.load(language));
+
+                BufferedImage boot = renderScreen(sm -> new BootScreen(sm, new DirectExecutor(),
+                        () -> new MainMenuScreen(sm)), 5);
+                assertTrue(distinctColours(boot, 2) >= 2, "boot screen is uniform in " + language);
+
+                BufferedImage menu = renderScreen(MainMenuScreen::new, 30);
+                assertTrue(distinctColours(menu, 2) >= 2, "menu is uniform in " + language);
+                byLanguage.put(language + "-menu", copy(menu));
+
+                BufferedImage settings = renderScreen(SettingsScreen::new, 5);
+                assertTrue(distinctColours(settings, 2) >= 2, "settings is uniform in " + language);
+                byLanguage.put(language + "-settings", copy(settings));
+
+                BufferedImage capture = renderScreen(sm -> {
+                    SettingsScreen screen = new SettingsScreen(sm);
+                    screen.startCapture(InputAction.FLAP);
+                    return screen;
+                }, 3);
+                assertTrue(distinctColours(capture, 2) >= 2,
+                        "the key-capture prompt is uniform in " + language);
+
+                for (Phase phase : Phase.values()) {
+                    Rig rig = new Rig();
+                    rig.driveTo(phase);
+                    assertTrue(distinctColours(rig.frame(0.5), 2) >= 2,
+                            phase + " frame is uniform in " + language);
+                }
+            }
+        } finally {
+            Strings.use(Strings.load(original));
+        }
+        // Two frames that are pixel-identical would mean the sweep proves nothing about the
+        // translation actually reaching the screen.
+        assertFalse(identical(byLanguage.get("en-menu"), byLanguage.get("pt_BR-menu")),
+                "the menu must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-settings"), byLanguage.get("pt_BR-settings")),
+                "the settings screen must look different in the two languages");
+    }
+
+    @Test
+    void theBootScreenWarmsUpOnAnotherThreadAndHandsOverToTheMenu() {
+        Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
+        ScreenManager screens = new ScreenManager(viewport);
+        NullPresenter presenter = new NullPresenter(screens, viewport, Playfield.WIDTH,
+                Playfield.HEIGHT);
+        screens.setPresenter(presenter);
+        BootScreen boot = new BootScreen(screens, new DirectExecutor(),
+                () -> new MainMenuScreen(screens));
+        screens.push(boot);
+        screens.applyPending();
+
+        screens.tick(InputFrame.EMPTY);
+        assertTrue(boot.isReady(), "the warm-up ran on the executor");
+        assertFalse(boot.hasHandedOver(), "the splash is held for a moment");
+        presenter.present(0.0);
+        assertTrue(distinctColours(presenter.image(), 2) >= 2, "boot frame is uniform");
+
+        for (int i = 0; i < BootScreen.MIN_TICKS + 4; i++) {
+            screens.tick(InputFrame.EMPTY);
+        }
+        assertTrue(boot.hasHandedOver());
+        assertTrue(screens.top() instanceof MainMenuScreen, "the splash handed over to the menu");
+        assertEquals(1, screens.depth(), "the splash left the stack");
+        assertTrue(boot.sequence().errors().isEmpty(),
+                () -> String.join("\n", boot.sequence().errors()));
     }
 
     /** The phases of a run a frame can be captured in. */
@@ -211,6 +334,35 @@ class ProceduralRenderTest {
             assertNotNull(image);
             return image;
         }
+    }
+
+    /** A detached copy, so a later {@code present} into the presenter's image cannot change it. */
+    private static BufferedImage copy(BufferedImage source) {
+        BufferedImage out = new BufferedImage(source.getWidth(), source.getHeight(),
+                BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = out.createGraphics();
+        try {
+            g.drawImage(source, 0, 0, null);
+        } finally {
+            g.dispose();
+        }
+        return out;
+    }
+
+    private static boolean identical(BufferedImage a, BufferedImage b) {
+        assertNotNull(a);
+        assertNotNull(b);
+        if (a.getWidth() != b.getWidth() || a.getHeight() != b.getHeight()) {
+            return false;
+        }
+        for (int y = 0; y < a.getHeight(); y++) {
+            for (int x = 0; x < a.getWidth(); x++) {
+                if ((a.getRGB(x, y) & 0xFFFFFF) != (b.getRGB(x, y) & 0xFFFFFF)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static com.sun.management.ThreadMXBean allocationCounter() {

@@ -1,5 +1,7 @@
 package io.github.michelbr84.flapforge.ui.screens;
 
+import io.github.michelbr84.flapforge.content.StringKey;
+import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
@@ -9,7 +11,7 @@ import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
-import io.github.michelbr84.flapforge.ui.UiText;
+import io.github.michelbr84.flapforge.ui.UiCues;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.util.Objects;
@@ -36,14 +38,26 @@ public final class PauseOverlay implements Screen {
     private static final int PANEL_W = Playfield.WIDTH - 2 * PANEL_X;
 
     private final ScreenManager screens;
+    private final Strings strings;
+
+    /**
+     * Creates the overlay with the active string table.
+     *
+     * @param screens the screen stack
+     */
+    public PauseOverlay(ScreenManager screens) {
+        this(screens, Strings.active());
+    }
 
     /**
      * Creates the overlay.
      *
      * @param screens the screen stack
+     * @param strings the string table its three lines come from
      */
-    public PauseOverlay(ScreenManager screens) {
+    public PauseOverlay(ScreenManager screens, Strings strings) {
         this.screens = Objects.requireNonNull(screens, "screens");
+        this.strings = Objects.requireNonNull(strings, "strings");
     }
 
     @Override
@@ -54,6 +68,7 @@ public final class PauseOverlay implements Screen {
     @Override
     public void tick(InputFrame input) {
         if (input.isJustPressed(InputAction.PAUSE) || input.isJustPressed(InputAction.BACK)) {
+            UiCues.back();
             screens.pop();
             screens.pop();
             return;
@@ -76,10 +91,13 @@ public final class PauseOverlay implements Screen {
 
         g.setFont(Fonts.bold(30));
         g.setColor(ProceduralArt.TEXT_LIGHT);
-        TextPainter.drawCentered(g, UiText.PAUSED, Playfield.WIDTH / 2.0, PANEL_Y + 52);
+        TextPainter.drawCentered(g, strings.get(StringKey.PAUSE_TITLE), Playfield.WIDTH / 2.0,
+                PANEL_Y + 52);
         g.setFont(Fonts.regular(14));
         g.setColor(ProceduralArt.TEXT_MUTED);
-        TextPainter.drawCentered(g, UiText.PAUSE_RESUME_HINT, Playfield.WIDTH / 2.0, PANEL_Y + 84);
-        TextPainter.drawCentered(g, UiText.PAUSE_QUIT_HINT, Playfield.WIDTH / 2.0, PANEL_Y + 106);
+        TextPainter.drawCentered(g, strings.get(StringKey.PAUSE_RESUME_HINT),
+                Playfield.WIDTH / 2.0, PANEL_Y + 84);
+        TextPainter.drawCentered(g, strings.get(StringKey.PAUSE_QUIT_HINT),
+                Playfield.WIDTH / 2.0, PANEL_Y + 106);
     }
 }

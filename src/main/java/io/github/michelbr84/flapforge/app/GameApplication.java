@@ -1,24 +1,39 @@
 package io.github.michelbr84.flapforge.app;
 
 import io.github.michelbr84.flapforge.Flapforge;
+import io.github.michelbr84.flapforge.audio.AudioBackend;
+import io.github.michelbr84.flapforge.audio.AudioManager;
+import io.github.michelbr84.flapforge.audio.NullAudio;
+import io.github.michelbr84.flapforge.audio.SoundBank;
 import io.github.michelbr84.flapforge.content.ContentException;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
+import io.github.michelbr84.flapforge.content.StringKey;
+import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.TimeSource;
+import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
 import io.github.michelbr84.flapforge.gameplay.harness.HeadlessRunner;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.input.InputQueue;
-import io.github.michelbr84.flapforge.input.KeyBindings;
+import io.github.michelbr84.flapforge.persistence.SavePaths;
+import io.github.michelbr84.flapforge.persistence.Settings;
+import io.github.michelbr84.flapforge.persistence.SettingsStore;
+import io.github.michelbr84.flapforge.render.AssetManager;
+import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
+import io.github.michelbr84.flapforge.ui.UiCues;
+import io.github.michelbr84.flapforge.ui.component.Toast;
+import io.github.michelbr84.flapforge.ui.component.ToastLayer;
+import io.github.michelbr84.flapforge.ui.screens.BootScreen;
 import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
@@ -26,6 +41,8 @@ import java.awt.AWTError;
 import java.awt.DisplayMode;
 import java.awt.GraphicsEnvironment;
 import java.awt.HeadlessException;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -49,6 +66,14 @@ import java.util.Objects;
  * {@code System.exit} only if the JVM is still alive five seconds later; a test harness that
  * hosts the application in a long-lived JVM cancels it with {@link #awaitShutdown(long)}.
  *
+ * <p>Audio (D19, E30.j): {@link AudioBackend#create(boolean, java.util.concurrent.ThreadFactory)}
+ * is the only place a device is opened, and it never throws — {@code --no-audio} and a machine
+ * with no usable output line both yield {@link NullAudio} after a single logged line. The
+ * {@link AudioManager} subscribes to the event bus on the loop thread (the bus is confined to it),
+ * reads its volumes off the {@code SettingsChanged} that {@link GameContext#applySettings} raises,
+ * warms the device up as the last {@link BootSequence} step while the splash is on screen, and is
+ * closed with the loop.
+ *
  * <p>Headless launch ({@code --headless-run N}): the loop is driven for N frames with a stepping
  * clock (one tick per frame) and a {@link NullPresenter}; a summary line is printed, followed by
  * the determinism line {@code hash=<16 hex> ticks=<n> gates=<g> points=<p>} produced by
@@ -62,6 +87,9 @@ public final class GameApplication {
 
     /** Seed of a headless run started without {@code --seed} (the CI reference seed, D12). */
     public static final long DEFAULT_HEADLESS_SEED = 42L;
+
+    /** Cached display refresh rate in Hz; {@code 0} means "not resolved yet". */
+    private static volatile int refreshRateHz;
 
     private final LaunchOptions options;
     private GameContext context;
@@ -150,18 +178,24 @@ public final class GameApplication {
         Threads threads = new Threads();
         SteppingClock clock = new SteppingClock();
         TimeSource timeSource = new SystemTimeSource();
-        InputQueue input = new InputQueue(KeyBindings.defaults());
+        Settings settings = Settings.defaults().normalize();
+        Strings strings = loadStrings(options, settings);
+        InputQueue input = new InputQueue(settings.bindings());
         Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
         ScreenManager screens = new ScreenManager(viewport);
         NullPresenter presenter = new NullPresenter();
         screens.setPresenter(presenter);
-        GameLoop loop = new GameLoop(clock, input, screens, presenter, FrameLimiter.uncapped(clock));
+        FrameLimiter limiter = FrameLimiter.uncapped(clock);
+        GameLoop loop = new GameLoop(clock, input, screens, presenter, limiter);
         screens.setCloseHandler(loop::stop);
         SeedSequence seeds = SeedSequence.from(options.seed());
-        screens.push(new MainMenuScreen(screens, runFactory(content, seeds), seeds));
-        screens.applyPending();
+        // A headless run never opens a device: NullAudio keeps the context uniform without it.
+        AudioManager audio = new AudioManager(new NullAudio());
         context = new GameContext(options, clock, timeSource, threads, input, viewport, screens,
-                presenter, null, loop);
+                presenter, null, loop, limiter, null, new EventBus(), audio, strings,
+                new ToastLayer(), content);
+        screens.push(new MainMenuScreen(context, runFactory(content, seeds), seeds));
+        screens.applyPending();
 
         loop.start();
         for (int i = 0; i < frames; i++) {
@@ -173,6 +207,23 @@ public final class GameApplication {
                 + " presents=" + presenter.presentCount() + " seed=" + seed);
         System.out.println(simulationHashLine(content, seed, frames));
         threads.shutdown(2_000L);
+    }
+
+    /**
+     * Loads the string table for the launch: {@code --lang} wins over {@code settings.language},
+     * and {@code auto} resolves against the system locale (D25).
+     *
+     * @param options the launch options
+     * @param settings the loaded settings (its language is overwritten by {@code --lang})
+     * @return the table
+     */
+    private static Strings loadStrings(LaunchOptions options, Settings settings) {
+        if (options.lang() != null && Settings.LANGUAGES.contains(options.lang())) {
+            settings.language = options.lang();
+        }
+        Strings strings = Strings.load(settings.resolvedLanguage(GameContext.systemLanguage()));
+        Strings.use(strings);
+        return strings;
     }
 
     /**
@@ -239,15 +290,31 @@ public final class GameApplication {
         Threads threads = new Threads();
         Clock clock = new SystemClock();
         TimeSource timeSource = new SystemTimeSource();
-        InputQueue input = new InputQueue(KeyBindings.defaults());
+        if (options.home() != null) {
+            SavePaths.override(options.home());
+        }
+        SettingsStore settingsStore = new SettingsStore(threads.saveExecutor());
+        SettingsStore.LoadResult loaded = settingsStore.load();
+        Settings settings = loaded.settings();
+        settings.fullscreen = settings.fullscreen || options.fullscreen();
+        Strings strings = loadStrings(options, settings);
+        ToastLayer toasts = new ToastLayer();
+        if (loaded.hasNotice()) {
+            toasts.push(strings.format(StringKey.TOAST_SETTINGS_RESET,
+                    loaded.archived() == null ? settingsStore.file().getFileName()
+                            : loaded.archived().getFileName()), Toast.Kind.WARNING);
+        }
+        InputQueue input = new InputQueue(settings.bindings());
 
         GameWindow window;
         try {
             int scale = options.scale() != null ? options.scale() : GameWindow.defaultScale();
+            // The merged value, not options.fullscreen(): a stored `fullscreen: true` must open a
+            // fullscreen window rather than a windowed one that jumps on the first loop tick.
             window = GameWindow.create("Flapforge " + Flapforge.version(), scale,
-                    options.fullscreen());
+                    settings.fullscreen);
         } catch (HeadlessException | AWTError e) {
-            System.err.println("No display available; use --headless-run N or --no-window.");
+            System.err.println(Strings.active().get(StringKey.APP_NO_DISPLAY));
             return;
         }
         window.setIcons(ProceduralArt.icons());
@@ -260,33 +327,120 @@ public final class GameApplication {
         AwtInputBridge bridge = new AwtInputBridge(input);
         bridge.attach(window);
 
-        FrameLimiter limiter = new FrameLimiter(clock, FrameLimiter.DEFAULT_FPS);
+        // One manifest, read once: the sound bank resolves ids through it and so does every
+        // renderer, through the resolver installed here (D18).
+        AssetManager assets = manifestAssets();
+        AssetResolver.use(new AssetResolver(assets));
+
+        FrameLimiter limiter = new FrameLimiter(clock, GameContext.resolveFps(settings.maxFps));
         GameLoop loop = new GameLoop(clock, input, screens, presenter, limiter);
         overlay.setSource(new DebugSource(screens, loop));
         screens.setCloseHandler(loop::stop);
         // --seed N reaches the first run and every instant retry after it (N, N+1, N+2 ...).
         SeedSequence seeds = SeedSequence.from(options.seed());
-        screens.push(new MainMenuScreen(screens, runFactory(content, seeds), seeds));
-        screens.applyPending();
+        EventBus events = new EventBus();
+        // The manager starts silent and the boot step hands it the real mixer: opening a line
+        // costs 240 ms on a cold device, which would be 240 ms of a visible, unpainted window.
+        AudioManager audio = new AudioManager(new NullAudio());
         context = new GameContext(options, clock, timeSource, threads, input, viewport, screens,
-                presenter, window, loop);
+                presenter, window, loop, limiter, settingsStore, events, audio, strings, toasts,
+                content);
+        GameContext bootContext = context;
+        // The three global hotkeys change a setting, so they go through the settings path rather
+        // than poking the presenter and the overlay behind the stored state's back.
+        screens.setMuteHandler(bootContext::toggleMute);
+        screens.setFullscreenHandler(bootContext::toggleFullscreen);
+        screens.setDebugOverlayHandler(bootContext::toggleDebugOverlay);
+        // A settings write finishes on the save thread; this is where its outcome re-enters the
+        // loop thread as a SaveFailed event and a toast (D15).
+        screens.setTickTask(bootContext::drainSaveResults);
+        // Menu blips: the components call UiCues, which lands on the manager (D17, D19).
+        UiCues.use(UiCues.of(audio::uiMove, audio::uiSelect, audio::uiBack));
+        // Boot -> menu (M2). The warm-up runs on its own daemon thread, never on the loop, and
+        // opening the mixer line is the slowest step of it (D19).
+        List<BootSequence.Step> steps = BootSequence.defaultSteps();
+        steps.add(new BootSequence.Step(StringKey.BOOT_AUDIO,
+                () -> openAudio(audio, assets, threads)));
+        BootSequence boot = new BootSequence(threads.bootExecutor(), steps);
+        screens.push(new BootScreen(bootContext, boot,
+                () -> new MainMenuScreen(bootContext, runFactory(content, seeds), seeds)));
+        screens.applyPending();
 
         Thread shutdownHook = new Thread(() -> threads.shutdown(2_000L), "flapforge-shutdown");
         Runtime.getRuntime().addShutdownHook(shutdownHook);
 
         Thread thread = threads.loopThread(() -> {
             try {
+                // The bus is confined to the thread that first uses it, and every setting is
+                // pushed into objects the loop owns, so both happen here rather than on the
+                // thread that assembled the application.
+                events.adopt();
+                audio.attach(events);
+                screens.setEvents(events);
+                // The volumes and the mute flag reach the manager through the SettingsChanged
+                // this publishes, which is the same path a later change takes.
+                context.applySettings(settings);
                 limiter.calibrate();
                 loop.run();
             } catch (RuntimeException | Error e) {
                 System.err.println("Game loop failed: " + e);
                 e.printStackTrace(System.err);
             } finally {
+                UiCues.silence();
+                audio.close();
                 shutdown(presenter, bridge, window, threads);
             }
         });
         loopThread = thread;
         thread.start();
+    }
+
+    /**
+     * Reads {@code assets/manifest.json} once, printing anything wrong with it.
+     *
+     * @return the manager; empty (with errors recorded) when the manifest is missing or broken
+     */
+    private static AssetManager manifestAssets() {
+        AssetManager assets = AssetManager.fromClasspath();
+        for (String error : assets.errors()) {
+            System.err.println("Asset manifest: " + error);
+        }
+        return assets;
+    }
+
+    /**
+     * The bank the mixer resolves sound ids through: {@code assets/manifest.json} first, then the
+     * classpath, then {@link io.github.michelbr84.flapforge.audio.ToneSynth} (D18, D19).
+     *
+     * <p>The shipped manifest is empty on purpose, so today every cue is synthesised; the opener
+     * exists so dropping a licensed {@code .wav} into the manifest is all it takes to override
+     * one, exactly as a sprite entry overrides procedural art.
+     *
+     * @param assets the manifest
+     * @return the bank
+     */
+    private static SoundBank manifestSoundBank(AssetManager assets) {
+        return new SoundBank(id -> {
+            byte[] bytes = assets.bytes(id).orElse(null);
+            return bytes == null ? null : (InputStream) new ByteArrayInputStream(bytes);
+        });
+    }
+
+    /**
+     * The {@code BOOT_AUDIO} step: opens the output device and decodes every cue, on the boot
+     * thread, while the splash is on screen (D19).
+     *
+     * <p>{@code --no-audio} and a machine with no usable output line both end in {@link NullAudio}
+     * after a single logged line (E30.j), so this never throws and never blocks the loop.
+     *
+     * @param audio the manager the opened backend is installed on
+     * @param assets the manifest the sound bank resolves through
+     * @param threads the owner of the daemon mixing thread
+     */
+    private void openAudio(AudioManager audio, AssetManager assets, Threads threads) {
+        audio.setBackend(AudioBackend.create(!options.noAudio(), threads.audioThreadFactory(),
+                manifestSoundBank(assets), null));
+        audio.warmUpBlocking();
     }
 
     private void shutdown(FramePresenter presenter, AwtInputBridge bridge, GameWindow window,
@@ -316,9 +470,30 @@ public final class GameApplication {
     /**
      * Refresh rate of the default display for the "match refresh" option.
      *
+     * <p>The answer is cached. Asking the graphics device is an XRandR round trip — measured at
+     * 6.5 ms on the development machine, 39 % of a 16.7 ms frame — and every
+     * {@link GameContext#applySettings(Settings)} resolves the frame-rate cap, which the settings
+     * screen does on every slider step and every hotkey. {@link #forgetRefreshRate()} drops the
+     * cached value when the display may have changed.
+     *
      * @return the rate in Hz, or {@link FrameLimiter#DEFAULT_FPS} when unknown or headless
      */
     public static int detectRefreshRate() {
+        int cached = refreshRateHz;
+        if (cached > 0) {
+            return cached;
+        }
+        int resolved = readRefreshRate();
+        refreshRateHz = resolved;
+        return resolved;
+    }
+
+    /** Drops the cached refresh rate so the next request asks the graphics device again. */
+    public static void forgetRefreshRate() {
+        refreshRateHz = 0;
+    }
+
+    private static int readRefreshRate() {
         if (GraphicsEnvironment.isHeadless()) {
             return FrameLimiter.DEFAULT_FPS;
         }
@@ -339,6 +514,8 @@ public final class GameApplication {
 
         private final ScreenManager screens;
         private final GameLoop loop;
+        private List<String> names = List.of();
+        private int namesVersion = -1;
 
         /**
          * Creates the adapter.
@@ -373,10 +550,18 @@ public final class GameApplication {
 
         @Override
         public List<String> screenNames() {
-            List<Screen> stack = screens.screens();
-            List<String> names = new ArrayList<>(stack.size());
-            for (Screen s : stack) {
-                names.add(s.getClass().getSimpleName());
+            // Rebuilt only when the stack actually changed: this is read every frame the F3
+            // overlay is up, and an instrument that allocates perturbs the frame time it measures
+            // (D18: per-frame allocation avoided).
+            int version = screens.stackVersion();
+            if (version != namesVersion) {
+                List<Screen> stack = screens.screens();
+                List<String> rebuilt = new ArrayList<>(stack.size());
+                for (Screen s : stack) {
+                    rebuilt.add(s.getClass().getSimpleName());
+                }
+                names = List.copyOf(rebuilt);
+                namesVersion = version;
             }
             return names;
         }

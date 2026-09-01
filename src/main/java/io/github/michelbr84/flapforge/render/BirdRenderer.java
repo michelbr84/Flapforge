@@ -37,7 +37,8 @@ public final class BirdRenderer {
     private static final Stroke HITBOX_STROKE = new BasicStroke(1f);
 
     private final Rectangle2D.Double rect = new Rectangle2D.Double();
-    private int wingTick;
+    private final Animation wings = new Animation(WING_FRAMES, TICKS_PER_WING_FRAME);
+    private SpriteSheet sheet;
 
     /** Creates a renderer with the wing animation at frame 0. */
     public BirdRenderer() {
@@ -51,15 +52,44 @@ public final class BirdRenderer {
      */
     public void tick(boolean flapped) {
         if (flapped) {
-            wingTick = 0;
+            wings.reset();
         } else {
-            wingTick = (wingTick + 1) % WING_CYCLE_TICKS;
+            wings.tick();
         }
     }
 
     /** Restarts the wing animation (a new run). */
     public void reset() {
-        wingTick = 0;
+        wings.reset();
+    }
+
+    /**
+     * Installs the sprite sheet the bird is drawn from, which is what
+     * {@link AssetResolver#sheet(String, String)} returns when a manifest declares one. With no
+     * sheet — the shipped state — the bird is drawn by {@link ProceduralArt} (D18).
+     *
+     * @param sheet the sheet, or {@code null} for procedural art
+     */
+    public void setSheet(SpriteSheet sheet) {
+        this.sheet = sheet;
+    }
+
+    /**
+     * The sprite sheet in use.
+     *
+     * @return the sheet, or {@code null} when the bird is drawn procedurally
+     */
+    public SpriteSheet sheet() {
+        return sheet;
+    }
+
+    /**
+     * The wing animation, which times the sheet frames in ticks.
+     *
+     * @return the animation
+     */
+    public Animation animation() {
+        return wings;
     }
 
     /**
@@ -68,7 +98,7 @@ public final class BirdRenderer {
      * @return a value in {@code [0, 8)}
      */
     public int wingFrame() {
-        return wingTick / TICKS_PER_WING_FRAME;
+        return wings.frame();
     }
 
     /**
@@ -97,9 +127,14 @@ public final class BirdRenderer {
     public void render(Graphics2D g, double alpha, Bird bird, WorldPalette palette,
             double hitboxScale, boolean debugHitbox) {
         double y = MathUtil.lerp(bird.prevY(), bird.y(), alpha);
-        double phase = wingFrame() / (double) WING_FRAMES;
-        ProceduralArt.drawBird(g, Playfield.BIRD_X, y, Playfield.SPRITE_W, phase, palette,
-                poseOf(bird));
+        if (sheet != null) {
+            sheet.drawFrame(g, wingFrame(), Playfield.BIRD_X, y, Playfield.SPRITE_W,
+                    Playfield.SPRITE_H);
+        } else {
+            double phase = wingFrame() / (double) WING_FRAMES;
+            ProceduralArt.drawBird(g, Playfield.BIRD_X, y, Playfield.SPRITE_W, phase, palette,
+                    poseOf(bird));
+        }
         if (debugHitbox) {
             Aabb box = bird.hitboxAt(y, hitboxScale);
             Stroke old = g.getStroke();

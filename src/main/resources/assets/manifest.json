@@ -1,0 +1,5 @@
+{
+  "//": "Asset manifest (D18). Flapforge is procedural-first: this list is EMPTY on purpose and every renderer falls back to ProceduralArt. An entry overrides the procedural art of one id and has the shape {\"id\": \"<unique id, e.g. bird/classic or worlds/green_fields/pipe>\", \"path\": \"<path under /assets/, e.g. sprites/birds/classic.png; a leading assets/ or / is accepted too, so plan section 4's assets/fonts/... form resolves>\", \"kind\": \"SPRITE | SHEET | AUDIO | FONT\", \"license\": \"<SPDX id or licence name>\", \"source\": \"<where it came from>\"}. A SHEET entry may add \"frameWidth\", \"frameHeight\" and \"frames\". AssetManager resolves ids only through this file; it never scans directories.",
+  "version": 1,
+  "assets": []
+}

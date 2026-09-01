@@ -121,6 +121,8 @@ public final class ProceduralArt {
     /** Secondary text. */
     public static final Color TEXT_MUTED = new Color(0xA9BABC);
 
+    private static volatile boolean smoothing = true;
+
     private static final Color PANEL_FILL = new Color(0x1C, 0x3A, 0x3E, 0xD2);
     private static final Color PANEL_BORDER = new Color(0xFF, 0xFF, 0xFF, 0x59);
     private static final Color SHADOW = new Color(0, 0, 0, 0x40);
@@ -222,7 +224,32 @@ public final class ProceduralArt {
     }
 
     /**
-     * Enables antialiasing and pure stroke control on a context.
+     * Turns shape smoothing on or off ({@code settings.smoothing}, D3).
+     *
+     * <p>Text antialiasing is deliberately <em>not</em> part of the switch: unsmoothed glyphs at
+     * 420x640 are hard to read and the setting is about the look of the art, not about making the
+     * game unreadable. What it does control is shape antialiasing, image interpolation (nearest
+     * neighbour when off, so a future sprite pack stays crisp at integer scales) and the quality
+     * hint.
+     *
+     * @param value {@code true} for smoothed edges (the default)
+     */
+    public static void setSmoothing(boolean value) {
+        smoothing = value;
+    }
+
+    /**
+     * Whether shapes are smoothed.
+     *
+     * @return {@code true} when smoothing is on
+     */
+    public static boolean isSmoothing() {
+        return smoothing;
+    }
+
+    /**
+     * Enables text antialiasing, pure stroke control and — when {@link #isSmoothing()} — shape
+     * antialiasing and bilinear image interpolation on a context.
      *
      * @param g the context
      */
@@ -230,7 +257,14 @@ public final class ProceduralArt {
         TextPainter.prepare(g);
         g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
                 RenderingHints.VALUE_STROKE_PURE);
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        boolean smooth = smoothing;
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, smooth
+                ? RenderingHints.VALUE_ANTIALIAS_ON : RenderingHints.VALUE_ANTIALIAS_OFF);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, smooth
+                ? RenderingHints.VALUE_INTERPOLATION_BILINEAR
+                : RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, smooth
+                ? RenderingHints.VALUE_RENDER_QUALITY : RenderingHints.VALUE_RENDER_SPEED);
     }
 
     /**

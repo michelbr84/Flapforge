@@ -58,13 +58,17 @@ public final class GameContent {
     }
 
     /**
-     * Loads, binds and validates the content shipped on the classpath.
+     * Loads, binds and validates the content shipped on the classpath, including the string keys
+     * it needs from {@code data/strings/en.json} (D25).
      *
      * @return the content
-     * @throws ContentException when a file is missing, malformed, does not bind or breaks a rule
+     * @throws ContentException when a file is missing, malformed, does not bind, breaks a rule or
+     *     is missing a display string
      */
     public static GameContent load() {
-        return fromJson(ContentLoader.loadAll(ContentLoader.M1_FILES));
+        GameContent content = fromJson(ContentLoader.loadAll(ContentLoader.M1_FILES));
+        ContentValidator.validateStrings(content);
+        return content;
     }
 
     /**

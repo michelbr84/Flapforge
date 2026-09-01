@@ -1,6 +1,7 @@
 package io.github.michelbr84.flapforge.app;
 
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -18,6 +19,8 @@ public final class Threads {
     public static final String SAVE_THREAD_NAME = "flapforge-save";
     /** Name of the audio mixer thread. */
     public static final String AUDIO_THREAD_NAME = "flapforge-audio";
+    /** Name of the short-lived boot warm-up thread. */
+    public static final String BOOT_THREAD_NAME = "flapforge-boot";
 
     private ExecutorService saveExecutor;
 
@@ -49,6 +52,18 @@ public final class Threads {
             saveExecutor = executor;
         }
         return saveExecutor;
+    }
+
+    /**
+     * Executor for the boot warm-up (D19, M2): each task gets a fresh daemon thread that ends
+     * with the task, so nothing lingers after the splash screen and the loop thread is never
+     * blocked by a warm-up.
+     *
+     * @return the executor
+     */
+    public Executor bootExecutor() {
+        ThreadFactory factory = daemonFactory(BOOT_THREAD_NAME);
+        return body -> factory.newThread(body).start();
     }
 
     /**

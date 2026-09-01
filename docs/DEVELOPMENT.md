@@ -1,6 +1,8 @@
 # Development guide
 
-_Draft — written at milestone M0; later milestones extend it._
+_Written at milestone M0; extended at M2 (settings and profile directory,
+audio and language flags, adding a string key). Later milestones extend it
+further._
 
 This page is the practical companion to [`ARCHITECTURE.md`](ARCHITECTURE.md):
 how to build, run and test Flapforge, which flags and tasks exist, and the
@@ -90,22 +92,56 @@ watchdog, D4). Without a display a windowed launch prints
 | `--help`, `-h` | print the usage text and exit | M0 |
 | `--seed N` | fixed RNG seed for a reproducible run | M1 |
 | `--headless-run N` | simulate N frames with no window; M0 prints a summary line (`headless-run frames=N ticks=N presents=N seed=S`), from M1 the last line is `hash=<hex>` (the state hash CI compares across OS/JDK) | M0 (hash: M1) |
-| `--no-audio` | use the `NullAudio` backend | M2 |
-| `--lang CODE` | UI language: `auto`, `en`, `pt_BR` | M2 |
-| `--home DIR` | save/settings directory instead of the per-OS default | M3 |
+| `--no-audio` | never open a sound device: `AudioBackend.create` returns `NullAudio` without touching the sound system. Use it in scripts, on CI and on machines whose audio stack is slow to open; the game plays exactly the same, silently. A machine where no line opens ends up here anyway, after one line on stderr. | M2 |
+| `--lang CODE` | UI language for this launch: `auto` (default locale), `en`, `pt_BR`. Overrides `settings.language`; an unknown code is ignored and `auto` applies. The language can also be changed live in Settings, and both take effect immediately (the menu behind the settings screen re-labels itself). | M2 |
+| `--home DIR` | profile directory (`settings.json`, and from M3 `save.json`) instead of the per-OS default. Always pass it in tests and scripts so nothing writes to the real profile. | M2 (settings) |
 | `--reset-save` | delete the save file (a backup is kept) and start fresh | M3 |
 | `--bird ID` | start with the given bird | M4 |
 | `--tier ID` | difficulty tier (`normal`, `hard`, `nightmare`) | M4 |
 | `--world ID` | start in the given world (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`) | M7 |
 
-Default data directories: `~/.flapforge` (Linux), `%APPDATA%\Flapforge`
-(Windows), `~/Library/Application Support/Flapforge` (macOS).
+### Where settings and saves live
+
+`persistence.SavePaths` resolves the profile directory in this order: `--home
+DIR` (which installs an override), then the `flapforge.home` system property,
+then the `FLAPFORGE_HOME` environment variable, then the per-OS default:
+
+| OS | Profile directory |
+| --- | --- |
+| Linux / BSD | `~/.flapforge` |
+| Windows | `%APPDATA%\Flapforge` |
+| macOS | `~/Library/Application Support/Flapforge` |
+
+It holds `settings.json` (§4 of the plan; written from M2) and, from M3,
+`save.json`, `save.json.bak` and `backups/`. Every write is crash-safe
+(`AtomicFiles`: temp file, fsync, atomic rename) and runs on the save
+executor, never on the loop thread.
+
+A `settings.json` whose `version` differs from the build's is **not** loaded:
+the defaults are restored and the old file is kept as `settings.v<N>.json`
+(`settings.v<N>-2.json`, `-3` … when one is already there), with a warning
+toast. A file with no `version` key at all is treated as a missing key, not a
+mismatch, so a hand-edited file keeps its values. `keyBindings` carries exactly
+the seven rebindable actions; the focus arrows and `BACK` are fixed.
+
+**No test may write to the real profile directory.** Unit tests use `@TempDir`
+plus `SavePaths.override(...)`, the smoke tests write under `build/smoke/`, and
+the one test that starts the real application passes
+`--home build/smoke/app-home` and asserts the resolved profile directory is
+under `build/`. `ls ~/.flapforge` after a full build must still say the
+directory does not exist on a machine that has never run the game.
 
 ## In-game keys
 
 Flap `Space` / `Up` / left click · ability `X` / `Shift` / right click ·
 pause `Esc` · confirm `Enter` · mute `M` · debug overlay `F3` · fullscreen
-`F11`. Key bindings become rebindable in Settings at M2.
+`F11`. All seven are rebindable in Settings from M2 (arrows and `Esc`-to-go-back
+are fixed, and so are the mouse buttons).
+
+`F11`, `F3` and `M` work on every screen. They are not engine switches: each one
+flips a field of `settings.json`, applies it through
+`GameContext.applySettings` and persists it, so the state survives a restart and
+the Settings screen always shows what is actually in force.
 
 ## Running the GUI tests locally
 
@@ -130,6 +166,52 @@ DISPLAY=:0 ./gradlew smokeTest
   in `timeout 10 ./gradlew run`.
 - CI (`.github/workflows/test.yml`) installs `xvfb` and runs
   `xvfb-run -a ./gradlew smokeTest`.
+- The window keys the smoke run presses go through the real settings path, so
+  the run writes `build/smoke/home/settings.json`. The rig deletes that file
+  before every test and the one test that starts the real application passes
+  `--home build/smoke/app-home`; nothing under `~/.flapforge` is ever touched.
+- Robot events are waited for against a **wall-clock** deadline, never a frame
+  count: the rig drives the loop uncapped, so 60 frames can pass in under a
+  millisecond while X still has the event in flight. A key or click that had no
+  effect at all is re-sent up to three times (the "exactly one edge" assertions
+  live in the tests, after the retry loop, so a double delivery is still
+  caught). Keep the desktop idle anyway.
+- If `smokeTest` reports a Gradle-side `java.io.EOFException` or
+  `NoSuchFileException: build/test-results/smokeTest/binary/...` *after* the
+  tests themselves have finished, re-run with `--no-configuration-cache`. It has
+  been observed on Gradle 9.7.1 with `org.gradle.configuration-cache=true` and
+  could not be reproduced on the development machine (12 consecutive green
+  runs); it is a build-tool artefact, not a test failure.
+
+## Adding a player-facing string
+
+No literal the player can read may live in Java code. Every string goes through
+`content.Strings`, keyed by a `content.StringKey` constant. To add one:
+
+1. **Add the key to `src/main/resources/data/strings/en.json`.** The file is a
+   flat, alphabetically grouped `"key": "value"` table; `en.json` is the source
+   of truth. Use `{0}`, `{1}` … for values substituted at runtime.
+2. **Add the same key to `pt_BR.json`,** with the same placeholders. Both files
+   must carry *exactly* the same key set — `Strings.load` falls back to English
+   for a missing key, so a dropped translation would otherwise be invisible;
+   `StringsTest.everyShippedFileCarriesExactlyTheSameKeys` fails if they drift.
+3. **Add a constant to `content.StringKey`,** naming the same key. The enum is
+   what makes a typo a compile error rather than a raw key on screen.
+4. **Use it:** `strings.get(StringKey.MY_KEY)` or
+   `strings.format(StringKey.MY_KEY, value)`. Screens hold the shared `Strings`
+   instance from `GameContext`; never call `Strings.load` per frame.
+5. **Re-label on a language switch.** A screen that caches rendered text must
+   compare `strings.language()` with the language it last drew and refresh when
+   they differ — that is what makes the live `pt_BR` switch work for the screens
+   under the settings screen.
+6. **Run `./gradlew test`.** `StringsTest` checks the tables and the
+   placeholders, `ContentValidatorTest` checks that every `StringKey` resolves
+   and that the content ids have names and descriptions, `FontsTest` checks that
+   the base font can draw the accents, and `ProceduralRenderTest` renders every
+   screen in both languages and asserts the two frames are not identical.
+
+Content ids follow the same path with derived keys: `Strings.name(kind, id)`
+and `Strings.desc(kind, id)` resolve `<kind>.<id>.name` / `.desc`.
 
 ## Coding rules
 
@@ -207,3 +289,6 @@ simulation, headless render and GUI smoke tests, fixtures), `src/tools`
 | `smokeTest` menu test skipped "never obtained keyboard focus" | another window steals focus; leave the desktop idle and rerun |
 | Uniform black screenshot on Wayland | expected; the test falls back to the off-screen render (`<name>-render.png`) |
 | A build fails only in CI with a lint error | the JDK version differs; the CI JDK is Temurin 17 (and 21 on one job) — reproduce with the same version |
+| `smokeTest` fails with `EOFException` / `NoSuchFileException` under `build/test-results` after the tests passed | Gradle configuration-cache artefact; re-run with `--no-configuration-cache` |
+| The game is silent, `Audio: no output device (...)` on stderr | no usable output line (a container, a busy PulseAudio, no sound card); the game runs on `NullAudio`. `--no-audio` selects that path deliberately |
+| Settings changes are not remembered | check the profile directory (see above) is writable; a failed write raises a warning toast and a `SaveFailed` event |

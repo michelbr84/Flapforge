@@ -15,7 +15,11 @@ import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -27,6 +31,11 @@ import java.util.regex.Pattern;
  *
  * <p>Cross-reference, unlock-graph and string-key checks are FULL from M4, when the files they
  * point at exist; see {@link #validateCrossReferencesM4(GameContent, List)}.
+ *
+ * <p>The string-key rules of D25 ship in M2 and live in {@link #checkStrings(GameContent)}: they
+ * compare the content against {@code data/strings/*.json}, not against another content file, so
+ * they run on the <em>shipped</em> content ({@link GameContent#load()}) and are not part of
+ * {@link #errorsOf(GameContent)}, which fixtures with deliberately renamed ids go through.
  *
  * <p>Every error carries a {@code file#/json/pointer} location and all of them are raised
  * together as one {@link ContentException}.
@@ -48,6 +57,42 @@ public final class ContentValidator {
     private static final double EPSILON = 1e-9;
     private static final String BIRDS_FILE = "birds.json";
     private static final String DIFFICULTY_FILE = "difficulty.json";
+
+    /** Content kinds that already exist and therefore need {@code name}/{@code desc} strings. */
+    public static final String KIND_BIRD = "bird";
+    /** Cosmetic keys are {@code cosmetic.<bird>.<palette>.name/.desc} (E31.h). */
+    public static final String KIND_COSMETIC = "cosmetic";
+    /** Difficulty tiers are shown by name in the run setup. */
+    public static final String KIND_TIER = "tier";
+
+    /**
+     * What the string files say about the content (D25).
+     *
+     * @param errors keys the code or the content needs and {@code en.json} does not have
+     * @param warnings keys a translation is missing, or carries without {@code en.json} having it
+     */
+    public record StringReport(List<String> errors, List<String> warnings) {
+
+        /**
+         * Copies both lists so the report is immutable.
+         *
+         * @param errors the errors
+         * @param warnings the warnings
+         */
+        public StringReport {
+            errors = List.copyOf(Objects.requireNonNull(errors, "errors"));
+            warnings = List.copyOf(Objects.requireNonNull(warnings, "warnings"));
+        }
+
+        /**
+         * Whether every required key resolves.
+         *
+         * @return {@code true} when there are no errors
+         */
+        public boolean ok() {
+            return errors.isEmpty();
+        }
+    }
 
     private ContentValidator() {
     }
@@ -241,6 +286,115 @@ public final class ContentValidator {
      */
     private static void validateCrossReferencesM4(GameContent content, List<String> errors) {
         // TODO(M4): enable cross-reference, unlock-graph and string-key validation (E19).
+    }
+
+    /**
+     * Checks the shipped string files against the code and the content (D25): every
+     * {@link StringKey} and every {@code <kind>.<id>.name/.desc} of a kind that already exists
+     * must be in {@code en.json} (an error), and every key {@code en.json} has should also be in
+     * each translation (a warning — the missing key falls back to English at runtime).
+     *
+     * @param content the content to check
+     * @return the errors and the warnings
+     * @throws ContentException when a string file is missing or malformed
+     */
+    public static StringReport checkStrings(GameContent content) {
+        Map<String, Map<String, String>> translations = new LinkedHashMap<>();
+        for (String language : Strings.LANGUAGES) {
+            if (!Strings.SOURCE_LANGUAGE.equals(language)) {
+                translations.put(language, Strings.tableOf(language));
+            }
+        }
+        return checkStrings(content, Strings.tableOf(Strings.SOURCE_LANGUAGE), translations);
+    }
+
+    /**
+     * The same checks against tables the caller supplies (tests and tools).
+     *
+     * @param content the content to check
+     * @param source the {@code en.json} table
+     * @param translations the other languages, keyed by language
+     * @return the errors and the warnings
+     */
+    public static StringReport checkStrings(GameContent content, Map<String, String> source,
+            Map<String, Map<String, String>> translations) {
+        Objects.requireNonNull(content, "content");
+        Objects.requireNonNull(source, "source");
+        List<String> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        String sourceFile = Strings.fileOf(Strings.SOURCE_LANGUAGE);
+        for (StringKey key : StringKey.values()) {
+            if (!source.containsKey(key.key())) {
+                errors.add(sourceFile + "#/" + key.key() + ": missing string for StringKey."
+                        + key.name());
+            }
+        }
+        for (String key : contentKeys(content)) {
+            if (!source.containsKey(key)) {
+                errors.add(sourceFile + "#/" + key + ": missing content string");
+            }
+        }
+        if (translations != null) {
+            for (Map.Entry<String, Map<String, String>> entry : translations.entrySet()) {
+                String file = Strings.fileOf(entry.getKey());
+                Map<String, String> table = entry.getValue();
+                for (String key : source.keySet()) {
+                    if (!table.containsKey(key)) {
+                        warnings.add(file + "#/" + key
+                                + ": missing translation, falls back to English");
+                    }
+                }
+                for (String key : table.keySet()) {
+                    if (!source.containsKey(key)) {
+                        warnings.add(file + "#/" + key + ": key is not in " + sourceFile);
+                    }
+                }
+            }
+        }
+        return new StringReport(errors, warnings);
+    }
+
+    /**
+     * Runs {@link #checkStrings(GameContent)} and raises the errors; warnings are the caller's
+     * business.
+     *
+     * @param content the content to check
+     * @return the report, so the caller can still read the warnings
+     * @throws ContentException when a required key is missing from {@code en.json}
+     */
+    public static StringReport validateStrings(GameContent content) {
+        StringReport report = checkStrings(content);
+        if (!report.ok()) {
+            throw new ContentException("String validation failed", report.errors());
+        }
+        return report;
+    }
+
+    /**
+     * Every {@code name}/{@code desc} key the content in hand needs. Kinds whose files land in a
+     * later milestone (ability, upgrade, world, challenge, achievement …) contribute nothing
+     * until they exist (E19).
+     *
+     * @param content the content
+     * @return the keys, in content order
+     */
+    public static Set<String> contentKeys(GameContent content) {
+        Set<String> keys = new LinkedHashSet<>();
+        for (BirdDef bird : content.birds()) {
+            addNameAndDesc(keys, KIND_BIRD, bird.id());
+            for (PaletteDef palette : bird.palettes()) {
+                addNameAndDesc(keys, KIND_COSMETIC, bird.id() + "." + palette.id());
+            }
+        }
+        for (TierDef tier : content.tiers()) {
+            addNameAndDesc(keys, KIND_TIER, tier.id());
+        }
+        return keys;
+    }
+
+    private static void addNameAndDesc(Set<String> keys, String kind, String id) {
+        keys.add(Strings.nameKey(kind, id));
+        keys.add(Strings.descKey(kind, id));
     }
 
     private static void checkId(List<String> errors, String at, String kind, String id) {

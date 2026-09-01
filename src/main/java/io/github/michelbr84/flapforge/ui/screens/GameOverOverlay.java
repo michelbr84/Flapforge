@@ -1,5 +1,7 @@
 package io.github.michelbr84.flapforge.ui.screens;
 
+import io.github.michelbr84.flapforge.content.StringKey;
+import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.run.RunResult;
 import io.github.michelbr84.flapforge.input.InputAction;
@@ -13,7 +15,7 @@ import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.render.TextPainter.Align;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
-import io.github.michelbr84.flapforge.ui.UiText;
+import io.github.michelbr84.flapforge.ui.UiCues;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.util.Locale;
@@ -55,6 +57,7 @@ public final class GameOverOverlay implements Screen {
     private final RunResult result;
     private final Runnable onRetry;
     private final GameRenderer renderer;
+    private final Strings strings;
     private final String gatesValue;
     private final String pointsValue;
     private final String timeValue;
@@ -70,15 +73,31 @@ public final class GameOverOverlay implements Screen {
      */
     public GameOverOverlay(ScreenManager screens, RunResult result, Runnable onRetry,
             GameRenderer renderer) {
+        this(screens, result, onRetry, renderer, Strings.active());
+    }
+
+    /**
+     * Creates the overlay.
+     *
+     * @param screens the screen stack
+     * @param result the finished run's result
+     * @param onRetry starts a new run on the game screen below (D29: new seed, same config)
+     * @param renderer the game renderer below, kept drifting its clouds while the overlay is up
+     * @param strings the string table its labels come from
+     */
+    public GameOverOverlay(ScreenManager screens, RunResult result, Runnable onRetry,
+            GameRenderer renderer, Strings strings) {
         this.screens = Objects.requireNonNull(screens, "screens");
+        this.strings = Objects.requireNonNull(strings, "strings");
         this.result = Objects.requireNonNull(result, "result");
         this.onRetry = Objects.requireNonNull(onRetry, "onRetry");
         this.renderer = Objects.requireNonNull(renderer, "renderer");
         this.gatesValue = Integer.toString(result.gatesPassed());
         this.pointsValue = Long.toString(Math.round(result.stats().points()));
         int ticksAlive = result.stats().ticksAlive();
-        this.timeValue = String.format(Locale.ROOT, "%.1f s (%d ticks)",
-                ticksAlive / (double) Playfield.TICK_RATE, ticksAlive);
+        this.timeValue = strings.format(StringKey.STAT_TIME_ALIVE_VALUE,
+                String.format(Locale.ROOT, "%.1f", ticksAlive / (double) Playfield.TICK_RATE),
+                ticksAlive);
     }
 
     @Override
@@ -114,6 +133,7 @@ public final class GameOverOverlay implements Screen {
             ticks = 0;
         }
         if (input.isJustPressed(InputAction.PAUSE) || input.isJustPressed(InputAction.BACK)) {
+            UiCues.back();
             screens.pop();
             screens.pop();
             return;
@@ -124,7 +144,9 @@ public final class GameOverOverlay implements Screen {
             screens.pop();
             onRetry.run();
         }
-        // InputAction.CONFIRM opens RunSummaryScreen in M3; the prompt already advertises it.
+        // InputAction.CONFIRM opens RunSummaryScreen in M3. The prompt does not advertise it
+        // yet -- `gameover.retry_hint` names only the keys that do something in M2, and M3 adds
+        // the summary clause back with the screen it opens.
     }
 
     @Override
@@ -136,18 +158,19 @@ public final class GameOverOverlay implements Screen {
 
         g.setFont(Fonts.bold(30));
         g.setColor(ProceduralArt.TEXT_LIGHT);
-        TextPainter.drawCentered(g, UiText.GAME_OVER, Playfield.WIDTH / 2.0, PANEL_Y + 48);
+        TextPainter.drawCentered(g, strings.get(StringKey.GAMEOVER_TITLE),
+                Playfield.WIDTH / 2.0, PANEL_Y + 48);
 
         g.setFont(Fonts.regular(15));
-        row(g, 0, UiText.GATES, gatesValue);
-        row(g, 1, UiText.POINTS, pointsValue);
-        row(g, 2, UiText.TIME_ALIVE, timeValue);
+        row(g, 0, strings.get(StringKey.STAT_GATES), gatesValue);
+        row(g, 1, strings.get(StringKey.STAT_POINTS), pointsValue);
+        row(g, 2, strings.get(StringKey.STAT_TIME_ALIVE), timeValue);
 
         if (promptVisible()) {
             g.setFont(Fonts.regular(13));
             g.setColor(ProceduralArt.TEXT_LIGHT);
-            TextPainter.drawCentered(g, UiText.GAME_OVER_PROMPT, Playfield.WIDTH / 2.0,
-                    PANEL_Y + PANEL_H - 16.0);
+            TextPainter.drawCentered(g, strings.get(StringKey.GAMEOVER_RETRY_HINT),
+                    Playfield.WIDTH / 2.0, PANEL_Y + PANEL_H - 16.0);
         }
     }
 

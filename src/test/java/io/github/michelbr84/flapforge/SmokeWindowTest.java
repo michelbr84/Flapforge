@@ -8,15 +8,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.abort;
 
 import io.github.michelbr84.flapforge.app.AwtInputBridge;
+import io.github.michelbr84.flapforge.audio.AudioManager;
+import io.github.michelbr84.flapforge.audio.NullAudio;
 import io.github.michelbr84.flapforge.app.BufferStrategyPresenter;
 import io.github.michelbr84.flapforge.app.FrameLimiter;
 import io.github.michelbr84.flapforge.app.GameApplication;
+import io.github.michelbr84.flapforge.app.GameContext;
 import io.github.michelbr84.flapforge.app.GameLoop;
 import io.github.michelbr84.flapforge.app.GameWindow;
 import io.github.michelbr84.flapforge.app.LaunchOptions;
 import io.github.michelbr84.flapforge.app.SystemClock;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.app.Threads;
+import io.github.michelbr84.flapforge.content.StringKey;
+import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.geom.Vec2;
+import io.github.michelbr84.flapforge.event.EventBus;
+import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.input.InputAction;
@@ -25,6 +33,9 @@ import io.github.michelbr84.flapforge.input.InputQueue;
 import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.persistence.SavePaths;
+import io.github.michelbr84.flapforge.persistence.Settings;
+import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
 import io.github.michelbr84.flapforge.render.HudRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -32,6 +43,8 @@ import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
+import io.github.michelbr84.flapforge.ui.component.ToastLayer;
+import io.github.michelbr84.flapforge.ui.component.Toggle;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
@@ -52,7 +65,9 @@ import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import javax.imageio.ImageIO;
@@ -86,9 +101,10 @@ class SmokeWindowTest {
     private static final int HOLD_Y = 300;
     /**
      * How often a Robot <em>click</em> is repeated when the desktop swallowed it (a window sitting
-     * over the point receives the press instead). A retry only happens when the expectation is
-     * still unmet after 90 frames, i.e. the click had no effect at all, so it cannot activate a
-     * button twice. Key taps are never retried — see {@link Driver#tap}.
+     * over the point receives the press instead), and how often a key tap is re-sent for the same
+     * reason. A retry only happens when the expectation is still unmet after
+     * {@link #DELIVERY_TIMEOUT_MS}, i.e. the event had no effect at all, so it cannot activate a
+     * button or toggle a switch twice.
      */
     private static final int DELIVERY_ATTEMPTS = 3;
 
@@ -98,6 +114,8 @@ class SmokeWindowTest {
      * well under a millisecond while X still has the event in flight on a loaded machine.
      */
     private static final long DELIVERY_TIMEOUT_MS = 2_000L;
+    /** How long the window manager may take to grant the canvas keyboard focus. */
+    private static final long FOCUS_TIMEOUT_MS = 1_000L;
     /**
      * Flaps the scripted flight performs before the frame is captured. One flap per ~27 ticks
      * holds the bird around {@link #HOLD_Y}, so five of them are ~110 ticks — comfortably short of
@@ -106,15 +124,35 @@ class SmokeWindowTest {
     private static final int FLIGHT_FLAPS = 5;
     private static final int GRACE = ScreenManager.TRANSITION_GRACE_TICKS + 5;
 
-    /** Overlay recording the frames it sees, pushed on top of the menu for input checks. */
+    /**
+     * Overlay recording the frames it sees, pushed on top of the menu for input checks.
+     *
+     * <p>It also records <em>what</em> produced each flap edge. FLAP is bound to Space, Up and
+     * (hard-mapped) the left mouse button, so a spurious edge around the fullscreen handshake
+     * could come from any of the three; {@link #edges()} names the source in the failure message
+     * instead of leaving a bare count.
+     */
     static final class SpyOverlay implements Screen {
         int flapPresses;
+        private final List<String> edges = new ArrayList<>();
 
         @Override
         public void tick(InputFrame input) {
             if (input.isJustPressed(InputAction.FLAP)) {
                 flapPresses++;
+                edges.add("flap#" + flapPresses + " rawKeyDowns=" + input.rawKeyDowns()
+                        + " mouseLeft=" + input.isMouseJustPressed(Keys.BUTTON_LEFT)
+                        + " systemEvents=" + input.systemEvents());
             }
+        }
+
+        /**
+         * A description of every flap edge seen, for a failure message.
+         *
+         * @return the descriptions in order
+         */
+        String edges() {
+            return String.join("; ", edges);
         }
 
         @Override
@@ -137,6 +175,12 @@ class SmokeWindowTest {
         final BufferStrategyPresenter presenter;
         final AwtInputBridge bridge;
         final GameLoop loop;
+        final FrameLimiter limiter;
+        final SettingsStore store;
+        final EventBus events = new EventBus();
+        final ToastLayer toasts = new ToastLayer();
+        final AudioManager audio;
+        final GameContext context;
         boolean closed;
 
         Rig(String title, boolean startFullscreen) {
@@ -149,8 +193,36 @@ class SmokeWindowTest {
             presenter = new BufferStrategyPresenter(window, viewport, overlay);
             screens.setPresenter(presenter);
             bridge = new AwtInputBridge(input);
-            loop = new GameLoop(clock, input, screens, presenter,
-                    new FrameLimiter(clock, FrameLimiter.DEFAULT_FPS));
+            limiter = new FrameLimiter(clock, FrameLimiter.DEFAULT_FPS);
+            loop = new GameLoop(clock, input, screens, presenter, limiter);
+            // The settings the smoke run writes go to build/smoke/home, never to the player's
+            // real ~/.flapforge. The file is cleared first: a previous test in this class leaves
+            // its own language and fullscreen state behind, and a rig that adopted them would
+            // depend on the order the tests ran in.
+            Path settingsFile = OUT_DIR.resolve("home").resolve("settings.json");
+            try {
+                Files.createDirectories(settingsFile.getParent());
+                Files.deleteIfExists(settingsFile);
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException("cannot reset " + settingsFile, e);
+            }
+            store = new SettingsStore(Runnable::run, settingsFile);
+            store.load();
+            Strings strings = Strings.load("en");
+            Strings.use(strings);
+            // E30.j: the smoke rig never opens a sound device.
+            audio = new AudioManager(new NullAudio());
+            context = new GameContext(LaunchOptions.DEFAULTS, clock, () -> 0L, new Threads(),
+                    input, viewport, screens, presenter, window, loop, limiter, store, events,
+                    audio, strings, toasts, null);
+            audio.attach(events);
+            screens.setEvents(events);
+            // The same handlers GameApplication installs, so F11, F3 and M take the real path:
+            // the setting changes, and applying the settings pushes it into the engine.
+            screens.setMuteHandler(context::toggleMute);
+            screens.setFullscreenHandler(context::toggleFullscreen);
+            screens.setDebugOverlayHandler(context::toggleDebugOverlay);
+            screens.setTickTask(context::drainSaveResults);
             overlay.setSource(new GameApplication.DebugSource(screens, loop));
             screens.setCloseHandler(() -> {
                 closed = true;
@@ -239,14 +311,24 @@ class SmokeWindowTest {
             // Reclaim focus first: on a live desktop another window can take it between two steps,
             // and the key press then goes there instead. A no-op while we still own it; when focus
             // cannot be reclaimed at all the run is aborted, never passed. waitForIdle() lets a
-            // just-granted focus change settle before the press. Keys are never retried: the tests
-            // below assert that one tap produces exactly one edge, and a second press would defeat
-            // that -- so the wait below is a real-time deadline, never a frame count.
-            focusCanvasOrAbort(rig);
-            robot.waitForIdle();
-            robot.keyPress(keyCode);
-            robot.keyRelease(keyCode);
-            rig.untilDeadline(expected, DELIVERY_TIMEOUT_MS);
+            // just-granted focus change settle before the press.
+            //
+            // A key is re-sent only while `expected` is still false, i.e. the press had no effect
+            // whatsoever after a full DELIVERY_TIMEOUT_MS of real time -- the desktop swallowed it,
+            // which is what a window manager re-mapping a window after a fullscreen handshake does.
+            // The "exactly one edge" assertions live in the tests, after the loop, so a key that
+            // was delivered twice is still caught.
+            for (int attempt = 0; attempt < DELIVERY_ATTEMPTS; attempt++) {
+                focusCanvasOrAbort(rig);
+                robot.waitForIdle();
+                robot.keyPress(keyCode);
+                robot.keyRelease(keyCode);
+                rig.untilDeadline(expected, DELIVERY_TIMEOUT_MS);
+                if (expected.getAsBoolean()) {
+                    return;
+                }
+                System.out.println("[smoke] key " + text + " was not delivered, retrying");
+            }
             assertTrue(expected.getAsBoolean(),
                     "Robot key " + text + " was not delivered through the toolkit");
         }
@@ -259,6 +341,47 @@ class SmokeWindowTest {
                 // we are about to click, and X delivers the press to whatever is topmost there.
                 focusCanvasOrAbort(rig);
                 Vec2 w = rig.viewport.toWindow(node.centerX(), node.centerY());
+                wx = (int) Math.round(w.x());
+                wy = (int) Math.round(w.y());
+                Canvas canvas = rig.window.canvas();
+                assertTrue(canvas.isShowing(), "canvas showing");
+                Point origin = canvas.getLocationOnScreen();
+                robot.mouseMove(origin.x + wx, origin.y + wy);
+                robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+                robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+                rig.untilDeadline(expected, DELIVERY_TIMEOUT_MS);
+                if (expected.getAsBoolean()) {
+                    return;
+                }
+                System.out.println("[smoke] click at " + wx + "," + wy
+                        + " was not delivered, retrying");
+            }
+            assertTrue(expected.getAsBoolean(), "Robot click at " + wx + "," + wy
+                    + " was not delivered through the toolkit");
+        }
+
+        /**
+         * Parks the pointer on a point in logical playfield coordinates, so that a following
+         * keyboard step cannot have its focus stolen by whatever the pointer was resting on.
+         */
+        void parkPointerAt(double logicalX, double logicalY) {
+            Vec2 w = rig.viewport.toWindow(logicalX, logicalY);
+            Point origin = rig.window.canvas().getLocationOnScreen();
+            robot.mouseMove(origin.x + (int) Math.round(w.x()),
+                    origin.y + (int) Math.round(w.y()));
+            rig.frames(4);
+        }
+
+        /**
+         * Clicks a point in logical playfield coordinates. Used for the settings rows, whose
+         * own {@code y} is a position in the scrolled content rather than on the screen.
+         */
+        void clickAt(double logicalX, double logicalY, BooleanSupplier expected) {
+            int wx = 0;
+            int wy = 0;
+            for (int attempt = 0; attempt < DELIVERY_ATTEMPTS; attempt++) {
+                focusCanvasOrAbort(rig);
+                Vec2 w = rig.viewport.toWindow(logicalX, logicalY);
                 wx = (int) Math.round(w.x());
                 wy = (int) Math.round(w.y());
                 Canvas canvas = rig.window.canvas();
@@ -415,14 +538,20 @@ class SmokeWindowTest {
             int transitions = driver.holdFullscreenKey(400);
             assertEquals(1, transitions, "a held F11 toggles fullscreen exactly once");
             assertTrue(rig.window.isFullscreen());
-            assertTrue(rig.until(() -> rig.window.canvas().isFocusOwner(), 60),
+            assertTrue(rig.store.settings().fullscreen, "F11 wrote the setting it changed");
+            // Waited for in wall-clock time, not in paced frames: 60 frames can elapse in under a
+            // millisecond while the window manager is still re-mapping the recreated window.
+            assertTrue(rig.untilDeadline(() -> rig.window.canvas().isFocusOwner()
+                    && !rig.screens.isFullscreenHandshake(), DELIVERY_TIMEOUT_MS),
                     "focus returned to the recreated fullscreen window");
             assertFalse(rig.input.heldCodes().contains(Keys.F11),
                     "the F11 release was delivered after the handshake");
             driver.tap(KeyEvent.VK_F11, () -> !rig.window.isFullscreen());
             rig.frames(15);
             assertFalse(rig.window.isFullscreen(), "a tap leaves fullscreen");
-            assertEquals(1, spy.flapPresses, "no flap edge from the fullscreen handshake");
+            assertFalse(rig.store.settings().fullscreen, "and the setting followed it back");
+            assertEquals(1, spy.flapPresses,
+                    () -> "no flap edge from the fullscreen handshake: " + spy.edges());
             rig.screens.pop();
             rig.frames(GRACE);
             logSizes("after F11 twice", rig.window);
@@ -448,12 +577,96 @@ class SmokeWindowTest {
             rig.input.offer(new RawInput.KeyUp(Keys.F3, 2));
             rig.until(rig.screens::isDebugOverlayVisible, 30);
             assertTrue(rig.screens.isDebugOverlayVisible(), "F3 toggles the debug overlay");
+            assertTrue(rig.store.settings().showFps, "F3 wrote the setting it changed");
             rig.frames(30);
             assertTrue(rig.overlay.fps() > 0, "overlay measured fps");
             assertTrue(rig.overlay.tps() > 0, "overlay measured tps");
             assertTrue(saveShot("debug-overlay", rig) >= 2, "overlay frame is uniform");
 
             rig.requestCloseAndVerify();
+        }
+    }
+
+    @Test
+    void theSettingsScreenThroughTheToolkit() throws Exception {
+        requireDisplay();
+        String language = Strings.active().language();
+        try (Rig rig = new Rig("Flapforge smoke test (settings)", false)) {
+            MainMenuScreen menu = new MainMenuScreen(rig.context, new ClassicRunFactory(),
+                    SeedSequence.of(7));
+            rig.start(menu);
+            rig.frames(30);
+            focusCanvasOrAbort(rig);
+            Driver driver = new Driver(rig);
+            assertTrue(saveShot("settings-menu", rig) >= 2, "menu is uniform");
+
+            // Menu -> settings, with a real click through the toolkit.
+            driver.click(menu.settingsButton(), () -> rig.screens.top() instanceof SettingsScreen);
+            SettingsScreen settings = (SettingsScreen) rig.screens.top();
+            rig.frames(GRACE);
+            assertTrue(saveShot("settings-open", rig) >= 2, "settings is uniform");
+
+            // A toggle, clicked where it actually sits on screen, must reach the engine object
+            // that owns the behaviour -- here the loop-owned viewport.
+            Toggle integerScaling = settings.toggle("integerScaling");
+            settings.focusRow(integerScaling);
+            rig.frames(3);
+            assertTrue(settings.isRowVisible(integerScaling), "the row is on screen");
+            // Counted through the bus rather than compared: the click helper retries when the
+            // desktop swallows a press, and a second delivered click would flip the switch back
+            // and make an "is it different now" expectation unsatisfiable for ever. The counter
+            // is a bus subscriber so the screen's own change handler stays in place.
+            int[] applied = {0};
+            rig.events.subscribe(GameEvent.SettingsChanged.class, e -> applied[0]++);
+            driver.clickAt(integerScaling.centerX(), settings.screenY(integerScaling),
+                    () -> applied[0] > 0);
+            rig.frames(10);
+            assertEquals(integerScaling.value(), rig.viewport.isIntegerScaling(),
+                    "the toggle reached the viewport");
+            assertTrue(saveShot("settings-toggle", rig) >= 2, "toggled settings is uniform");
+
+            // The language row, driven with the arrow keys, must relabel the whole screen. The
+            // pointer is parked over the title first: a pointer left resting on a row would take
+            // the focus back the moment anything moves it.
+            driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
+            settings.focusRow(settings.languageList());
+            rig.frames(3);
+            int target = Settings.LANGUAGES.indexOf("pt_BR");
+            while (settings.languageList().selectedIndex() < target) {
+                int index = settings.languageList().selectedIndex();
+                driver.tap(KeyEvent.VK_RIGHT,
+                        () -> settings.languageList().selectedIndex() > index);
+            }
+            rig.frames(5);
+            assertEquals("pt_BR", Strings.active().language());
+            assertEquals("Voltar", settings.backButton().text(), "every label followed");
+            assertTrue(saveShot("settings-language", rig) >= 2, "translated settings is uniform");
+
+            // A rebind: the capture takes the next key the toolkit delivers (E29).
+            settings.startCapture(InputAction.MUTE);
+            rig.frames(3);
+            assertTrue(saveShot("settings-capture", rig) >= 2, "the capture prompt is uniform");
+            driver.tap(KeyEvent.VK_Z, () -> settings.capturingAction() == null);
+            rig.frames(5);
+            assertEquals(List.of(Keys.Z),
+                    settings.settings().bindings().keysFor(InputAction.MUTE));
+            assertEquals(List.of(Keys.Z), rig.input.bindings().keysFor(InputAction.MUTE),
+                    "the queue was rebound on the loop thread");
+            assertTrue(saveShot("settings-rebind", rig) >= 2, "rebound settings is uniform");
+
+            // Back to the menu, which must flush the pending write.
+            driver.click(settings.backButton(), () -> rig.screens.top() == menu);
+            rig.frames(GRACE);
+            assertFalse(settings.isDirty(), "leaving the screen wrote the file");
+            assertTrue(Files.exists(rig.store.file()), "settings.json was written");
+            assertEquals(Strings.load("pt_BR").get(StringKey.MENU_PLAY), menu.playButton().text(),
+                    "the menu behind the settings screen followed the language too");
+            assertEquals("pt_BR", rig.store.settings().language, "the language was persisted");
+            assertTrue(saveShot("settings-back", rig) >= 2, "menu after settings is uniform");
+
+            rig.requestCloseAndVerify();
+        } finally {
+            Strings.use(Strings.load(language));
         }
     }
 
@@ -526,10 +739,19 @@ class SmokeWindowTest {
     @Test
     void quitPathThroughGameApplicationEndsBeforeTheWatchdog() throws Exception {
         requireDisplay();
-        GameApplication app = GameApplication.start(LaunchOptions.parse(new String[] {"--scale", "1"}));
+        // --home is not optional here: without it the real application would read and rewrite the
+        // developer's own ~/.flapforge/settings.json, and the window this test asserts on would
+        // depend on whoever ran it.
+        Path appHome = OUT_DIR.resolve("app-home");
+        GameApplication app = GameApplication.start(LaunchOptions.parse(
+                new String[] {"--scale", "1", "--home", appHome.toString()}));
         long started = System.nanoTime();
         try {
             assertNotNull(app.context(), "windowed launch wired a context");
+            assertTrue(SavePaths.profileDir().toAbsolutePath()
+                            .startsWith(Path.of("build").toAbsolutePath()),
+                    "the test suite must never write to the real profile directory, but wrote to "
+                            + SavePaths.profileDir());
             assertNotNull(app.loopThread(), "loop thread created");
             waitFor(() -> app.context().loop().isRunning(), 5_000L);
             assertTrue(app.context().loop().isRunning(), "loop running");
@@ -552,6 +774,7 @@ class SmokeWindowTest {
                 app.context().loop().stop();
                 app.awaitShutdown(4_000L);
             }
+            SavePaths.clearOverride();
         }
     }
 
@@ -605,13 +828,20 @@ class SmokeWindowTest {
         }
     }
 
+    /**
+     * Raises the window and waits — in wall-clock time — for the canvas to own the keyboard.
+     *
+     * <p>A frame budget is not a time budget here: the rig drives the loop uncapped, so 30 frames
+     * can pass in well under a millisecond while the window manager has not even processed the
+     * focus request. Every wait for something that has to travel through X is a real deadline.
+     */
     private static void focusCanvasOrAbort(Rig rig) {
         for (int attempt = 0; attempt < 3 && !rig.window.canvas().isFocusOwner(); attempt++) {
             GameWindow.onEdt(() -> {
                 rig.window.frame().toFront();
                 rig.window.canvas().requestFocusInWindow();
             });
-            rig.until(() -> rig.window.canvas().isFocusOwner(), 30);
+            rig.untilDeadline(() -> rig.window.canvas().isFocusOwner(), FOCUS_TIMEOUT_MS);
         }
         if (!rig.window.canvas().isFocusOwner()) {
             abort("the canvas never obtained keyboard focus (another window is stealing it)");
