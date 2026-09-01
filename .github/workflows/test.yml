@@ -1,0 +1,74 @@
+name: Test
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+  checks: write        # JUnit check run
+  pull-requests: write # annotations on PRs
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit, GUI smoke and simulation tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests (headless)
+        run: ./gradlew test --stacktrace
+
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: GUI smoke tests under a virtual X server
+        run: xvfb-run -a ./gradlew smokeTest --stacktrace
+
+      - name: Simulation tests
+        # The first @Tag("sim") tests arrive in milestone M4; until then the
+        # task has nothing to run (or does not exist) and must not fail CI.
+        # Remove continue-on-error once M4 is merged.
+        continue-on-error: true
+        run: ./gradlew simTest --stacktrace
+
+      # TODO(M1): enable the balancing CSV artefact once the tool exists.
+      # - name: Balancing report
+      #   run: ./gradlew balancing -PtoolArgs="--seeds 100 --csv"
+
+      - name: Publish JUnit report
+        if: always()
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: 'build/test-results/**/*.xml'
+          check_name: JUnit report
+          require_tests: false
+          detailed_summary: true
+
+      - name: Upload test reports and smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests
+            build/test-results
+            build/smoke
+          if-no-files-found: ignore

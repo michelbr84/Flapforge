@@ -2,10 +2,13 @@
 
 > **A skill-based arcade roguelite where every flight makes the next one stronger.**
 
-[![Java](https://img.shields.io/badge/Java-8%2B-orange?logo=openjdk&logoColor=white)](https://www.java.com/)
+[![Build](https://github.com/michelbr84/Flapforge/actions/workflows/build.yml/badge.svg)](https://github.com/michelbr84/Flapforge/actions/workflows/build.yml)
+[![Tests](https://github.com/michelbr84/Flapforge/actions/workflows/test.yml/badge.svg)](https://github.com/michelbr84/Flapforge/actions/workflows/test.yml)
+[![Java](https://img.shields.io/badge/Java-17%2B-orange?logo=openjdk&logoColor=white)](https://adoptium.net/)
+[![Gradle](https://img.shields.io/badge/Gradle-9.7-02303A?logo=gradle&logoColor=white)](https://gradle.org/)
 ![Genre](https://img.shields.io/badge/Genre-Arcade%20Roguelite-blueviolet)
 ![Meta Progression](https://img.shields.io/badge/Progression-Persistent-success)
-![Status](https://img.shields.io/badge/Status-In%20Development-yellow)
+![Status](https://img.shields.io/badge/Status-In%20Development%20(rewrite)-yellow)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **Flapforge** reimagines the classic Flappy Bird formula as a **Skill-Based Arcade Roguelite with Persistent Meta-Progression**.
@@ -539,13 +542,27 @@ and
 
 ## Controls
 
-### Keyboard
-
-| Key | Action |
+| Input | Action |
 | --- | --- |
-| `Space` | Flap |
+| `Space`, `Up arrow`, left mouse button | Flap |
+| `X`, `Shift`, right mouse button | Use the equipped active ability |
+| `Esc` | Pause the run / go back a screen |
+| `Enter` | Confirm the focused item |
+| `M` | Mute / unmute audio |
+| `F3` | Toggle the debug overlay (tick rate, frame time, seed) |
+| `F11` | Toggle borderless fullscreen |
 
-The game intentionally keeps the primary control simple so that difficulty comes from timing, positioning, obstacle recognition, and build decisions rather than complicated input combinations.
+Menus are fully usable with either input device: arrow keys or `Tab` move
+focus, `Enter`/`Space` activate, `Esc` goes back, and every control also
+responds to mouse hover and click. Keyboard bindings become rebindable in the
+Settings screen; the mouse buttons are fixed.
+
+Input is sampled per simulation tick (60 Hz), so a tap shorter than a frame
+is never lost and key auto-repeat never produces an extra flap.
+
+The game intentionally keeps the primary control simple so that difficulty
+comes from timing, positioning, obstacle recognition, and build decisions
+rather than complicated input combinations.
 
 ---
 
@@ -553,9 +570,15 @@ The game intentionally keeps the primary control simple so that difficulty comes
 
 ### Requirements
 
-- **Java JDK/JRE 8 or newer**
-- Desktop environment capable of running Java applications
-- Git, if cloning the source repository
+- **JDK 17 or newer** (any distribution: Temurin, Microsoft, Zulu, your
+  distro's `openjdk-17-jdk`, ...). The project is compiled with
+  `--release 17`, so a newer JDK on the machine is fine.
+- **No Gradle installation.** The repository ships the Gradle wrapper
+  (`gradlew` / `gradlew.bat`), which downloads Gradle 9.7.1 on first use.
+- A desktop session: Linux (X11 or Wayland), Windows 10+, or macOS 12+.
+  Flapforge is a plain AWT/Java2D application; it needs no OpenGL, no native
+  libraries and no game engine.
+- Git, if cloning the source repository.
 
 Verify Java:
 
@@ -563,121 +586,151 @@ Verify Java:
 java -version
 ```
 
-Verify the Java compiler when developing from source:
+### Clone and build
 
 ```bash
-javac -version
+git clone https://github.com/michelbr84/Flapforge.git
+cd Flapforge
+./gradlew build          # Windows: gradlew.bat build
 ```
+
+`build` compiles with all lint warnings treated as errors and runs the
+default test suite. The first run downloads Gradle and the two dependencies
+(Gson, JUnit); afterwards `./gradlew --offline build` works without network.
+
+See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for every Gradle task, the
+GUI smoke tests and the coding rules, and [`CONTRIBUTING.md`](CONTRIBUTING.md)
+if you want to send a change.
 
 ---
 
 ## Running the Game
 
-### Packaged JAR
-
-If a packaged version of Flapforge is available:
+### From source
 
 ```bash
-java -jar Flapforge.jar
+./gradlew run
+./gradlew run --args="--seed 42 --scale 2"     # pass launch flags through --args
 ```
 
-### From Source
-
-Clone the repository:
+### Self-contained jar
 
 ```bash
-git clone <repository-url>
-cd Flapforge
+./gradlew fatJar
+java -jar build/libs/flapforge-<version>-all.jar
+java -jar build/libs/flapforge-<version>-all.jar --fullscreen --no-audio
 ```
 
-Open the project in a Java IDE such as:
+The jar bundles Gson and needs only a JRE/JDK 17+. Packaged app images
+(`jpackage`) arrive with the release milestone.
 
-- IntelliJ IDEA
-- Eclipse
-- Visual Studio Code with Java extensions
+### Scripts
 
-Then run the application's `App.main()` entry point.
+`scripts/run.sh` (Linux/macOS) and `scripts\run.ps1` (Windows) start the
+game through Gradle and forward every argument to it; `scripts/build.sh` /
+`scripts\build.ps1` run `build fatJar`.
 
-The project is intentionally based on a lightweight Java desktop architecture rather than requiring a large external game engine.
+```bash
+scripts/run.sh --seed 42 --world storm_sky --bird zephyr
+```
+
+Launch flags (some arrive with later milestones, see
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)):
+
+| Flag | Meaning |
+| --- | --- |
+| `--seed N` | fixed RNG seed for a reproducible run |
+| `--world ID` | start in a given world (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`) |
+| `--bird ID` | start with a given bird |
+| `--tier ID` | difficulty tier (`normal`, `hard`, `nightmare`) |
+| `--scale N` | initial window scale (integer multiple of the 420×640 playfield); default: the largest scale whose window fits the screen |
+| `--fullscreen` | start in borderless fullscreen (`F11` toggles) |
+| `--no-audio` | disable the audio backend |
+| `--home DIR` | use `DIR` instead of the default save/settings directory |
+| `--headless-run N` | simulate `N` frames without a window and print a summary line (the state hash used by CI arrives with the simulation) |
+| `--no-window` | run without a window |
+| `--help`, `-h` | print the usage text |
+| `--reset-save` | delete the save file (a backup is kept) and start fresh |
+| `--lang CODE` | UI language: `auto`, `en`, `pt_BR` |
 
 ---
 
 ## Technology
 
-Flapforge is built in **Java**.
-
-The original project used as its technical foundation was written using Java's standard desktop libraries and targeted **JDK 8**.
-
-Core technologies and concepts include:
+Flapforge is written in **Java 17** on top of the standard desktop libraries
+only. There is no game engine and no native code.
 
 | Technology | Purpose |
 | --- | --- |
-| **Java** | Main programming language |
-| **Java AWT** | Windowing, rendering and desktop game loop foundation |
-| **Java 2D** | Sprites and 2D rendering |
-| **Keyboard Events** | Player input |
-| **Audio** | Game sound effects |
-| **Local Persistence** | Meta-progression and unlocked content |
-| **Object-Oriented Design** | Birds, pipes, worlds and game systems |
+| **Java 17** | language level (`--release 17`), compiled warning-free with `-Xlint:all -Werror` |
+| **AWT / Java2D** | a `java.awt.Frame` with a `Canvas` and a double-buffered `BufferStrategy`; every screen, sprite and effect is drawn with Java2D. No Swing anywhere. |
+| **Gradle 9.7.1** (wrapper) | build, tests (`test`, `smokeTest`, `perfTest`, `simTest`), tools, fat jar |
+| **Gson 2.11.0** | the only runtime dependency: JSON content, settings and save files |
+| **JUnit Jupiter** | unit, property, simulation, headless-render and real-window smoke tests |
+| **Procedural art and audio** | all visuals are generated from per-world palettes and bird archetypes; sound effects and music come from a software synthesiser and sequencer — no image, audio or font files are required to play |
+| **Data-driven content** | birds, upgrades, abilities, modifiers, worlds, obstacle patterns, challenges, achievements and UI strings are JSON files, validated at start-up |
+| **Local persistence** | a versioned save file and settings under `~/.flapforge` (Linux), `%APPDATA%\Flapforge` (Windows) or `~/Library/Application Support/Flapforge` (macOS), written atomically with backups and migrations |
 
-No heavyweight game engine is required for the core gameplay.
+Under the hood the game runs a fixed **60 Hz simulation** on a dedicated loop
+thread with interpolated rendering, and the whole simulation, progression
+and save stack is **headless**: the same code that the player runs powers
+the bots, the balancing tools and the cross-platform determinism check in
+CI. The architecture is described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
 ## Project Structure
 
-The project is derived from the architecture of
-[`kingyuluk/FlappyBird`](https://github.com/kingyuluk/FlappyBird).
-
-The foundation separates the application, game components, utilities, and resources.
-
-A simplified representation is:
+Flapforge is a single Gradle module under the package
+`io.github.michelbr84.flapforge`, organised in four layers. Dependencies only
+point downwards, and the two lower layers never touch AWT, the clock,
+threads or global randomness — a rule enforced by a test.
 
 ```text
 Flapforge/
-├── src/
-│   └── main/
-│       └── java/
-│           └── ...
-│               ├── app/
-│               │   ├── App.java
-│               │   └── Game.java
-│               │
-│               ├── component/
-│               │   ├── Bird.java
-│               │   ├── Pipe.java
-│               │   ├── MovingPipe.java
-│               │   ├── GameBackground.java
-│               │   ├── GameForeground.java
-│               │   └── ScoreCounter.java
-│               │
-│               └── util/
-│                   ├── Constant.java
-│                   └── ...
-│
-├── resources/
-│   ├── img/
-│   └── wav/
-│
-├── README.md
-└── LICENSE
+├── build.gradle, settings.gradle, gradle.properties, gradlew*   Gradle 9.7.1 project (wrapper included)
+├── src/main/java/io/github/michelbr84/flapforge/
+│   ├── Flapforge.java      entry point: parses launch flags, boots the application
+│   │
+│   │   ── 1. application shell ──
+│   ├── app/                window, loop thread, AWT input bridge, frame presenter, clocks, threads
+│   │
+│   │   ── 2. presentation ──
+│   ├── render/             procedural art, viewport scaling, fonts, renderers, debug overlay
+│   ├── audio/              software mixer, tone synthesiser, music sequencer
+│   ├── ui/                 screen stack, focus handling, components, screens
+│   ├── event/              presentation-side event bus (audio, particles, toasts)
+│   │
+│   │   ── 3. simulation (pure) ──
+│   ├── core/               playfield constants, geometry, math, seeded RNG, TimeSource
+│   ├── input/              actions, key codes, per-tick input frames, bindings
+│   ├── gameplay/           bird, obstacles, collision, stats pipeline, difficulty, run state machine, bot harness
+│   ├── ability/            active and passive ability behaviours
+│   ├── modifier/           roguelite modifier pool, rarity and synergies
+│   │
+│   │   ── 4. meta (pure) ──
+│   ├── content/            JSON loader, strict binding, validator, unlock graph, strings
+│   ├── progression/        player profile, wallet, level, unlocks, upgrades, achievements, prestige
+│   └── persistence/        settings and save files: atomic writes, backups, migrations
+├── src/main/resources/
+│   ├── data/               birds, difficulty, economy, upgrades, abilities, modifiers, worlds, patterns, challenges, achievements (JSON)
+│   ├── data/strings/       en.json (source of truth), pt_BR.json
+│   ├── assets/             manifest.json plus optional override folders for future art, audio and fonts
+│   └── version.properties
+├── src/test/               unit, property, simulation, headless render and GUI smoke tests; fixtures
+├── src/tools/              balancing simulator, save inspector, content check, asset validator, icon export
+├── scripts/                build and run wrappers (sh + ps1)
+├── docs/                   architecture, development, balancing, content, save system, roadmap
+└── .github/                CI workflows, dependabot, issue and pull request templates
 ```
 
-As the roguelite systems grow, Flapforge can extend this architecture with isolated systems for:
+Files arrive milestone by milestone; the full package tree with milestone
+tags, the layer rules and the loop/presenter/input design are documented in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-```text
-progression/
-upgrades/
-abilities/
-birds/
-challenges/
-worlds/
-save/
-economy/
-achievements/
-```
-
-Keeping these systems separate from the basic flight mechanics makes it easier to expand the game without turning the core gameplay loop into a monolithic class.
+Keeping the roguelite systems as plain data and pure code, separate from the
+window and the renderer, is what lets the game be simulated, balanced and
+verified without ever opening a window.
 
 ---
 
@@ -849,19 +902,34 @@ Huge credit goes to **Kingyu Luk / kingyuluk** for making the original Java impl
 
 ## Assets and Third-Party Content
 
-The upstream project states that some image and audio resources were obtained from the internet for learning and educational use.
+**Flapforge ships no inherited assets.** The upstream project bundled sprites,
+backgrounds, number fonts, title artwork and sound effects that it described
+as "obtained from the internet for learning purposes", and some of them
+reproduced the Flappy Bird wordmark and character. Because the MIT licence
+covers the upstream *source code* and says nothing about those files, they
+were removed from the working tree at the start of the rewrite. They survive
+only in git history and are not part of any build, jar or release.
 
-Because software licensing and asset licensing are separate concerns, contributors should **not assume that the MIT license covering source code automatically grants redistribution rights to every image, sound, font, trademark, or other asset contained in or inherited from the original project**.
+Instead, the game is **procedural-first**:
 
-For a production-quality or commercially distributed version of Flapforge, the recommended approach is to use:
+- every image — backgrounds, pipes, gears, pistons, lightning, birds, UI,
+  the application icon — is drawn at runtime from per-world palettes and
+  bird archetypes;
+- every sound effect and music track is synthesised by a software mixer;
+- text uses the JDK's logical font until an open (OFL) font is bundled.
 
-- Original artwork.
-- Original sound effects.
-- Properly licensed music.
-- Properly licensed fonts.
-- Assets with clearly documented redistribution rights.
+Original artwork, audio and fonts are welcome later and have a defined
+drop-in path: `src/main/resources/assets/manifest.json` maps an asset id to a
+file, its kind, its licence and its provenance, and a listed sprite overrides
+the procedural drawing for that id without code changes. Anything added
+there must carry a licence that allows redistribution and must be recorded
+in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), which also holds the
+upstream attribution and the notices for the bundled runtime dependency
+(Gson, Apache 2.0).
 
-Third-party assets should have their origin and license documented whenever applicable.
+Software licensing and asset licensing remain separate concerns: the MIT
+licence in [`LICENSE`](LICENSE) covers Flapforge's code, not any third-party
+image, sound, font or trademark.
 
 ---
 
@@ -890,7 +958,7 @@ Good contribution areas include:
 A typical workflow is:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/michelbr84/Flapforge.git
 cd Flapforge
 
 git checkout -b feature/my-feature
@@ -957,5 +1025,4 @@ Special thanks to:
 
 ---
 
-**Flap. Fail. Forge. Fly farther.**# Flapforge
-# Flapforge
+**Flap. Fail. Forge. Fly farther.**

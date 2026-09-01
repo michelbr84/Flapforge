@@ -1,0 +1,123 @@
+name: Build
+
+on:
+  push:
+    branches: ['**'] # tag pushes are not matched; releases get their own release.yml (milestone M9)
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / JDK ${{ matrix.jdk }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        jdk: [17]
+        include:
+          # Second Ubuntu job: compile with the pinned 17 toolchain, run on 21.
+          - os: ubuntu-latest
+            jdk: 21
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (build toolchain)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up JDK 21 (runtime for the cross-JDK determinism check)
+        if: matrix.jdk == 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build, test and package
+        shell: bash
+        # The Gradle toolchain is pinned to Java 17. When JAVA_HOME points at
+        # 21 (second Ubuntu job) Gradle finds 17 through the env var exported
+        # by setup-java; on the plain JDK 17 jobs no extra property is needed.
+        run: >-
+          ./gradlew build fatJar --stacktrace
+          ${{ matrix.jdk == 21 && '-Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64' || '' }}
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: flapforge-jar-${{ matrix.os }}-jdk${{ matrix.jdk }}
+          path: build/libs/*.jar
+          if-no-files-found: error
+
+      - name: Headless determinism run
+        # M0 accepts `--headless-run N` and prints a summary line
+        # (`headless-run frames=N ticks=N presents=N seed=S`); the state hash
+        # (`hash=<hex>`, last stdout line) arrives with the simulation in M1.
+        # Until then the determinism job finds no hash and is allowed to fail.
+        # TODO(M1): remove continue-on-error here and in the determinism job
+        # together with the M1 hash so a broken headless run fails the build.
+        continue-on-error: true
+        shell: bash
+        run: |
+          jar=$(ls build/libs/flapforge-*-all.jar | head -n 1)
+          mkdir -p build/determinism
+          java -jar "$jar" --headless-run 600 --seed 42 --no-audio | tee build/determinism/hash.txt
+
+      - name: Upload determinism output
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-${{ matrix.os }}-jdk${{ matrix.jdk }}
+          path: build/determinism/hash.txt
+          if-no-files-found: ignore
+
+  determinism:
+    name: Cross-platform determinism
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download determinism outputs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: determinism-*
+          path: hashes
+
+      - name: Assert every OS/JDK produced the same hash
+        # Same caveat as above: until M1 prints `hash=<hex>` there is nothing
+        # to compare (a summary line would trivially agree), so the job may
+        # not fail the workflow yet. TODO(M1): remove continue-on-error.
+        continue-on-error: true
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(hashes/*/hash.txt)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::warning::No determinism outputs found (expected until --headless-run lands in M1)"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "== $f"
+            cat "$f"
+            if ! grep -qE '^hash=[0-9a-f]+$' "$f"; then
+              echo "::error::$f has no 'hash=<hex>' line (printed by --headless-run from M1)"
+              exit 1
+            fi
+          done
+          # Only the explicit hash line is compared, never the summary line.
+          distinct=$(for f in "${files[@]}"; do grep -E '^hash=[0-9a-f]+$' "$f" | tail -n 1; done | sort -u | wc -l)
+          if [ "$distinct" -ne 1 ]; then
+            echo "::error::Determinism hashes differ across platforms/JDKs"
+            exit 1
+          fi
+          echo "All ${#files[@]} runs agree."

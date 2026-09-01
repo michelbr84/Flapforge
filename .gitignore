@@ -1,40 +1,27 @@
-# maven ignore
-target/
-*.war
-*.zip
-*.tar
-*.tar.gz
+# Gradle
+build/
+.gradle/
+out/
+/dist/
+!gradle/wrapper/gradle-wrapper.jar
 
-# eclipse ignore
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
 .settings/
 .project
 .classpath
+bin/
 
-# idea ignore
-.idea/
-*.ipr
-*.iml
-*.iws
-
-# temp ignore
+# Logs and temporary files
 *.log
-*.cache
-*.diff
-*.patch
 *.tmp
-*.java~
-*.properties~
-*.xml~
 *.swp
+*~
 
-# system ignore
+# OS clutter
 .DS_Store
 Thumbs.db
-
-# project ignore
-score
-/out/
-/bulid/
-/bin/
-/pyproject.toml
-/src/META-INF/

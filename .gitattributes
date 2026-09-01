@@ -1,0 +1,26 @@
+# Normalise line endings: text files are stored with LF and checked out with LF.
+* text=auto eol=lf
+
+# Windows-only scripts must keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# POSIX scripts and the Gradle launcher always use LF.
+*.sh text eol=lf
+gradlew text eol=lf
+
+# Binary assets are never normalised or diffed as text.
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

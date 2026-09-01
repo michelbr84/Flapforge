@@ -1,0 +1,34 @@
+# EditorConfig: https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.java]
+indent_size = 4
+max_line_length = 120
+
+[*.{gradle,groovy}]
+indent_size = 4
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+indent_size = 2
+# Two trailing spaces are a Markdown hard line break; keep them.
+trim_trailing_whitespace = false
+
+[*.{sh,ps1}]
+indent_size = 4
+
+[*.bat]
+end_of_line = crlf
+
+[Makefile]
+indent_style = tab
