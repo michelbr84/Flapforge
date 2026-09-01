@@ -23,12 +23,15 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * Reads and writes {@code save.json} (D15). One instance is one session's view of one profile.
  *
- * <p><b>Load order (E21).</b> Read the text, parse it, {@link SaveMigrator migrate} it, apply the
- * id aliases, bind it and {@link PlayerProfile#normalize(ProfileSchema) normalize} it. Aliases run
- * before normalisation on purpose: a renamed id must be renamed before the consistency rules
- * decide which unlocks it implies. Binding sits between them for the obvious reason that
- * normalisation is a method on the bound object — everything before it works on the tree, because
- * that is the only representation that still holds fields this build has never heard of.
+ * <p><b>Load order (E21).</b> Read the text, parse it, {@link SaveMigrator migrate} it, bind it,
+ * apply the id aliases ({@link ProfileAliasStep}) and
+ * {@link PlayerProfile#normalize(ProfileSchema) normalize} it. Aliases run before normalisation on
+ * purpose: a renamed id must be renamed before the consistency rules decide which unlocks it
+ * implies, and before an unknown selection is reset to the default. Binding sits before both
+ * because the alias table is per field and normalisation is a method on the bound object; the
+ * {@link AliasStep} that works on the tree stays for a change that has to happen before the tree
+ * can bind at all, the tree being the only representation that still holds fields this build has
+ * never heard of.
  *
  * <p><b>Forward compatibility (E22).</b> The tree that was read is kept, and a write is the freshly
  * serialised state laid <em>over</em> it, so a key written by a newer build survives a load and a
@@ -178,9 +181,11 @@ public final class SaveManager {
     }
 
     /**
-     * The id reconciliation step (E21). {@code aliases.json} arrives in M4; until then the step is
-     * the identity, and it is injected rather than imported because {@code persistence} does not
-     * depend on {@code content}.
+     * The id reconciliation step over the parsed tree (E21). It is injected rather than imported
+     * because {@code persistence} does not depend on {@code content}.
+     *
+     * <p>{@link ProfileAliasStep} is the form the game uses; this one stays for a change that has
+     * to happen before the tree can bind at all (a field that moved, not an id that was renamed).
      */
     @FunctionalInterface
     public interface AliasStep {
@@ -197,6 +202,33 @@ public final class SaveManager {
         JsonObject apply(JsonObject tree);
     }
 
+    /**
+     * The id reconciliation step over the bound profile (E21), run <em>between</em> binding and
+     * {@link PlayerProfile#normalize(ProfileSchema) normalisation}.
+     *
+     * <p>That position is the whole point: normalisation resets a selection id no registry knows
+     * and writes the unlocks an owned id implies, so an alias that has not been applied yet loses
+     * the rename — the selection falls back to the default instead of being carried over, and the
+     * implied unlock is written under the old id. The step is a profile-level hook rather than a
+     * tree-level one because the alias table is per field ({@code unlocked}, {@code upgrades},
+     * {@code abilityLevels}, {@code selected}) and the bound profile is where those fields have
+     * names; {@code persistence} still knows nothing about {@code content}.
+     */
+    @FunctionalInterface
+    public interface ProfileAliasStep {
+
+        /** The step used while no {@code aliases.json} exists. */
+        ProfileAliasStep NONE = profile -> List.of();
+
+        /**
+         * Rewrites the ids of a bound profile, in place.
+         *
+         * @param profile the bound profile, before normalisation
+         * @return one English line per change, in the order the changes were made
+         */
+        List<String> apply(PlayerProfile profile);
+    }
+
     private final Executor writer;
     private final TimeSource time;
     private final Path explicitFile;
@@ -209,6 +241,7 @@ public final class SaveManager {
     private int schemaVersion = SaveFile.VERSION;
     private ProfileSchema schema = ProfileSchema.permissive();
     private AliasStep aliasStep = AliasStep.NONE;
+    private ProfileAliasStep profileAliasStep = ProfileAliasStep.NONE;
     private String appVersion = SaveFile.UNKNOWN_APP_VERSION;
     private int contentVersion = SaveFile.CONTENT_VERSION;
     private AtomicFiles.FailurePoint failurePoint = AtomicFiles.FailurePoint.NONE;
@@ -307,6 +340,18 @@ public final class SaveManager {
      */
     public SaveManager aliasStep(AliasStep aliasStep) {
         this.aliasStep = aliasStep == null ? AliasStep.NONE : aliasStep;
+        return this;
+    }
+
+    /**
+     * Sets the id reconciliation step run on the bound profile, before normalisation (E21).
+     *
+     * @param profileAliasStep the step; {@code null} restores {@link ProfileAliasStep#NONE}
+     * @return this manager
+     */
+    public SaveManager profileAliasStep(ProfileAliasStep profileAliasStep) {
+        this.profileAliasStep =
+                profileAliasStep == null ? ProfileAliasStep.NONE : profileAliasStep;
         return this;
     }
 
@@ -522,7 +567,11 @@ public final class SaveManager {
             return Attempt.failed("the profile does not fit the current schema: " + e.getMessage());
         }
         PlayerProfile bound = envelope.profile();
-        List<String> repairs = bound.normalizeAndReport(schema);
+        // E21's order: the aliases rename the ids, and only then do the consistency rules decide
+        // what those ids imply. The other way round a renamed selection is repaired away before
+        // the table can carry it over.
+        List<String> repairs = new ArrayList<>(profileAliasStep.apply(bound));
+        repairs.addAll(bound.normalizeAndReport(schema));
         return Attempt.loaded(bound, tree, migratedFrom, preMigrationBackup, repairs,
                 schemaVersion);
     }

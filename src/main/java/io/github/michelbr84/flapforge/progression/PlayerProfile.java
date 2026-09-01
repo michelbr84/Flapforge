@@ -158,7 +158,8 @@ public final class PlayerProfile {
         ProfileSchema known = schema == null ? ProfileSchema.permissive() : schema;
         List<String> repairs = new ArrayList<>();
         repairNulls(repairs);
-        repairNumbers(repairs);
+        repairNumbers(known, repairs);
+        repairUpgrades(known, repairs);
         repairSelection(known, repairs);
         repairImpliedUnlocks(known, repairs);
         return repairs;
@@ -224,7 +225,7 @@ public final class PlayerProfile {
         selected.normalize();
     }
 
-    private void repairNumbers(List<String> repairs) {
+    private void repairNumbers(ProfileSchema schema, List<String> repairs) {
         if (createdAtEpochMs < 0) {
             repairs.add("createdAtEpochMs was negative");
             createdAtEpochMs = 0;
@@ -248,6 +249,15 @@ public final class PlayerProfile {
         if (abilityLevelCap < DEFAULT_ABILITY_LEVEL_CAP) {
             repairs.add("abilityLevelCap was below " + DEFAULT_ABILITY_LEVEL_CAP);
             abilityLevelCap = DEFAULT_ABILITY_LEVEL_CAP;
+        }
+        // E3: the cap is the base plus the ability_cap grants the trees ship, so a hand-edited or
+        // corrupted value above that would offer ability levels the abilities do not have. A
+        // schema without content reports 0 and nothing is clamped from above.
+        int ceiling = schema.maxAbilityLevelCap();
+        if (ceiling >= DEFAULT_ABILITY_LEVEL_CAP && abilityLevelCap > ceiling) {
+            repairs.add("abilityLevelCap " + abilityLevelCap + " is above the content ceiling "
+                    + ceiling);
+            abilityLevelCap = ceiling;
         }
         for (Map.Entry<String, Long> entry : wallet.entrySet()) {
             Long value = entry.getValue();
@@ -290,6 +300,24 @@ public final class PlayerProfile {
             }
         }
         return new ArrayList<>(unique);
+    }
+
+    /**
+     * Drops owned levels of upgrade nodes the build no longer ships (E21).
+     *
+     * <p>An unknown node key is not harmless: {@link #upgradeLevelsTotal()} feeds Cinder's
+     * {@code BIRD_SYNERGY} layer, so a stale or hand-edited entry inflates the synergy of every
+     * run. The supported way to carry a renamed node forward is {@code aliases.json}, which runs
+     * before this — a key that survives it is a node this build does not have.
+     */
+    private void repairUpgrades(ProfileSchema schema, List<String> repairs) {
+        upgrades.keySet().removeIf(nodeId -> {
+            boolean drop = !schema.knowsUpgrade(nodeId);
+            if (drop) {
+                repairs.add("upgrades dropped the unknown node " + nodeId);
+            }
+            return drop;
+        });
     }
 
     private void repairSelection(ProfileSchema schema, List<String> repairs) {

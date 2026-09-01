@@ -5,6 +5,7 @@ import io.github.michelbr84.flapforge.audio.AudioBackend;
 import io.github.michelbr84.flapforge.audio.AudioManager;
 import io.github.michelbr84.flapforge.audio.NullAudio;
 import io.github.michelbr84.flapforge.audio.SoundBank;
+import io.github.michelbr84.flapforge.content.ContentAdapters;
 import io.github.michelbr84.flapforge.content.ContentException;
 import io.github.michelbr84.flapforge.content.ContentValidator;
 import io.github.michelbr84.flapforge.content.GameContent;
@@ -26,8 +27,11 @@ import io.github.michelbr84.flapforge.persistence.SaveManager;
 import io.github.michelbr84.flapforge.persistence.SavePaths;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
+import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
+import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
+import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.render.AssetManager;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
@@ -320,8 +324,74 @@ public final class GameApplication {
      * @return the factory
      */
     private static ContentRunFactory runFactory(GameContent content, SeedSequence seeds) {
+        return runFactory(content, seeds, null);
+    }
+
+    /**
+     * The factory the windowed launch plays through: the same content and mode, plus the live
+     * profile, so every run carries the selection and the upgrades the player owns (D14, M4).
+     *
+     * @param content the loaded content
+     * @param seeds the seed source
+     * @param ctx the session context, or {@code null} for a launch without a profile
+     * @return the factory
+     */
+    private static ContentRunFactory runFactory(GameContent content, SeedSequence seeds,
+            GameContext ctx) {
         return new ContentRunFactory(content,
-                seeds.isExplicit() ? RunMode.SEEDED : RunMode.STANDARD);
+                seeds.isExplicit() ? RunMode.SEEDED : RunMode.STANDARD,
+                ctx == null ? null : ctx::profile);
+    }
+
+    /**
+     * The {@code aliases.json} step of the load (E21), as the save manager runs it: on the bound
+     * profile, before normalisation.
+     *
+     * <p>It has to sit inside the load rather than after it. Normalisation resets every selection
+     * id no registry knows and writes the unlocks an owned id implies; running the renames after
+     * it would mean a renamed bird had already fallen back to the default and a renamed ability
+     * had already been written into {@code unlocked} under its old name.
+     *
+     * @param content the loaded content, which carries the table
+     * @return the step to hand to {@link SaveManager#profileAliasStep}
+     */
+    private static SaveManager.ProfileAliasStep aliasStep(GameContent content) {
+        if (content.aliases() == null || content.aliases().isEmpty()) {
+            return SaveManager.ProfileAliasStep.NONE;
+        }
+        String currency = ProgressionRules.fromEconomy(content.economy()).primaryCurrency();
+        return profile -> UpgradeManager.reconcile(profile, content.aliases(), currency);
+    }
+
+    /**
+     * Grants, once at startup, every unlock the loaded profile already satisfies (D13, D14).
+     *
+     * <p>The evaluator otherwise runs only at the end of a run and after a purchase, so a profile
+     * written before an unlockable existed — every profile carried over from M3 into M4, and any
+     * profile at all after a threshold is lowered or a new unlockable ships — would open the game
+     * with what it has already earned still locked, and the shop would sell it. The pass is
+     * {@link ProgressionManager#applyPurchase}, which is exactly D14's "achievements → unlocks →
+     * dirty" tail, and the profile is written back only when something was actually granted.
+     *
+     * @param save the manager holding the loaded profile
+     * @param progression the write path
+     */
+    private static void grantWhatIsAlreadyEarned(SaveManager save, ProgressionManager progression) {
+        PlayerProfile profile = save.profile();
+        if (profile == null) {
+            return;
+        }
+        List<String> granted = progression.applyPurchase(profile).unlocksGranted();
+        if (granted.isEmpty()) {
+            // The pass wrote nothing, so the profile is not dirty: leaving the mark on would make
+            // the 60-second autosave rewrite an unchanged file once per session (D15).
+            progression.clearDirty();
+            return;
+        }
+        System.out.println("save unlocked what was already earned: " + String.join(", ", granted));
+        if (save.save()) {
+            progression.markSaveQueued();
+        }
     }
 
     /**
@@ -377,12 +447,24 @@ public final class GameApplication {
                             : loaded.archived().getFileName()), Toast.Kind.WARNING);
         }
         SaveManager save = new SaveManager(threads.saveExecutor(), timeSource)
-                .stamp(Flapforge.version(), SaveFile.CONTENT_VERSION);
+                .stamp(Flapforge.version(), SaveFile.CONTENT_VERSION)
+                // From M4 the registries exist, so a saved id the content no longer knows is
+                // repaired instead of kept (E15, E21).
+                .schema(ContentAdapters.toProfileSchema(content))
+                // E21: the renames run inside the load, between binding and normalising.
+                .profileAliasStep(aliasStep(content));
         SaveManager.LoadResult profileLoad = loadProfile(save);
         if (profileLoad.hasNotice()) {
             toasts.push(saveNotice(strings, save, profileLoad), Toast.Kind.WARNING);
         }
-        ProgressionManager progression = new ProgressionManager(timeSource);
+        for (String repair : profileLoad.repairs()) {
+            System.out.println("save repaired: " + repair);
+        }
+        // The unlock evaluator is the unlock step of D14's pipeline, for a finished run and for a
+        // purchase alike; the achievement hook stays empty until M8.
+        ProgressionManager progression = new ProgressionManager(timeSource,
+                ProgressionManager.AchievementHook.NONE, UnlockEvaluator.of(content));
+        grantWhatIsAlreadyEarned(save, progression);
         ProgressionRules progressionRules = ProgressionRules.fromEconomy(content.economy());
         InputQueue input = new InputQueue(settings.bindings());
 
@@ -443,7 +525,8 @@ public final class GameApplication {
                 () -> openAudio(audio, assets, threads)));
         BootSequence boot = new BootSequence(threads.bootExecutor(), steps);
         screens.push(new BootScreen(bootContext, boot,
-                () -> new MainMenuScreen(bootContext, runFactory(content, seeds), seeds)));
+                () -> new MainMenuScreen(bootContext, runFactory(content, seeds, bootContext),
+                        seeds)));
         screens.applyPending();
 
         Thread shutdownHook = new Thread(() -> drainSaves(threads), "flapforge-shutdown");

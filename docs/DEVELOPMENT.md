@@ -162,6 +162,19 @@ DISPLAY=:0 ./gradlew smokeTest
   skipped. Keep the desktop idle while it runs (it holds `F11` for 0.4 s).
   The same navigation through the input queue alone is `MenuNavigationTest`
   in the default headless suite.
+- **A locked screen skips the Robot-driven tests.** A screensaver, a lock
+  screen or any client holding a keyboard grab takes every synthetic event
+  while the canvas still reports focus, so before driving the window each test
+  presses an unbound canary key (`Ctrl`) and checks it arrives. When it does
+  not, the test is *skipped* with "the desktop session does not deliver
+  synthetic input" instead of blaming the game. Unlock the session, or run the
+  suite on a nested X server, which has its own XTEST and ignores the parent
+  session's lock:
+
+  ```bash
+  Xephyr :7 -screen 1280x1024 -ac -noreset &
+  DISPLAY=:7 ./gradlew smokeTest
+  ```
 - Never leave a Java process behind when scripting: wrap manual window checks
   in `timeout 10 ./gradlew run`.
 - CI (`.github/workflows/test.yml`) installs `xvfb` and runs
@@ -287,6 +300,7 @@ simulation, headless render and GUI smoke tests, fixtures), `src/tools`
 | Toolchain error: no Java 17 found | install a JDK 17 or point Gradle at one: `-Porg.gradle.java.installations.paths=/path/to/jdk17` |
 | `smokeTest` reports every gui test as skipped | no display: set `DISPLAY` (or use `xvfb-run -a`) |
 | `smokeTest` menu test skipped "never obtained keyboard focus" | another window steals focus; leave the desktop idle and rerun |
+| `smokeTest` tests skipped "does not deliver synthetic input" | the session is locked or a client holds a keyboard grab; unlock it, or run on `Xephyr :7` (see "Running the GUI tests locally") |
 | Uniform black screenshot on Wayland | expected; the test falls back to the off-screen render (`<name>-render.png`) |
 | A build fails only in CI with a lint error | the JDK version differs; the CI JDK is Temurin 17 (and 21 on one job) — reproduce with the same version |
 | `smokeTest` fails with `EOFException` / `NoSuchFileException` under `build/test-results` after the tests passed | Gradle configuration-cache artefact; re-run with `--no-configuration-cache` |

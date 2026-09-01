@@ -1,0 +1,540 @@
+[
+  {
+    "id": "classic",
+    "archetype": "BALANCED",
+    "passiveSlots": 2,
+    "baseStats": {
+      "GRAVITY": 1800,
+      "FLAP_VELOCITY": 405,
+      "MAX_FALL_SPEED": 1500
+    },
+    "hitbox": {
+      "w": 33,
+      "h": 31,
+      "ox": -17,
+      "oy": -12
+    },
+    "effects": [],
+    "rampEffects": [],
+    "synergyEffects": [],
+    "passiveAbilities": [],
+    "palettes": [
+      {
+        "id": "default",
+        "body": "#F5C542",
+        "wing": "#E09A2B",
+        "eye": "#222222",
+        "accent": "#FFF3C4",
+        "unlock": {
+          "type": "default"
+        }
+      },
+      {
+        "id": "ember",
+        "body": "#E0533A",
+        "wing": "#8C2B1A",
+        "eye": "#222222",
+        "accent": "#FFB48A",
+        "unlock": {
+          "type": "challenge",
+          "id": "no_shield_1"
+        }
+      },
+      {
+        "id": "voidglass",
+        "body": "#3B2E5A",
+        "wing": "#241A38",
+        "eye": "#E8E0FF",
+        "accent": "#9B7BE8",
+        "unlock": {
+          "type": "world_cleared",
+          "id": "void"
+        }
+      },
+      {
+        "id": "prestige",
+        "body": "#FFD966",
+        "wing": "#C9A227",
+        "eye": "#222222",
+        "accent": "#FFF6D5",
+        "unlock": {
+          "type": "prestige",
+          "value": 1
+        }
+      }
+    ],
+    "shape": "balanced",
+    "unlock": {
+      "type": "default"
+    }
+  },
+  {
+    "id": "swift",
+    "archetype": "SWIFT",
+    "passiveSlots": 2,
+    "baseStats": {
+      "GRAVITY": 2100,
+      "FLAP_VELOCITY": 470,
+      "MAX_FALL_SPEED": 1500
+    },
+    "hitbox": {
+      "w": 33,
+      "h": 31,
+      "ox": -17,
+      "oy": -12
+    },
+    "effects": [],
+    "rampEffects": [],
+    "synergyEffects": [],
+    "passiveAbilities": [],
+    "palettes": [
+      {
+        "id": "default",
+        "body": "#7FD8E8",
+        "wing": "#3FA9C9",
+        "eye": "#1B1B1B",
+        "accent": "#EAFBFF",
+        "unlock": {
+          "type": "default"
+        }
+      },
+      {
+        "id": "comet",
+        "body": "#9AA8FF",
+        "wing": "#4A57C9",
+        "eye": "#1B1B1B",
+        "accent": "#FFFFFF",
+        "unlock": {
+          "type": "challenge",
+          "id": "speed_run_1"
+        }
+      },
+      {
+        "id": "prestige",
+        "body": "#FFD966",
+        "wing": "#C9A227",
+        "eye": "#1B1B1B",
+        "accent": "#FFF6D5",
+        "unlock": {
+          "type": "prestige",
+          "value": 1
+        }
+      }
+    ],
+    "shape": "swift",
+    "unlock": {
+      "type": "any_of",
+      "conditions": [
+        {
+          "type": "best_gates",
+          "value": 15
+        },
+        {
+          "type": "purchase",
+          "amount": 300
+        }
+      ]
+    }
+  },
+  {
+    "id": "heavy",
+    "archetype": "HEAVY",
+    "passiveSlots": 2,
+    "baseStats": {
+      "GRAVITY": 2200,
+      "FLAP_VELOCITY": 460,
+      "MAX_FALL_SPEED": 450
+    },
+    "hitbox": {
+      "w": 33,
+      "h": 31,
+      "ox": -17,
+      "oy": -12
+    },
+    "effects": [],
+    "rampEffects": [],
+    "synergyEffects": [],
+    "passiveAbilities": [],
+    "palettes": [
+      {
+        "id": "default",
+        "body": "#8A8F98",
+        "wing": "#565B63",
+        "eye": "#1B1B1B",
+        "accent": "#C9CED6",
+        "unlock": {
+          "type": "default"
+        }
+      },
+      {
+        "id": "basalt",
+        "body": "#4A4A52",
+        "wing": "#2B2B31",
+        "eye": "#1B1B1B",
+        "accent": "#8E8E99",
+        "unlock": {
+          "type": "total_gates",
+          "value": 500
+        }
+      },
+      {
+        "id": "prestige",
+        "body": "#FFD966",
+        "wing": "#C9A227",
+        "eye": "#1B1B1B",
+        "accent": "#FFF6D5",
+        "unlock": {
+          "type": "prestige",
+          "value": 1
+        }
+      }
+    ],
+    "shape": "heavy",
+    "unlock": {
+      "type": "any_of",
+      "conditions": [
+        {
+          "type": "runs",
+          "value": 4
+        },
+        {
+          "type": "purchase",
+          "amount": 200
+        }
+      ]
+    }
+  },
+  {
+    "id": "guardian",
+    "archetype": "GUARDIAN",
+    "passiveSlots": 2,
+    "baseStats": {
+      "GRAVITY": 1800,
+      "FLAP_VELOCITY": 405,
+      "MAX_FALL_SPEED": 1500
+    },
+    "hitbox": {
+      "w": 33,
+      "h": 31,
+      "ox": -17,
+      "oy": -12
+    },
+    "effects": [
+      {
+        "stat": "COIN_MULT",
+        "op": "PERCENT_ADD",
+        "value": -0.2
+      }
+    ],
+    "rampEffects": [],
+    "synergyEffects": [],
+    "passiveAbilities": [
+      "shield"
+    ],
+    "palettes": [
+      {
+        "id": "default",
+        "body": "#8FA3B7",
+        "wing": "#5C6F82",
+        "eye": "#1B1B1B",
+        "accent": "#D9E4EE",
+        "unlock": {
+          "type": "default"
+        }
+      },
+      {
+        "id": "bronze",
+        "body": "#B87333",
+        "wing": "#7A4A1E",
+        "eye": "#1B1B1B",
+        "accent": "#F0C27A",
+        "unlock": {
+          "type": "challenge",
+          "id": "moving_world_1"
+        }
+      },
+      {
+        "id": "prestige",
+        "body": "#FFD966",
+        "wing": "#C9A227",
+        "eye": "#1B1B1B",
+        "accent": "#FFF6D5",
+        "unlock": {
+          "type": "prestige",
+          "value": 1
+        }
+      }
+    ],
+    "shape": "guardian",
+    "unlock": {
+      "type": "any_of",
+      "conditions": [
+        {
+          "type": "runs",
+          "value": 3
+        },
+        {
+          "type": "purchase",
+          "amount": 150
+        }
+      ]
+    }
+  },
+  {
+    "id": "gambler",
+    "archetype": "GAMBLER",
+    "passiveSlots": 2,
+    "baseStats": {
+      "GRAVITY": 1800,
+      "FLAP_VELOCITY": 405,
+      "MAX_FALL_SPEED": 1500
+    },
+    "hitbox": {
+      "w": 33,
+      "h": 31,
+      "ox": -17,
+      "oy": -12
+    },
+    "effects": [
+      {
+        "stat": "SCORE_MULT",
+        "op": "PERCENT_ADD",
+        "value": 0.3
+      },
+      {
+        "stat": "COIN_MULT",
+        "op": "PERCENT_ADD",
+        "value": 0.3
+      },
+      {
+        "stat": "GAP_SIZE",
+        "op": "MULTIPLY",
+        "value": 0.9
+      },
+      {
+        "stat": "HITBOX_SCALE",
+        "op": "FLAT_ADD",
+        "value": 0.1
+      }
+    ],
+    "rampEffects": [],
+    "synergyEffects": [],
+    "passiveAbilities": [],
+    "palettes": [
+      {
+        "id": "default",
+        "body": "#3C3F4A",
+        "wing": "#23262E",
+        "eye": "#E8C23A",
+        "accent": "#8B90A0",
+        "unlock": {
+          "type": "default"
+        }
+      },
+      {
+        "id": "gilded",
+        "body": "#D4AF37",
+        "wing": "#8C6A16",
+        "eye": "#1B1B1B",
+        "accent": "#FFE9A8",
+        "unlock": {
+          "type": "challenge",
+          "id": "coin_rush_1"
+        }
+      },
+      {
+        "id": "prestige",
+        "body": "#FFD966",
+        "wing": "#C9A227",
+        "eye": "#1B1B1B",
+        "accent": "#FFF6D5",
+        "unlock": {
+          "type": "prestige",
+          "value": 1
+        }
+      }
+    ],
+    "shape": "gambler",
+    "unlock": {
+      "type": "any_of",
+      "conditions": [
+        {
+          "type": "best_gates",
+          "value": 25
+        },
+        {
+          "type": "purchase",
+          "amount": 500
+        }
+      ]
+    }
+  },
+  {
+    "id": "sparrow",
+    "archetype": "MYSTIC",
+    "passiveSlots": 3,
+    "baseStats": {
+      "GRAVITY": 1800,
+      "FLAP_VELOCITY": 405,
+      "MAX_FALL_SPEED": 1500
+    },
+    "hitbox": {
+      "w": 33,
+      "h": 31,
+      "ox": -17,
+      "oy": -12
+    },
+    "effects": [
+      {
+        "stat": "ABILITY_DURATION_MULT",
+        "op": "MULTIPLY",
+        "value": 1.3
+      },
+      {
+        "stat": "ABILITY_COOLDOWN_MULT",
+        "op": "MULTIPLY",
+        "value": 1.4
+      }
+    ],
+    "rampEffects": [],
+    "synergyEffects": [],
+    "passiveAbilities": [],
+    "palettes": [
+      {
+        "id": "default",
+        "body": "#9B7BE8",
+        "wing": "#6247A8",
+        "eye": "#F2E9FF",
+        "accent": "#D9C8FF",
+        "unlock": {
+          "type": "default"
+        }
+      },
+      {
+        "id": "aurora",
+        "body": "#6BE8C4",
+        "wing": "#2E9E86",
+        "eye": "#F2E9FF",
+        "accent": "#BFF8E6",
+        "unlock": {
+          "type": "achievement",
+          "id": "ability_master"
+        }
+      },
+      {
+        "id": "prestige",
+        "body": "#FFD966",
+        "wing": "#C9A227",
+        "eye": "#1B1B1B",
+        "accent": "#FFF6D5",
+        "unlock": {
+          "type": "prestige",
+          "value": 1
+        }
+      }
+    ],
+    "shape": "mystic",
+    "unlock": {
+      "type": "any_of",
+      "conditions": [
+        {
+          "type": "achievement",
+          "id": "ability_adept"
+        },
+        {
+          "type": "purchase",
+          "amount": 600
+        }
+      ]
+    }
+  },
+  {
+    "id": "forge",
+    "archetype": "FORGE",
+    "passiveSlots": 2,
+    "baseStats": {
+      "GRAVITY": 1800,
+      "FLAP_VELOCITY": 385,
+      "MAX_FALL_SPEED": 1500
+    },
+    "hitbox": {
+      "w": 33,
+      "h": 31,
+      "ox": -17,
+      "oy": -12
+    },
+    "effects": [],
+    "rampEffects": [
+      {
+        "stat": "SCORE_MULT",
+        "op": "PERCENT_ADD",
+        "perGate": 0.02,
+        "max": 0.5
+      }
+    ],
+    "synergyEffects": [
+      {
+        "stat": "FLAP_VELOCITY",
+        "op": "PERCENT_ADD",
+        "perUpgradeLevel": 0.005,
+        "max": 0.08
+      },
+      {
+        "stat": "COIN_MULT",
+        "op": "PERCENT_ADD",
+        "perUpgradeLevel": 0.01,
+        "max": 0.25
+      }
+    ],
+    "passiveAbilities": [],
+    "palettes": [
+      {
+        "id": "default",
+        "body": "#6B4A3A",
+        "wing": "#3E2A20",
+        "eye": "#FFB86B",
+        "accent": "#E08A3C",
+        "unlock": {
+          "type": "default"
+        }
+      },
+      {
+        "id": "molten",
+        "body": "#E2571F",
+        "wing": "#8C2B0A",
+        "eye": "#FFD9A0",
+        "accent": "#FF9A3C",
+        "unlock": {
+          "type": "counter",
+          "counter": "collection.upgrades.percent",
+          "value": 50
+        }
+      },
+      {
+        "id": "prestige",
+        "body": "#FFD966",
+        "wing": "#C9A227",
+        "eye": "#1B1B1B",
+        "accent": "#FFF6D5",
+        "unlock": {
+          "type": "prestige",
+          "value": 1
+        }
+      }
+    ],
+    "shape": "forge",
+    "unlock": {
+      "type": "any_of",
+      "conditions": [
+        {
+          "type": "world_cleared",
+          "id": "green_fields"
+        },
+        {
+          "type": "purchase",
+          "amount": 800
+        }
+      ]
+    }
+  }
+]

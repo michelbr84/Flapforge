@@ -9,15 +9,15 @@ The player-facing overview lives in the root [`README.md`](../README.md).
 | --- | --- |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The four layers, the pure/presentation split and its enforcement, the loop / presenter / input design, the package tree with milestone tags, and how the original `STRUCTURE.md` proposal was reconciled |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | Prerequisites, bootstrapping the Gradle wrapper, every Gradle task, launch flags, coding rules, running GUI tests locally and in CI |
+| [`BALANCING.md`](BALANCING.md) | Physics conversion table from the upstream integer loop to the 60 Hz simulation, cosmetic-feel rows, balancing simulation results |
+| [`SAVE_SYSTEM.md`](SAVE_SYSTEM.md) | Save envelope, atomic writes, backups and quarantine, migrations, forward-compatibility overlay, reset policy |
+| [`CONTENT.md`](CONTENT.md) | JSON schemas for every content file, validator rules, how to add birds, worlds, patterns, challenges |
+| [`PROGRESSION.md`](PROGRESSION.md) | Currencies, levels, the unlock graph and its conditions, purchases, upgrade trees, effective stats, the meta-progression screens, prestige |
 
 ## Planned (added by the milestone that implements the subject)
 
 | Document | Milestone | Contents |
 | --- | --- | --- |
-| `BALANCING.md` | M1 | Physics conversion table from the upstream integer loop to the 60 Hz simulation, cosmetic-feel rows, balancing simulation results |
-| `SAVE_SYSTEM.md` | M3 | Save envelope, atomic writes, backups and quarantine, migrations, forward-compatibility overlay, reset policy |
-| `PROGRESSION.md` | M4 | Currencies, levels, unlock graph, upgrade trees, achievements, prestige |
-| `CONTENT.md` | M4 | JSON schemas for every content file, validator rules, how to add birds, worlds, patterns, challenges |
 | `GAME_DESIGN.md` | M9 | Consolidated design document (pillars, systems, worlds, bosses, deferred ideas) |
 | `ROADMAP.md` | M9 | Post-1.0 plans and the explicit deferred list |
 

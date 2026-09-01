@@ -22,6 +22,7 @@ import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
 import io.github.michelbr84.flapforge.gameplay.run.StreakTracker;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.RampEffect;
+import io.github.michelbr84.flapforge.gameplay.spec.SynergyEffect;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
 import io.github.michelbr84.flapforge.gameplay.stats.Layer;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
@@ -50,6 +51,7 @@ public final class Simulation {
 
     private static final long HASH_SEED = MathUtil.fnv1a64("flapforge-sim");
     private static final String RAMP_SOURCE_PREFIX = "ramp:";
+    private static final String SYNERGY_SOURCE_PREFIX = "synergy:";
 
     private final RandomProvider rng;
     private final EffectStack stack = new EffectStack();
@@ -88,6 +90,7 @@ public final class Simulation {
         this.stats = new StatSheet(birdProfile.baseStats(), stack, rules);
         stack.setLayer(Layer.BIRD, birdProfile.effects());
         stack.setLayer(Layer.UPGRADES, config.permanentEffects());
+        applySynergies(config.upgradeLevelsTotal());
         this.difficulty = new DifficultyState(stack, new DifficultyCurve(setup.world().curve()),
                 setup.tier().effects(), setup.world().effects(), setup.speedRampPerTick(), rules);
         this.bird = new Bird(birdProfile.hitbox(), Playfield.BIRD_START_Y);
@@ -463,6 +466,28 @@ public final class Simulation {
      */
     public int coinsCollected() {
         return coinsCollected;
+    }
+
+    /**
+     * Resolves the bird's synergy effects once, at construction, from the total of owned upgrade
+     * levels the configuration carries (D8, {@code BIRD_SYNERGY}).
+     *
+     * <p>Once, not per gate: unlike a ramp, a synergy is a property of the build the run started
+     * with. A bird with no synergy effects — every bird but Cinder — pushes nothing, so the layer
+     * stays empty and the resolved stats are bit-identical to a run without it.
+     *
+     * @param upgradeLevels the total of owned upgrade levels
+     */
+    private void applySynergies(int upgradeLevels) {
+        List<SynergyEffect> synergies = birdProfile.synergyEffects();
+        if (synergies.isEmpty()) {
+            return;
+        }
+        List<StatModifier> layer = new ArrayList<>(synergies.size());
+        for (SynergyEffect s : synergies) {
+            layer.add(s.at(upgradeLevels, SYNERGY_SOURCE_PREFIX + birdProfile.id()));
+        }
+        stack.setLayer(Layer.BIRD_SYNERGY, layer);
     }
 
     private void refreshRamp() {

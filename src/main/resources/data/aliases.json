@@ -1,0 +1,10 @@
+{
+  "_comment": "Id reconciliation applied on load between the save migration and PlayerProfile.normalize (plan A.0.1 E21): parse -> migrate -> aliases -> normalize -> bind. The table is per field because the same word means different things in different places: 'feather' is an upgrade node, 'bird:starter' an unlockable id and 'starter' a value of selected.birdId. Every map is old id -> new id; 'unlocked' holds namespaced ids, 'upgrades' and 'abilityLevels' bare ids, 'selected' is keyed by field name. 'removedUpgrades' drops nodes that no longer exist and 'refunds' credits their coins once (profile.reconciled records what has already been applied). Nothing has been renamed yet, so every map is empty; add entries here instead of writing a save migration whenever a content id changes.",
+  "version": 1,
+  "unlocked": {},
+  "upgrades": {},
+  "abilityLevels": {},
+  "selected": {},
+  "removedUpgrades": [],
+  "refunds": {}
+}

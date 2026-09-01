@@ -346,7 +346,192 @@ public enum StringKey {
     /** Toast: the save file could not be opened, {@code {0}} is the file name. */
     TOAST_SAVE_UNREADABLE("toast.save_unreadable"),
     /** Toast: the player reached a new level, {@code {0}} is the level. */
-    TOAST_LEVEL_UP("toast.level_up");
+    TOAST_LEVEL_UP("toast.level_up"),
+
+    /** Main menu: open the bird selection. */
+    MENU_BIRDS("menu.birds"),
+    /** Main menu: open the upgrade trees. */
+    MENU_UPGRADES("menu.upgrades"),
+    /** Main menu: open the shop. */
+    MENU_SHOP("menu.shop"),
+
+    /** Make the focused entry the one the next run uses. */
+    COMMON_SELECT("common.select"),
+    /** Buy the focused entry. */
+    COMMON_BUY("common.buy"),
+    /** State of something not owned yet. */
+    COMMON_LOCKED("common.locked"),
+    /** State of something already owned. */
+    COMMON_OWNED("common.owned"),
+    /** State of the entry the next run uses. */
+    COMMON_SELECTED("common.selected"),
+    /** Nothing at all. */
+    COMMON_NONE("common.none"),
+    /** Content that ships in a later milestone, {@code {0}} is the milestone. */
+    COMMON_SOON("common.soon"),
+
+    /** Bird selection: title. */
+    BIRDS_TITLE("birds.title"),
+    /** Bird selection: the palette row. */
+    BIRDS_PALETTES("birds.palettes"),
+    /** Bird selection: the ability slots. */
+    BIRDS_ABILITIES("birds.abilities"),
+    /** Bird selection: how many passives fit, {@code {0}} is the count. */
+    BIRDS_PASSIVE_SLOTS("birds.passive_slots"),
+    /** Bird selection: the difficulty tier of the next run. */
+    BIRDS_TIER("birds.tier"),
+    /** Bird selection: the stat breakdown panel. */
+    BIRDS_BREAKDOWN("birds.breakdown"),
+    /** Bird selection: the bird's base value of a stat. */
+    BIRDS_BREAKDOWN_BASE("birds.breakdown.base"),
+    /** Bird selection: no modifier touches any stat yet. */
+    BIRDS_BREAKDOWN_EMPTY("birds.breakdown.empty"),
+
+    /** Upgrade trees: title. */
+    UPGRADES_TITLE("upgrades.title"),
+    /** Upgrade node: owned level, {@code {0}} of {@code {1}}. */
+    UPGRADES_LEVEL("upgrades.level"),
+    /** Upgrade node: every level owned. */
+    UPGRADES_MAXED("upgrades.maxed"),
+    /** Upgrade node: what one level does, {@code {0}} is the effect. */
+    UPGRADES_PER_LEVEL("upgrades.per_level"),
+    /** Upgrade tree: a tier of nodes, {@code {0}} is the number. */
+    UPGRADES_TIER("upgrades.tier"),
+    /** Upgrade node: unmet prerequisites, {@code {0}} lists them. */
+    UPGRADES_NEEDS("upgrades.needs"),
+    /** Upgrade tree: how the tree is unlocked, {@code {0}} is the condition. */
+    UPGRADES_TREE_LOCKED("upgrades.tree_locked"),
+    /** Upgrade node: what it unlocks, {@code {0}} is the name. */
+    UPGRADES_GRANT_UNLOCK("upgrades.grant.unlock"),
+    /** Upgrade node: raises the ability level cap. */
+    UPGRADES_GRANT_ABILITY_CAP("upgrades.grant.ability_cap"),
+    /** Upgrade node: adds a passive ability slot. */
+    UPGRADES_GRANT_PASSIVE_SLOT("upgrades.grant.passive_slot"),
+    /** Upgrade node: it only grants something the profile already has. */
+    UPGRADES_ALREADY_OWNED("upgrades.already_owned"),
+
+    /** Shop: title. */
+    SHOP_TITLE("shop.title"),
+    /** A price in coins, {@code {0}} is the amount. */
+    SHOP_PRICE("shop.price"),
+    /** Shop tab: birds and their colours. */
+    SHOP_TAB_BIRDS("shop.tab.birds"),
+    /** Shop tab: abilities. */
+    SHOP_TAB_ABILITIES("shop.tab.abilities"),
+    /** Shop tab: worlds, tiers and challenges. */
+    SHOP_TAB_WORLDS("shop.tab.worlds"),
+    /** Shop tab: upgrade trees and features. */
+    SHOP_TAB_FEATURES("shop.tab.features"),
+    /** Shop tab: everything in it is owned. */
+    SHOP_EMPTY("shop.empty"),
+    /** Shop: the wallet does not hold the price. */
+    SHOP_CANNOT_AFFORD("shop.cannot_afford"),
+
+    /** Toast: something was bought, {@code {0}} is its name. */
+    TOAST_PURCHASED("toast.purchased"),
+    /** Toast: a node was raised, {@code {0}} is its name and {@code {1}} the level. */
+    TOAST_UPGRADED("toast.upgraded"),
+    /** Toast: a purchase was refused, {@code {0}} says why. */
+    TOAST_PURCHASE_FAILED("toast.purchase_failed"),
+
+    /** Stat source: a bird effect that grows with every gate, {@code {0}} is the bird. */
+    SOURCE_RAMP("source.ramp"),
+    /** Stat source: a bird effect scaling with owned upgrades, {@code {0}} is the bird. */
+    SOURCE_SYNERGY("source.synergy"),
+    /** Stat source: the difficulty curve of the world. */
+    SOURCE_CURVE("source.curve"),
+    /** Stat source: the speed ramp rule. */
+    SOURCE_SPEED_RAMP("source.speed_ramp"),
+
+    /** An added stat value, {@code {0}} is the amount and {@code {1}} the stat. */
+    STAT_EFFECT_FLAT("stat.effect.flat"),
+    /** A percentage stat change, {@code {0}} is the amount and {@code {1}} the stat. */
+    STAT_EFFECT_PERCENT("stat.effect.percent"),
+    /** A stat multiplier, {@code {0}} is the factor and {@code {1}} the stat. */
+    STAT_EFFECT_MULTIPLY("stat.effect.multiply"),
+
+    /** Stat name: downward acceleration. */
+    STAT_GRAVITY("stat.gravity"),
+    /** Stat name: the speed a flap sets. */
+    STAT_FLAP_VELOCITY("stat.flap_velocity"),
+    /** Stat name: terminal velocity. */
+    STAT_MAX_FALL_SPEED("stat.max_fall_speed"),
+    /** Stat name: how fast the world scrolls. */
+    STAT_SCROLL_SPEED("stat.scroll_speed"),
+    /** Stat name: the height of a gate gap. */
+    STAT_GAP_SIZE("stat.gap_size"),
+    /** Stat name: the distance between gates. */
+    STAT_GATE_INTERVAL("stat.gate_interval"),
+    /** Stat name: the size of the bird hitbox. */
+    STAT_HITBOX_SCALE("stat.hitbox_scale"),
+    /** Stat name: points per gate. */
+    STAT_SCORE_MULT("stat.score_mult"),
+    /** Stat name: coin reward multiplier. */
+    STAT_COIN_MULT("stat.coin_mult"),
+    /** Stat name: XP reward multiplier. */
+    STAT_XP_MULT("stat.xp_mult"),
+    /** Stat name: coins spawned per scoring gate. */
+    STAT_COIN_SPAWN_RATE("stat.coin_spawn_rate"),
+    /** Stat name: the radius coins are attracted from. */
+    STAT_MAGNET_RADIUS("stat.magnet_radius"),
+    /** Stat name: ability cooldown multiplier. */
+    STAT_ABILITY_COOLDOWN_MULT("stat.ability_cooldown_mult"),
+    /** Stat name: ability duration multiplier. */
+    STAT_ABILITY_DURATION_MULT("stat.ability_duration_mult"),
+    /** Stat name: shield charges at run start. */
+    STAT_SHIELD_CHARGES("stat.shield_charges"),
+    /** Stat name: revives at run start. */
+    STAT_REVIVES("stat.revives"),
+    /** Stat name: the chance an obstacle moves. */
+    STAT_MOVING_CHANCE("stat.moving_chance"),
+    /** Stat name: how fast a moving obstacle travels. */
+    STAT_OSCILLATION_SPEED("stat.oscillation_speed"),
+    /** Stat name: the scale applied to the world clock. */
+    STAT_TIME_SCALE("stat.time_scale"),
+
+    /** Unlock condition: owned from the first run. */
+    UNLOCK_DEFAULT("unlock.default"),
+    /** Unlock condition: play {@code {0}} runs. */
+    UNLOCK_RUNS("unlock.runs"),
+    /** Unlock condition: pass {@code {0}} gates in one run. */
+    UNLOCK_BEST_GATES("unlock.best_gates"),
+    /** Unlock condition: score {@code {0}} points in one run. */
+    UNLOCK_BEST_POINTS("unlock.best_points"),
+    /** Unlock condition: pass {@code {0}} gates in total. */
+    UNLOCK_TOTAL_GATES("unlock.total_gates"),
+    /** Unlock condition: reach level {@code {0}}. */
+    UNLOCK_LEVEL("unlock.level"),
+    /** Unlock condition: earn {@code {0}} coins in total. */
+    UNLOCK_COINS_EARNED("unlock.coins_earned_total"),
+    /** Unlock condition: complete the challenge {@code {0}}. */
+    UNLOCK_CHALLENGE("unlock.challenge"),
+    /** Unlock condition: earn the achievement {@code {0}}. */
+    UNLOCK_ACHIEVEMENT("unlock.achievement"),
+    /** Unlock condition: clear the world {@code {0}}. */
+    UNLOCK_WORLD_CLEARED("unlock.world_cleared"),
+    /** Unlock condition: prestige {@code {0}} times. */
+    UNLOCK_PRESTIGE("unlock.prestige"),
+    /** Unlock condition: own {@code {0}} per cent of the {@code {1}}. */
+    UNLOCK_COLLECTION("unlock.collection"),
+    /** Unlock condition: a counter {@code {0}} reaches {@code {1}}. */
+    UNLOCK_COUNTER("unlock.counter"),
+    /** Unlock condition: both halves, {@code {0}} and {@code {1}}. */
+    UNLOCK_ALL_OF("unlock.all_of"),
+
+    /** Bird archetype: the upstream feel. */
+    ARCHETYPE_BALANCED("archetype.balanced"),
+    /** Bird archetype: light and fast. */
+    ARCHETYPE_SWIFT("archetype.swift"),
+    /** Bird archetype: heavy, low terminal velocity. */
+    ARCHETYPE_HEAVY("archetype.heavy"),
+    /** Bird archetype: defensive. */
+    ARCHETYPE_GUARDIAN("archetype.guardian"),
+    /** Bird archetype: high risk, high reward. */
+    ARCHETYPE_GAMBLER("archetype.gambler"),
+    /** Bird archetype: ability focused. */
+    ARCHETYPE_MYSTIC("archetype.mystic"),
+    /** Bird archetype: scales with owned upgrades. */
+    ARCHETYPE_FORGE("archetype.forge");
 
     private static final Map<String, StringKey> BY_KEY;
 

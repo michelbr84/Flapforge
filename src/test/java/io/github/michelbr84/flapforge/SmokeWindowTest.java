@@ -39,17 +39,22 @@ import io.github.michelbr84.flapforge.persistence.SavePaths;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
+import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
+import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
 import io.github.michelbr84.flapforge.render.HudRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
+import io.github.michelbr84.flapforge.support.DirectExecutor;
+import io.github.michelbr84.flapforge.support.FixedTimeSource;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Toggle;
+import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
@@ -58,6 +63,8 @@ import io.github.michelbr84.flapforge.ui.screens.RunSummaryScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
+import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
+import io.github.michelbr84.flapforge.ui.screens.UpgradeTreeScreen;
 import java.awt.AWTError;
 import java.awt.Canvas;
 import java.awt.Graphics2D;
@@ -69,6 +76,7 @@ import java.awt.Robot;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -92,6 +100,9 @@ import org.junit.jupiter.api.Test;
  *       resumes after a focus loss). Every Robot event must take effect; when the canvas cannot
  *       obtain keyboard focus at all (another window steals it) the test is aborted, never
  *       passed. The same navigation through the queue alone is {@code MenuNavigationTest};</li>
+ *   <li>the M4 meta screens: Birds, Upgrades and Shop opened from the menu with real clicks, the
+ *       cheapest bird and the first upgrade node bought through the toolkit, and the wallet
+ *       dropping by what they cost;</li>
  *   <li>the real quit path of {@link GameApplication}: {@code CloseRequested} ends the loop
  *       thread, disposes the frame and finishes long before the exit watchdog.</li>
  * </ul>
@@ -171,6 +182,32 @@ class SmokeWindowTest {
         }
     }
 
+    /**
+     * Overlay recording the raw key codes it sees, used by the input-delivery canary. It reads
+     * {@link InputFrame#rawKeyDowns()} rather than an action, so the probe key needs no binding.
+     */
+    static final class KeyCanary implements Screen {
+        private final Set<Integer> seen = new HashSet<>();
+
+        @Override
+        public void tick(InputFrame input) {
+            seen.addAll(input.rawKeyDowns());
+        }
+
+        @Override
+        public void render(Graphics2D g, double alpha) {
+        }
+
+        @Override
+        public boolean isOverlay() {
+            return true;
+        }
+
+        boolean saw(int keyCode) {
+            return seen.contains(keyCode);
+        }
+    }
+
     /** Window + loop wiring shared by the tests (the same objects {@code GameApplication} wires). */
     static final class Rig implements AutoCloseable {
         final InputQueue input = new InputQueue(KeyBindings.defaults());
@@ -244,7 +281,10 @@ class SmokeWindowTest {
                 // read the file without waiting for a background thread.
                 save = new SaveManager(Runnable::run, () -> 0L, saveFile);
                 save.load();
-                progression = new ProgressionManager(() -> 0L);
+                // The wiring GameApplication uses (D14): the unlock evaluator is the pipeline's
+                // unlock step, so a purchase grants what it implies.
+                progression = new ProgressionManager(() -> 0L,
+                        ProgressionManager.AchievementHook.NONE, UnlockEvaluator.of(content));
                 progressionRules = ProgressionRules.fromEconomy(content.economy());
             } else {
                 save = null;
@@ -341,6 +381,34 @@ class SmokeWindowTest {
             this.rig = rig;
             this.robot = new Robot();
             robot.setAutoDelay(20);
+            assumeTheSessionDeliversInput();
+        }
+
+        /**
+         * Skips the test when the desktop cannot deliver synthetic input at all — a locked screen,
+         * a screensaver or any other client holding a keyboard grab swallows every XTEST event
+         * while the canvas still reports focus, so each later assertion would report a broken game
+         * instead of an unusable session. {@code VK_CONTROL} is mapped on every keymap and bound
+         * to nothing, so the probe changes no state. A session that delivers the canary and then
+         * drops an event is a real failure and still fails.
+         */
+        private void assumeTheSessionDeliversInput() {
+            KeyCanary canary = new KeyCanary();
+            rig.screens.push(canary);
+            try {
+                focusCanvasOrAbort(rig);
+                robot.waitForIdle();
+                robot.keyPress(KeyEvent.VK_CONTROL);
+                robot.keyRelease(KeyEvent.VK_CONTROL);
+                if (!rig.untilDeadline(() -> canary.saw(KeyEvent.VK_CONTROL), DELIVERY_TIMEOUT_MS)) {
+                    abort("the desktop session does not deliver synthetic input (a locked screen, "
+                            + "a screensaver or a keyboard grab): run the gui suite on an unlocked "
+                            + "session or a nested X server such as Xephyr");
+                }
+            } finally {
+                rig.screens.pop();
+                rig.frames(2);
+            }
         }
 
         void tap(int keyCode, BooleanSupplier expected) {
@@ -827,6 +895,69 @@ class SmokeWindowTest {
         }
     }
 
+    @Test
+    void theMetaScreensThroughTheToolkitBuyTheCheapestBird() throws Exception {
+        requireDisplay();
+        try (Rig rig = new Rig("Flapforge smoke test (meta)", false, true)) {
+            // Coins the player would have earned in a few runs, so the shop has something to sell.
+            Wallet.of(rig.save.profile()).add(PlayerProfile.CURRENCY_COINS, 500);
+            MainMenuScreen menu = new MainMenuScreen(rig.context, new ClassicRunFactory(),
+                    SeedSequence.of(11));
+            rig.start(menu);
+            rig.frames(30);
+            focusCanvasOrAbort(rig);
+            Driver driver = new Driver(rig);
+            assertNotNull(menu.birdsButton(), "a session with a profile offers the M4 screens");
+            assertEquals(500, walletOf(rig));
+            assertTrue(saveShot("menu-meta", rig) >= 2, "the seven-entry menu is uniform");
+
+            // Menu -> Birds, with a real click through the toolkit.
+            driver.click(menu.birdsButton(), () -> rig.screens.top() instanceof BirdSelectionScreen);
+            BirdSelectionScreen birds = (BirdSelectionScreen) rig.screens.top();
+            rig.frames(GRACE);
+            assertTrue(saveShot("birds", rig) >= 2, "bird selection is uniform");
+
+            // Buy the cheapest bird that is for sale: focus its card, then press Buy.
+            driver.click(birds.roster().card("guardian"), () -> "guardian".equals(
+                    birds.currentBirdId()));
+            rig.frames(4);
+            assertTrue(birds.buyButton().isEnabled(), "150 coins of 500 is affordable");
+            long before = walletOf(rig);
+            driver.click(birds.buyButton(), () -> walletOf(rig) < before);
+            rig.frames(10);
+            assertEquals(350, walletOf(rig), "the wallet dropped by the price of the bird");
+            assertTrue(rig.save.profile().isUnlocked("bird:guardian"), "and the bird is owned");
+            assertTrue(Files.exists(rig.save.file()), "the purchase reached the disk");
+            assertTrue(saveShot("birds-bought", rig) >= 2, "bird selection is uniform");
+
+            // Menu -> Upgrades: buy the first node and see the live stat panel move.
+            driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+            rig.frames(GRACE);
+            driver.click(menu.upgradesButton(),
+                    () -> rig.screens.top() instanceof UpgradeTreeScreen);
+            UpgradeTreeScreen trees = (UpgradeTreeScreen) rig.screens.top();
+            rig.frames(GRACE);
+            assertTrue(saveShot("upgrades", rig) >= 2, "upgrade trees are uniform");
+            long beforeNode = walletOf(rig);
+            driver.click(trees.nodeGrid().card("feather_1"), () -> walletOf(rig) < beforeNode);
+            rig.frames(10);
+            assertEquals(1, rig.save.profile().upgradeLevel("feather_1"), "the node was bought");
+            assertEquals(beforeNode - 50, walletOf(rig));
+
+            // Menu -> Shop.
+            driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+            rig.frames(GRACE);
+            driver.click(menu.shopButton(), () -> rig.screens.top() instanceof ShopScreen);
+            ShopScreen shop = (ShopScreen) rig.screens.top();
+            rig.frames(GRACE);
+            assertFalse(shop.offers().isEmpty(), "the shop still has something to sell");
+            assertTrue(saveShot("shop", rig) >= 2, "shop is uniform");
+            driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+
+            rig.requestCloseAndVerify();
+        }
+    }
+
     /**
      * The coins of the rig's profile.
      *
@@ -836,6 +967,71 @@ class SmokeWindowTest {
     private static long walletOf(Rig rig) {
         Long coins = rig.save.profile().wallet.get(PlayerProfile.CURRENCY_COINS);
         return coins == null ? 0 : coins;
+    }
+
+    /**
+     * D13/D14: the unlock evaluator otherwise runs only at the end of a run and after a purchase,
+     * so a profile written before an unlockable existed — every profile carried over from M3 into
+     * M4 — would open the game with what it has already earned still locked, and the shop would
+     * sell it back. The launch runs the evaluator once and writes the result.
+     */
+    @Test
+    void aLaunchGrantsTheUnlocksTheSavedProfileHasAlreadyEarned() throws Exception {
+        requireDisplay();
+        Path appHome = OUT_DIR.resolve("catch-up-home");
+        deleteRecursively(appHome);
+        Files.createDirectories(appHome);
+        SavePaths.override(appHome);
+        SaveManager seed = new SaveManager(new DirectExecutor(), new FixedTimeSource(0));
+        PlayerProfile saved = PlayerProfile.fresh(0).normalize();
+        // What an M3 profile looks like on the day M4 ships: four runs played, level 3, and only
+        // the six default unlocks, because no unlock table existed while it was being written.
+        saved.statistics.totalRuns = 4;
+        saved.level = 3;
+        assertFalse(saved.isUnlocked("bird:guardian"));
+        assertTrue(seed.save(saved), "the seed profile was written");
+        assertTrue(seed.flush(4_000L), "and reached the disk");
+
+        GameApplication app = GameApplication.start(LaunchOptions.parse(
+                new String[] {"--scale", "1", "--home", appHome.toString()}));
+        try {
+            assertNotNull(app.context(), "windowed launch wired a context");
+            PlayerProfile loaded = app.context().profile();
+            assertEquals(4, loaded.statistics.totalRuns, "the saved profile was the one loaded");
+            assertTrue(loaded.isUnlocked("bird:guardian"),
+                    () -> "runs 3 was already satisfied: " + loaded.unlocked);
+            assertTrue(loaded.isUnlocked("bird:heavy"), () -> "runs 4: " + loaded.unlocked);
+            assertTrue(loaded.isUnlocked("tree:economy"), () -> "level 3: " + loaded.unlocked);
+            waitFor(() -> app.context().loop().isRunning(), 5_000L);
+            app.context().input().offer(new RawInput.CloseRequested());
+            assertTrue(app.awaitShutdown(4_000L), "loop thread ended after CloseRequested");
+        } finally {
+            if (app.context() != null && app.context().loop().isRunning()) {
+                app.context().loop().stop();
+            }
+            app.awaitShutdown(4_000L);
+            GameWindow.onEdt(() -> { });
+        }
+
+        try {
+            SaveManager reader = new SaveManager(new DirectExecutor(), new FixedTimeSource(0));
+            reader.load();
+            assertTrue(reader.profile().isUnlocked("bird:guardian"),
+                    "and the grant was persisted, so the shop cannot sell it on the next launch");
+        } finally {
+            SavePaths.clearOverride();
+        }
+    }
+
+    private static void deleteRecursively(Path dir) throws IOException {
+        if (!Files.exists(dir)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> paths = Files.walk(dir)) {
+            for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
     }
 
     @Test

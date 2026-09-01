@@ -13,6 +13,7 @@ import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunResult;
 import io.github.michelbr84.flapforge.gameplay.run.RunRewardCalculator;
 import io.github.michelbr84.flapforge.gameplay.run.StreakTracker;
+import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -52,14 +53,21 @@ public final class BalancingSim {
     }
 
     /**
-     * One finished simulation, with what it paid (M3). The economy columns come from the real
-     * {@link RunRewardCalculator} against the shipped {@code economy.json}, with every multiplier
-     * at 1 and the run treated as a later run (no first-run bonus), so a cell of seeds is directly
-     * comparable with the coins-per-run tables in {@code docs/BALANCING.md}.
+     * One finished simulation, with what it paid (M3, M4). The economy columns come from the real
+     * {@link RunRewardCalculator} against the shipped {@code economy.json} and the run treated as
+     * a later run (no first-run bonus).
+     *
+     * <p>{@code coins} keeps every multiplier at 1, so a cell of seeds stays directly comparable
+     * with the coins-per-run tables in {@code docs/BALANCING.md}. {@code payout} is the same
+     * formula under the run's own resolved {@code COIN_MULT} / {@code XP_MULT} and the tier's
+     * reward multiplier, which is the only column that can tell the economy birds apart: without
+     * it Ironbeak's {@code COIN_MULT} of 0.8 is invisible and classic, Ironbeak and Oracle print
+     * identical numbers.
      */
     private record Row(String bird, String skill, long seed, int gates, double points,
             int ticksAlive, boolean finished, String deathCause, int coinsSpawned,
-            int coinsCollected, int streakBest, int streakSteps, long coins, long xp) {
+            int coinsCollected, int streakBest, int streakSteps, long coins, long xp,
+            long payout) {
     }
 
     /** Command-line options. */
@@ -132,11 +140,16 @@ public final class BalancingSim {
                     : result.stats().deathCause().name();
             RewardSummary rewards = RunRewardCalculator.compute(result, economy,
                     RewardContext.plain());
+            RewardSummary paid = RunRewardCalculator.compute(result, economy,
+                    RewardContext.plain().withMultipliers(
+                            run.simulation().stats().resolve(StatId.COIN_MULT),
+                            run.simulation().stats().resolve(StatId.XP_MULT),
+                            run.setup().tier().rewardMult(), 1));
             rows.add(new Row(bird, preset.name(), seed, result.gatesPassed(),
                     result.stats().points(), result.stats().ticksAlive(), outcome.finished(),
                     cause, run.simulation().pickups().spawnedCount(),
                     result.stats().coinsCollected(), result.stats().streakBest(),
-                    result.stats().streakSteps(), rewards.coins(), rewards.xp()));
+                    result.stats().streakSteps(), rewards.coins(), rewards.xp(), paid.coins()));
         }
         return rows;
     }
@@ -145,6 +158,7 @@ public final class BalancingSim {
         int[] gates = new int[rows.size()];
         int[] alive = new int[rows.size()];
         int[] coins = new int[rows.size()];
+        int[] payout = new int[rows.size()];
         int[] xp = new int[rows.size()];
         int[] collected = new int[rows.size()];
         int[] spawned = new int[rows.size()];
@@ -159,6 +173,7 @@ public final class BalancingSim {
             gates[i] = row.gates();
             alive[i] = row.ticksAlive();
             coins[i] = (int) row.coins();
+            payout[i] = (int) row.payout();
             xp[i] = (int) row.xp();
             collected[i] = row.coinsCollected();
             spawned[i] = row.coinsSpawned();
@@ -176,6 +191,7 @@ public final class BalancingSim {
         Arrays.sort(gates);
         Arrays.sort(alive);
         Arrays.sort(coins);
+        Arrays.sort(payout);
         Arrays.sort(streakBest);
         System.out.println();
         System.out.printf(Locale.ROOT, "bird=%s skill=%s (reaction %d ticks, error %.0f px) runs=%d%n",
@@ -195,6 +211,11 @@ public final class BalancingSim {
                 percentile(coins, 10), percentile(coins, 50), percentile(coins, 90), mean(coins),
                 100.0 * zeroCoins / rows.size(), mean(collected), mean(spawned),
                 mean(spawned) == 0 ? 0 : 100.0 * mean(collected) / mean(spawned));
+        System.out.printf(Locale.ROOT,
+                "  payout     p10=%d p50=%d p90=%d mean=%.2f (COIN_MULT and tier rewardMult"
+                        + " applied)%n",
+                percentile(payout, 10), percentile(payout, 50), percentile(payout, 90),
+                mean(payout));
         System.out.printf(Locale.ROOT, "  xp         mean=%.1f%n", mean(xp));
         System.out.printf(Locale.ROOT,
                 "  streak     best mean=%.2f max=%d  steps mean=%.2f (one every %d clean gates)%n",
@@ -246,12 +267,13 @@ public final class BalancingSim {
     private static void writeCsv(Path path, List<Row> rows) {
         List<String> lines = new ArrayList<>(rows.size() + 1);
         lines.add("bird,skill,seed,gates,points,ticksAlive,finished,deathCause,coinsSpawned,"
-                + "coinsCollected,streakBest,streakSteps,coins,xp");
+                + "coinsCollected,streakBest,streakSteps,coins,xp,payout");
         for (Row r : rows) {
-            lines.add(String.format(Locale.ROOT, "%s,%s,%d,%d,%s,%d,%s,%s,%d,%d,%d,%d,%d,%d",
+            lines.add(String.format(Locale.ROOT, "%s,%s,%d,%d,%s,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d",
                     r.bird(), r.skill(), r.seed(), r.gates(), Double.toString(r.points()),
                     r.ticksAlive(), r.finished(), r.deathCause(), r.coinsSpawned(),
-                    r.coinsCollected(), r.streakBest(), r.streakSteps(), r.coins(), r.xp()));
+                    r.coinsCollected(), r.streakBest(), r.streakSteps(), r.coins(), r.xp(),
+                    r.payout()));
         }
         try {
             Path parent = path.toAbsolutePath().getParent();

@@ -74,7 +74,10 @@ public final class TestContent {
      * @return the file content
      */
     public static String read(String name) {
-        String resource = DIR + name + ".json";
+        return readResource(DIR + name + ".json");
+    }
+
+    private static String readResource(String resource) {
         try (InputStream in = TestContent.class.getResourceAsStream(resource)) {
             if (in == null) {
                 throw new IllegalStateException("Missing fixture " + resource);
@@ -85,12 +88,57 @@ public final class TestContent {
         }
     }
 
+    /** Classpath directory of the deliberately broken fixtures (M4). */
+    public static final String BAD_DIR = "/fixtures/content_bad/";
+
+    /**
+     * The shipped content files, parsed.
+     *
+     * @return the trees keyed by base name
+     */
+    public static Map<String, JsonElement> shippedJson() {
+        return ContentLoader.loadAll(ContentLoader.FILES);
+    }
+
+    /**
+     * The shipped content with one file swapped for a broken fixture.
+     *
+     * <p>Each {@code fixtures/content_bad/*.json} file is a copy of one shipped file with a
+     * single defect, so a validator rule can be pinned to its own message and pointer without a
+     * whole second content set going stale beside the real one.
+     *
+     * @param file the base name the fixture replaces, for example {@code upgrades}
+     * @param fixture the fixture name, without the {@code .json}
+     * @return the trees keyed by base name
+     */
+    public static Map<String, JsonElement> shippedWith(String file, String fixture) {
+        Map<String, JsonElement> files = new LinkedHashMap<>(shippedJson());
+        files.put(file, ContentLoader.parse(file, readBad(fixture)));
+        return files;
+    }
+
+    /**
+     * The raw text of one broken fixture.
+     *
+     * @param name the fixture name, without the {@code .json}
+     * @return the file content
+     */
+    public static String readBad(String name) {
+        return readResource(BAD_DIR + name + ".json");
+    }
+
     /**
      * The base names of the frozen files.
+     *
+     * <p>The fixture stays the M3 file set: it is the content the golden run was recorded
+     * against, and it doubles as the "a milestone's data validates on its own" case of E19 —
+     * cross-references into files it does not carry are not checked
+     * ({@code GameContent.has}). The M4 files are exercised through the shipped content and
+     * through {@code fixtures/content_bad/*}.
      *
      * @return the names
      */
     public static List<String> files() {
-        return ContentLoader.FILES;
+        return ContentLoader.M3_FILES;
     }
 }

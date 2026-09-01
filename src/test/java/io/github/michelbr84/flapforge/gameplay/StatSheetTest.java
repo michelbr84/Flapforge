@@ -217,7 +217,8 @@ class StatSheetTest {
                 "equal setups hash equal through the whole record chain");
         assertEquals(BirdProfile.CLASSIC.hashCode(),
                 new BirdProfile("classic", new EnumMap<>(BirdProfile.CLASSIC.baseStats()),
-                        BirdProfile.CLASSIC.hitbox(), List.of(), List.of(), 2).hashCode(),
+                        BirdProfile.CLASSIC.hitbox(), List.of(), List.of(), List.of(), 2)
+                        .hashCode(),
                 "a different map instance with the same content hashes the same");
     }
 }

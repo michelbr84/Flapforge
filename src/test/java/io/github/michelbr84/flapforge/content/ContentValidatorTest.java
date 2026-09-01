@@ -331,8 +331,26 @@ class ContentValidatorTest {
                 currencies.add("shards");
                 economy(root).add("currencies", currencies);
             }));
-            assertEquals(List.of("economy.json#/currencies: every reward is paid in 'coins', "
-                    + "which is not a declared currency"), errors);
+            // 'shards' itself has a source — it is the first declared currency, which is what
+            // every reward block pays — so the only thing wrong here is that the wallet's own
+            // 'coins' is not declared.
+            assertEquals(List.of(
+                    "economy.json#/currencies: every reward is paid in 'coins', "
+                            + "which is not a declared currency"), errors);
+        }
+
+        /** D13: every currency has a source. A second one has none until a reward names it. */
+        @Test
+        void aSecondCurrencyNothingPaysOutIsRejected() {
+            List<String> errors = errorsOf(mutate("economy", root -> {
+                JsonArray currencies = new JsonArray();
+                currencies.add("coins");
+                currencies.add("shards");
+                economy(root).add("currencies", currencies);
+            }));
+            assertEquals(1, errors.size(), errors.toString());
+            assertTrue(errors.get(0).startsWith("economy.json#/currencies/1: nothing pays out"
+                    + " 'shards'"), errors.get(0));
         }
 
         @Test
@@ -344,12 +362,16 @@ class ContentValidatorTest {
                 currencies.add("Gold Bars");
                 economy(root).add("currencies", currencies);
             }));
-            assertEquals(2, errors.size(), errors.toString());
+            assertEquals(3, errors.size(), errors.toString());
             assertEquals("economy.json#/currencies/1: duplicate currency id 'coins'",
                     errors.get(0));
             assertTrue(errors.get(1).startsWith(
                     "economy.json#/currencies/2: currency id 'Gold Bars' does not match"),
                     errors.get(1));
+            // The unlock graph adds the other half of the story: an undeclared currency has no
+            // source either, so it could never be earned (D13).
+            assertTrue(errors.get(2).startsWith(
+                    "economy.json#/currencies/2: nothing pays out 'Gold Bars'"), errors.get(2));
         }
 
         @Test
@@ -435,5 +457,123 @@ class ContentValidatorTest {
         files.remove("difficulty");
         ContentException e = assertThrows(ContentException.class, () -> GameContent.fromJson(files));
         assertEquals(List.of("difficulty.json#: missing content file"), e.errors());
+    }
+
+    /**
+     * The M4 rules, one broken fixture per rule
+     * ({@code src/test/resources/fixtures/content_bad/*.json}). Every fixture is the shipped
+     * content with exactly one file swapped for a copy carrying exactly one defect, so each test
+     * can pin the rule's own message <em>and</em> its JSON pointer.
+     */
+    @Nested
+    class BadFixtures {
+
+        private List<String> errorsOfFixture(String file, String fixture) {
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(TestContent.shippedWith(file, fixture)));
+            return e.errors();
+        }
+
+        private void assertHasError(List<String> errors, String prefix) {
+            assertTrue(errors.stream().anyMatch(error -> error.startsWith(prefix)),
+                    () -> "expected an error starting with\n  " + prefix + "\nbut got\n  "
+                            + String.join("\n  ", errors));
+        }
+
+        @Test
+        void theShippedContentPassesEveryRule() {
+            GameContent shipped = GameContent.fromJson(TestContent.shippedJson());
+            assertEquals(List.of(), ContentValidator.errorsOf(shipped));
+        }
+
+        @Test
+        void anUnknownKeyIsRejectedWithItsPointer() {
+            assertHasError(errorsOfFixture("birds", "unknown_key"),
+                    "birds.json#/1/wings: unknown key 'wings' for BirdDef");
+        }
+
+        @Test
+        void anUnknownEnumConstantIsRejectedWithItsPointer() {
+            assertHasError(errorsOfFixture("birds", "bad_enum"),
+                    "birds.json#/1/archetype: not a valid BirdArchetype: 'FLYING'");
+        }
+
+        @Test
+        void aDuplicateUpgradeIdIsRejected() {
+            assertHasError(errorsOfFixture("upgrades", "duplicate_id"),
+                    "upgrades.json#/nodes/1/id: duplicate upgrade id 'feather_1'");
+        }
+
+        @Test
+        void aPrerequisiteCycleIsRejectedWithThePathThatLoops() {
+            assertHasError(errorsOfFixture("upgrades", "cycle"),
+                    "upgrades.json#/nodes/feather_1/prereqs: prerequisite cycle feather_1 -> "
+                            + "featherfall_2 -> slim_frame_1 -> feather_1");
+        }
+
+        @Test
+        void anUnlockableNothingOpensIsRejected() {
+            assertHasError(errorsOfFixture("worlds", "unreachable"),
+                    "worlds.json#/worlds/4: 'world:void' cannot be reached from the default set");
+        }
+
+        @Test
+        void aContradictoryChallengeIsRejected() {
+            assertHasError(errorsOfFixture("challenges", "contradiction"),
+                    "challenges.json#/challenges/5: challenge 'coin_rush_1' has flag NO_COINS and"
+                            + " objective COLLECT_COINS");
+        }
+
+        @Test
+        void tooMuchAbilityCapIsRejected() {
+            assertHasError(errorsOfFixture("upgrades", "cap_exceeded"),
+                    "upgrades.json#/nodes: the ability level cap reaches 4 (base 2 + 2 from"
+                            + " ability_cap grants) but ability 'double_flap' has only 3 levels");
+        }
+
+        /**
+         * D10: {@code ProceduralArt.drawBirdPortrait} falls through to the balanced silhouette
+         * for a key it does not know, so a typo would ship the wrong art in silence.
+         */
+        @Test
+        void anUnknownBirdSilhouetteIsRejected() {
+            assertHasError(errorsOfFixture("birds", "bad_shape"),
+                    "birds.json#/1/shape: unknown silhouette 'swfit'");
+        }
+
+        /**
+         * D13: the shop reads a {@code purchase} branch as the price and sells the unlockable for
+         * it. Under an {@code all_of} the coins are one requirement among several, so the sale
+         * would hand over something its siblings still gate.
+         */
+        @Test
+        void aPurchaseInsideAnAllOfIsRejected() {
+            assertHasError(errorsOfFixture("birds", "purchase_under_all_of"),
+                    "birds.json#/1/unlock/conditions/1/type: 'purchase' may only be the whole"
+                            + " condition or a branch of an 'any_of'");
+        }
+
+        @Test
+        void aCosmeticOnlyConditionElsewhereIsRejected() {
+            assertHasError(errorsOfFixture("worlds", "cosmetic_only_condition"),
+                    "worlds.json#/worlds/4/unlock/type: 'prestige' is allowed only on a cosmetic");
+        }
+
+        /**
+         * A content id with no {@code name}/{@code desc} in {@code en.json} is a string error,
+         * not a content error: the content itself is consistent, so it binds and validates and
+         * only {@link ContentValidator#checkStrings(GameContent)} objects (D25, E31.h).
+         */
+        @Test
+        void anIdWithNoDisplayStringIsRejected() {
+            GameContent content = GameContent.fromJson(
+                    TestContent.shippedWith("birds", "missing_string"));
+            ContentValidator.StringReport report = ContentValidator.checkStrings(content);
+            assertFalse(report.ok());
+            assertTrue(report.errors().contains("strings/en.json#/bird.sparrow.name: missing content"
+                    + " string"), report.errors().toString());
+            assertTrue(report.errors().contains("strings/en.json#/cosmetic.sparrow.aurora.desc: missing"
+                    + " content string"), report.errors().toString());
+        }
     }
 }

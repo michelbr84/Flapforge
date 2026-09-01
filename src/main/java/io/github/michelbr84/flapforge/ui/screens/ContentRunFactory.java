@@ -5,7 +5,10 @@ import io.github.michelbr84.flapforge.content.RunFactory;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
+import io.github.michelbr84.flapforge.progression.PlayerProfile;
+import io.github.michelbr84.flapforge.progression.RunLoadout;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * The {@link SeededRunSource} the game ships with: every run is assembled from the content files
@@ -21,14 +24,21 @@ import java.util.Objects;
  * <p>For M1 the two are interchangeable by construction — {@code ContentIntegrityTest
  * .contentBuildsTheSameSetupAsTheHardCodedClassicSeam} asserts the shipped files resolve to
  * {@code RunSetup.CLASSIC} — and they diverge the moment the data files do.
+ *
+ * <p>From M4 the factory also reads the profile, when the session has one: the run is built by
+ * {@link RunLoadout} from what the player has selected and bought, so an upgrade node changes the
+ * physics of the very next run (D8, D14). A session without persistence — the headless launch and
+ * most tests — passes no profile supplier and gets the default configuration for the seed, which
+ * is what keeps the shipped-content hash a function of the seed and the data alone (D12).
  */
 public final class ContentRunFactory implements SeededRunSource {
 
     private final RunFactory runs;
     private final RunMode mode;
+    private final Supplier<PlayerProfile> profiles;
 
     /**
-     * Creates a factory producing {@link RunMode#STANDARD} runs.
+     * Creates a factory producing {@link RunMode#STANDARD} runs with no profile.
      *
      * @param content the loaded content
      */
@@ -37,14 +47,27 @@ public final class ContentRunFactory implements SeededRunSource {
     }
 
     /**
-     * Creates a factory producing runs in a given mode.
+     * Creates a factory producing runs in a given mode with no profile.
      *
      * @param content the loaded content
      * @param mode the run mode ({@link RunMode#SEEDED} when the seed came from {@code --seed})
      */
     public ContentRunFactory(GameContent content, RunMode mode) {
+        this(content, mode, null);
+    }
+
+    /**
+     * Creates a factory that builds every run from the live profile.
+     *
+     * @param content the loaded content
+     * @param mode the run mode
+     * @param profiles the live profile of the session, read at the start of every run; may be
+     *     {@code null}, and may return {@code null} in a session without persistence
+     */
+    public ContentRunFactory(GameContent content, RunMode mode, Supplier<PlayerProfile> profiles) {
         this.runs = new RunFactory(Objects.requireNonNull(content, "content"));
         this.mode = Objects.requireNonNull(mode, "mode");
+        this.profiles = profiles;
     }
 
     /**
@@ -67,6 +90,10 @@ public final class ContentRunFactory implements SeededRunSource {
 
     @Override
     public Run newRun(long seed) {
-        return runs.newRun(RunConfig.builder(seed).mode(mode).build());
+        PlayerProfile profile = profiles == null ? null : profiles.get();
+        RunConfig config = profile == null
+                ? RunConfig.builder(seed).mode(mode).build()
+                : RunLoadout.configFor(profile, runs.content(), seed, mode);
+        return runs.newRun(config);
     }
 }

@@ -6,6 +6,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * One entry of {@code birds.json} (D30, §4). Base stats are the only source of a stat's base
@@ -33,6 +34,23 @@ public record BirdDef(String id, BirdArchetype archetype, int passiveSlots,
         List<RampEffectDef> rampEffects, List<SynergyEffectDef> synergyEffects,
         List<String> passiveAbilities, List<PaletteDef> palettes, String shape, SpriteDef sprite,
         UnlockConditionDef unlock) {
+
+    /** Namespace of the unlockable id of a bird. */
+    public static final String NAMESPACE = "bird:";
+
+    /** Namespace of the unlockable id of a palette: {@code cosmetic:<bird>:<palette>}. */
+    public static final String COSMETIC_NAMESPACE = "cosmetic:";
+
+    /**
+     * The silhouette keys {@code ProceduralArt.drawBirdPortrait} knows, in file order.
+     *
+     * <p>The renderer falls through to the balanced silhouette for anything else, so an unknown
+     * key would ship the wrong art in silence. The validator rejects one instead; the list lives
+     * here because {@code content} must not depend on {@code render}, and the renderer's switch
+     * is the other half of the contract.
+     */
+    public static final Set<String> SHAPES = Set.of(
+            "balanced", "swift", "heavy", "guardian", "gambler", "mystic", "forge");
 
     /**
      * Copies the collections into deterministic, unmodifiable ones.
@@ -83,5 +101,24 @@ public record BirdDef(String id, BirdArchetype archetype, int passiveSlots,
             }
         }
         return null;
+    }
+
+    /**
+     * The namespaced unlockable id, {@code bird:<id>}.
+     *
+     * @return the id
+     */
+    public String unlockableId() {
+        return NAMESPACE + id;
+    }
+
+    /**
+     * The namespaced unlockable id of one of this bird's palettes (D13).
+     *
+     * @param paletteId the palette id
+     * @return {@code cosmetic:<bird>:<palette>}
+     */
+    public String cosmeticId(String paletteId) {
+        return COSMETIC_NAMESPACE + id + ':' + paletteId;
     }
 }

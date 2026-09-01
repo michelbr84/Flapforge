@@ -10,7 +10,8 @@ import java.util.Set;
 /**
  * The id tables {@link PlayerProfile#normalize(ProfileSchema)} needs to decide whether a saved id
  * still means something (E21): which birds, palettes, worlds, tiers and abilities the build ships,
- * which tree each upgrade node belongs to, and what a selection falls back to when its id is gone.
+ * which tree each upgrade node belongs to, what a selection falls back to when its id is gone, and
+ * the E3 ceiling of {@code abilityLevelCap}.
  *
  * <p>It exists because {@code progression} must not depend on {@code content}: the save system is
  * pure and testable on its own, while the milestone that owns a registry (M4 birds and upgrades,
@@ -32,6 +33,8 @@ public final class ProfileSchema {
     private final Set<String> tiers;
     private final Set<String> abilities;
     private final Map<String, String> upgradeTrees;
+    private final boolean permissiveUpgrades;
+    private final int maxAbilityLevelCap;
     private final String defaultBirdId;
     private final String defaultPaletteId;
     private final String defaultWorldId;
@@ -45,6 +48,8 @@ public final class ProfileSchema {
         this.tiers = Set.copyOf(b.tiers);
         this.abilities = Set.copyOf(b.abilities);
         this.upgradeTrees = Map.copyOf(b.upgradeTrees);
+        this.permissiveUpgrades = upgradeTrees.isEmpty();
+        this.maxAbilityLevelCap = b.maxAbilityLevelCap;
         this.permissiveBirds = birds.isEmpty();
         this.permissiveWorlds = worlds.isEmpty();
         this.permissiveTiers = tiers.isEmpty();
@@ -150,6 +155,33 @@ public final class ProfileSchema {
     }
 
     /**
+     * Whether the build knows an upgrade node.
+     *
+     * @param upgradeNodeId the bare node id
+     * @return {@code true} when the id is known, or when no upgrade table was given
+     */
+    public boolean knowsUpgrade(String upgradeNodeId) {
+        return upgradeNodeId != null
+                && (permissiveUpgrades || upgradeTrees.containsKey(upgradeNodeId));
+    }
+
+    /**
+     * The highest {@code abilityLevelCap} the content can produce (E3): the base cap plus every
+     * {@code ability_cap} grant the trees ship, capped by the number of levels the thinnest
+     * ability has.
+     *
+     * <p>{@code normalize} clamps to it from above as well as from below, so a hand-edited
+     * {@code "abilityLevelCap": 99} cannot survive a load and offer ability levels that do not
+     * exist. A schema built without content ({@link #permissive()}) returns 0, which means
+     * "unknown, do not clamp from above".
+     *
+     * @return the ceiling, or {@code 0} when no content declared one
+     */
+    public int maxAbilityLevelCap() {
+        return maxAbilityLevelCap;
+    }
+
+    /**
      * Bird a broken selection falls back to.
      *
      * @return the id
@@ -202,6 +234,7 @@ public final class ProfileSchema {
         private final Set<String> tiers = new LinkedHashSet<>();
         private final Set<String> abilities = new LinkedHashSet<>();
         private final Map<String, String> upgradeTrees = new LinkedHashMap<>();
+        private int maxAbilityLevelCap;
         private String defaultBirdId = PlayerProfile.DEFAULT_BIRD;
         private String defaultPaletteId = PlayerProfile.DEFAULT_PALETTE;
         private String defaultWorldId = PlayerProfile.DEFAULT_WORLD;
@@ -266,6 +299,17 @@ public final class ProfileSchema {
          */
         public Builder upgradeNode(String nodeId, String treeId) {
             upgradeTrees.put(nodeId, treeId);
+            return this;
+        }
+
+        /**
+         * Declares the E3 ceiling of {@code profile.abilityLevelCap}.
+         *
+         * @param cap the ceiling; values below 1 mean "unknown, do not clamp from above"
+         * @return this builder
+         */
+        public Builder abilityLevelCap(int cap) {
+            maxAbilityLevelCap = Math.max(0, cap);
             return this;
         }
 

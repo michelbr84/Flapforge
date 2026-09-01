@@ -1,22 +1,40 @@
 package io.github.michelbr84.flapforge.content;
 
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityLevelDef;
+import io.github.michelbr84.flapforge.content.defs.AchievementConditionDef;
+import io.github.michelbr84.flapforge.content.defs.AchievementDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
+import io.github.michelbr84.flapforge.content.defs.BossDef;
+import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
 import io.github.michelbr84.flapforge.content.defs.CurveDef;
 import io.github.michelbr84.flapforge.content.defs.EconomyDef;
 import io.github.michelbr84.flapforge.content.defs.FeatureDef;
+import io.github.michelbr84.flapforge.content.defs.GrantDef;
+import io.github.michelbr84.flapforge.content.defs.GrantType;
 import io.github.michelbr84.flapforge.content.defs.LevelRewardDef;
+import io.github.michelbr84.flapforge.content.defs.ObjectiveType;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.PrestigeDef;
+import io.github.michelbr84.flapforge.content.defs.StatModifierDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
+import io.github.michelbr84.flapforge.content.defs.TreeDef;
+import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
+import io.github.michelbr84.flapforge.content.defs.UnlockType;
+import io.github.michelbr84.flapforge.content.defs.UpgradeDef;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.difficulty.DifficultyCurve;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
 import io.github.michelbr84.flapforge.gameplay.stats.Layer;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
+import io.github.michelbr84.flapforge.gameplay.stats.StatOp;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
+import io.github.michelbr84.flapforge.progression.StatisticKey;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -25,21 +43,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 /**
- * The M1–M3 content rules (D10, E19). Milestones M1–M3 ship the <em>minimal</em> validator: id
- * syntax and uniqueness, enum validity (already enforced by {@link StrictBinder}), the
- * cost/level consistency of whatever carries costs, the economy's own shape (currencies,
- * level-reward keys, feature ids, prestige keeps) and the classic table — the numeric proof
- * that the shipped data still reproduces the upstream feel through the real stat pipeline.
+ * The content rules (D10, E19). From M4 the validator is FULL: id syntax and uniqueness, every
+ * cross-reference that the supplied file set can resolve, cost and level consistency, the upgrade
+ * prerequisite DAG, the E3 caps, the E20 cosmetic-only condition types, the contradiction rules,
+ * the classic table and the {@link UnlockGraph}.
  *
- * <p>Cross-reference, unlock-graph and string-key checks are FULL from M4, when the files they
- * point at exist; see {@link #validateCrossReferencesM4(GameContent, List)}.
+ * <p>A cross-reference into a file that was not supplied is <em>not</em> an error
+ * ({@link GameContent#has(String)}): milestones M1–M3 ship birds, difficulty and economy alone
+ * and their data has to keep passing its own validator (E19), while the shipped M4 set carries
+ * every file and is therefore checked in full. The same rule covers the references that point at
+ * files still to come — {@code patterns.json} (M7) and {@code modifiers.json} (M6).
  *
- * <p>The string-key rules of D25 ship in M2 and live in {@link #checkStrings(GameContent)}: they
- * compare the content against {@code data/strings/*.json}, not against another content file, so
- * they run on the <em>shipped</em> content ({@link GameContent#load()}) and are not part of
+ * <p>The string-key rules of D25 live in {@link #checkStrings(GameContent)}: they compare the
+ * content against {@code data/strings/*.json}, not against another content file, so they run on
+ * the <em>shipped</em> content ({@link GameContent#load()}) and are not part of
  * {@link #errorsOf(GameContent)}, which fixtures with deliberately renamed ids go through.
  *
  * <p>Every error carries a {@code file#/json/pointer} location and all of them are raised
@@ -59,17 +80,33 @@ public final class ContentValidator {
     /** Gate count at which {@code MOVING_CHANCE} must have reached its cap (E-table §5). */
     public static final int MOVING_CHANCE_CAP_GATE = 19;
 
+    /**
+     * The ability level cap a fresh profile starts with (E3). It mirrors
+     * {@code PlayerProfile.DEFAULT_ABILITY_LEVEL_CAP}; the content package states it itself so
+     * that validation never depends on the progression package.
+     */
+    public static final int BASE_ABILITY_LEVEL_CAP = 2;
+
+    /** The most passive slots a bird may ever have, innate slots plus grants (E3). */
+    public static final int MAX_PASSIVE_SLOTS = 4;
+
     private static final double EPSILON = 1e-9;
     private static final String BIRDS_FILE = "birds.json";
     private static final String DIFFICULTY_FILE = "difficulty.json";
     private static final String ECONOMY_FILE = "economy.json";
+    private static final String UPGRADES_FILE = "upgrades.json";
+    private static final String ABILITIES_FILE = "abilities.json";
+    private static final String WORLDS_FILE = "worlds.json";
+    private static final String CHALLENGES_FILE = "challenges.json";
+    private static final String ACHIEVEMENTS_FILE = "achievements.json";
+    private static final String ALIASES_FILE = "aliases.json";
 
-    /** Content kinds that already exist and therefore need {@code name}/{@code desc} strings. */
-    public static final String KIND_BIRD = "bird";
+    /** String-key prefix of a bird; {@link ContentKind} is the full list (E31.h). */
+    public static final String KIND_BIRD = ContentKind.BIRD.key();
     /** Cosmetic keys are {@code cosmetic.<bird>.<palette>.name/.desc} (E31.h). */
-    public static final String KIND_COSMETIC = "cosmetic";
+    public static final String KIND_COSMETIC = ContentKind.COSMETIC.key();
     /** Difficulty tiers are shown by name in the run setup. */
-    public static final String KIND_TIER = "tier";
+    public static final String KIND_TIER = ContentKind.TIER.key();
 
     /**
      * What the string files say about the content (D25).
@@ -128,11 +165,95 @@ public final class ContentValidator {
         validateCurves(content, errors);
         validateTiers(content, errors);
         validateEconomy(content, errors);
-        validateCostsAndLevels(content, errors);
+        validateTrees(content, errors);
+        validateUpgrades(content, errors);
+        validateAbilities(content, errors);
+        validateWorlds(content, errors);
+        validateChallenges(content, errors);
+        validateAchievements(content, errors);
+        validateAliases(content, errors);
+        validateCaps(content, errors);
         validateClassicTable(content, errors);
-        validateCrossReferencesM4(content, errors);
+        errors.addAll(UnlockGraph.of(content).errors());
         return errors;
     }
+
+    /**
+     * Problems that do not stop the game from running but that a balance pass has to see.
+     *
+     * @param content the content to check
+     * @return the warnings, in discovery order
+     */
+    public static List<String> warningsOf(GameContent content) {
+        List<String> warnings = new ArrayList<>();
+        warnPointsSink(content, warnings);
+        warnNoOpMultipliers(content, warnings);
+        return warnings;
+    }
+
+    /**
+     * E1: {@code points} pay only through {@code rewards.coinsPerPoint}, a {@code best_points}
+     * unlock condition or a {@code REACH_POINTS} objective. With none of them, {@code SCORE_MULT}
+     * — and every bird spread, upgrade and modifier that touches it — is silently worthless.
+     *
+     * @param content the content to check
+     * @param warnings where to append
+     */
+    private static void warnPointsSink(GameContent content, List<String> warnings) {
+        EconomyDef economy = content.economy();
+        if (economy == null || economy.rewards() == null || economy.rewards().coinsPerPoint() > 0) {
+            return;
+        }
+        for (ChallengeDef challenge : content.challenges()) {
+            if (challenge.objective().type() == ObjectiveType.REACH_POINTS) {
+                return;
+            }
+        }
+        for (UnlockConditionDef condition : everyCondition(content)) {
+            if (condition.type() == UnlockType.BEST_POINTS) {
+                return;
+            }
+        }
+        warnings.add(ECONOMY_FILE + "#/rewards/coinsPerPoint: 0 leaves SCORE_MULT with no sink —"
+                + " points would pay nothing, and no best_points unlock or REACH_POINTS objective"
+                + " reads them (E1)");
+    }
+
+    private static void warnNoOpMultipliers(GameContent content, List<String> warnings) {
+        for (BirdDef bird : content.birds()) {
+            warnNoOp(warnings, BIRDS_FILE + "#/" + bird.id() + "/effects", bird.effects());
+        }
+        for (UpgradeDef node : content.upgrades()) {
+            warnNoOp(warnings, UPGRADES_FILE + "#/nodes/" + node.id() + "/effectsPerLevel",
+                    node.effectsPerLevel());
+        }
+        for (WorldDef world : content.worlds()) {
+            warnNoOp(warnings, WORLDS_FILE + "#/worlds/" + world.id() + "/effects",
+                    world.effects());
+        }
+        for (ChallengeDef challenge : content.challenges()) {
+            warnNoOp(warnings, CHALLENGES_FILE + "#/challenges/" + challenge.id() + "/effects",
+                    challenge.effects());
+        }
+        for (TierDef tier : content.tiers()) {
+            warnNoOp(warnings, DIFFICULTY_FILE + "#/tiers/" + tier.id() + "/effects",
+                    tier.effects());
+        }
+    }
+
+    private static void warnNoOp(List<String> warnings, String at, List<StatModifierDef> effects) {
+        for (int i = 0; i < effects.size(); i++) {
+            StatModifierDef effect = effects.get(i);
+            boolean noop = effect.op() == StatOp.MULTIPLY && Math.abs(effect.value() - 1) < EPSILON
+                    || effect.op() != StatOp.MULTIPLY && Math.abs(effect.value()) < EPSILON;
+            if (noop) {
+                warnings.add(at + "/" + i + ": " + effect.stat() + " " + effect.op() + " "
+                        + effect.value() + " does nothing");
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ birds
 
     private static void validateBirds(GameContent content, List<String> errors) {
         Set<String> seen = new HashSet<>();
@@ -144,6 +265,25 @@ public final class ContentValidator {
             if (!seen.add(def.id())) {
                 errors.add(at + "/id: duplicate bird id '" + def.id() + "'");
             }
+            if (!BirdDef.SHAPES.contains(def.shape())) {
+                // ProceduralArt.drawBirdPortrait falls through to the balanced silhouette for a
+                // key it does not know, so a typo would ship the wrong bird in silence (D10).
+                errors.add(at + "/shape: unknown silhouette '" + def.shape() + "'; the keys are "
+                        + new TreeSet<>(BirdDef.SHAPES));
+            }
+            if (def.passiveSlots() > MAX_PASSIVE_SLOTS) {
+                errors.add(at + "/passiveSlots: " + def.passiveSlots() + " is above the maximum "
+                        + MAX_PASSIVE_SLOTS + " (E3)");
+            }
+            for (int a = 0; a < def.passiveAbilities().size(); a++) {
+                String abilityId = def.passiveAbilities().get(a);
+                if (content.has(GameContent.ABILITIES)
+                        && !content.abilities().contains(abilityId)) {
+                    errors.add(at + "/passiveAbilities/" + a + ": unknown ability '" + abilityId
+                            + "'");
+                }
+            }
+            checkCondition(content, errors, at + "/unlock", def.unlock(), false);
             Set<String> palettes = new HashSet<>();
             for (int p = 0; p < def.palettes().size(); p++) {
                 PaletteDef palette = def.palettes().get(p);
@@ -153,6 +293,7 @@ public final class ContentValidator {
                     errors.add(pat + "/id: duplicate palette id '" + palette.id() + "' on bird '"
                             + def.id() + "'");
                 }
+                checkCondition(content, errors, pat + "/unlock", palette.unlock(), true);
             }
             if (def.palettes().isEmpty()) {
                 errors.add(at + "/palettes: bird '" + def.id() + "' has no palette");
@@ -185,6 +326,9 @@ public final class ContentValidator {
             if (def.defaultTier()) {
                 defaults++;
             }
+            checkCondition(content, errors, at + "/unlock", def.unlock(), false);
+            checkContradictions(errors, at, "tier '" + def.id() + "'", def.flags(), def.effects(),
+                    null);
         }
         if (defs.isEmpty()) {
             errors.add(DIFFICULTY_FILE + "#/tiers: no tier is defined");
@@ -194,14 +338,8 @@ public final class ContentValidator {
         }
     }
 
-    /**
-     * The economy rules (§4, E1, E4): at least one currency, every currency id well formed, the
-     * currency the rewards are paid in declared, integer level-reward keys inside the curve, unique
-     * and well-formed feature ids, and a prestige block that only keeps things a prestige can keep.
-     *
-     * @param content the content to check
-     * @param errors where to append problems
-     */
+    // ---------------------------------------------------------------- economy
+
     private static void validateEconomy(GameContent content, List<String> errors) {
         EconomyDef economy = content.economy();
         if (economy == null) {
@@ -209,34 +347,16 @@ public final class ContentValidator {
             return;
         }
         validateCurrencies(economy, errors);
-        validateLevelRewards(economy, errors);
-        validateFeatures(economy, errors);
+        validateLevelRewards(content, economy, errors);
+        validateFeatures(content, economy, errors);
         validatePrestige(economy, errors);
-    }
-
-    /**
-     * Problems that do not stop the game from running but that a balance pass has to see (E1).
-     *
-     * <p>Today there is exactly one: {@code SCORE_MULT} raises {@code points}, and the only thing
-     * that reads {@code points} is {@code rewards.coinsPerPoint}. Set that to 0 and the whole stat
-     * — every bird spread, upgrade and modifier that touches it — silently pays nothing. The
-     * consumers E1 lists as the alternative sinks ({@code best_points} unlock conditions,
-     * {@code REACH_POINTS} objectives) arrive with M4 and M8; until then a 0 is always a mistake,
-     * and from M4 this check gains the "unless one of those exists" half.
-     *
-     * @param content the content to check
-     * @return the warnings, in discovery order
-     */
-    public static List<String> warningsOf(GameContent content) {
-        List<String> warnings = new ArrayList<>();
-        EconomyDef economy = content.economy();
-        if (economy != null && economy.rewards() != null
-                && economy.rewards().coinsPerPoint() == 0) {
-            warnings.add(ECONOMY_FILE + "#/rewards/coinsPerPoint: 0 leaves SCORE_MULT with no sink"
-                    + " — points would pay nothing, and no best_points unlock or REACH_POINTS"
-                    + " objective exists yet to read them (E1)");
+        List<String> pool = economy.daily().tierPool();
+        for (int i = 0; i < pool.size(); i++) {
+            if (!content.tiers().contains(pool.get(i))) {
+                errors.add(ECONOMY_FILE + "#/daily/tierPool/" + i + ": unknown tier '"
+                        + pool.get(i) + "'");
+            }
         }
-        return warnings;
     }
 
     private static void validateCurrencies(EconomyDef economy, List<String> errors) {
@@ -260,7 +380,8 @@ public final class ContentValidator {
         }
     }
 
-    private static void validateLevelRewards(EconomyDef economy, List<String> errors) {
+    private static void validateLevelRewards(GameContent content, EconomyDef economy,
+            List<String> errors) {
         int maxLevel = economy.xp().curve().maxLevel();
         for (Map.Entry<String, LevelRewardDef> entry : economy.xp().levelRewards().entrySet()) {
             String key = entry.getKey();
@@ -279,19 +400,22 @@ public final class ContentValidator {
                 errors.add(at + ": level reward key '" + key + "' is above xp.curve.maxLevel "
                         + maxLevel);
             }
+            checkUnlocks(content, errors, at + "/unlocks", entry.getValue().unlocks());
         }
     }
 
-    private static void validateFeatures(EconomyDef economy, List<String> errors) {
+    private static void validateFeatures(GameContent content, EconomyDef economy,
+            List<String> errors) {
         Set<String> seen = new HashSet<>();
         List<FeatureDef> features = economy.features();
         for (int i = 0; i < features.size(); i++) {
             FeatureDef def = features.get(i);
-            String at = ECONOMY_FILE + "#/features/" + i + "/id";
-            checkId(errors, at, "feature", def.id());
+            String at = ECONOMY_FILE + "#/features/" + i;
+            checkId(errors, at + "/id", "feature", def.id());
             if (!seen.add(def.id())) {
-                errors.add(at + ": duplicate feature id '" + def.id() + "'");
+                errors.add(at + "/id: duplicate feature id '" + def.id() + "'");
             }
+            checkCondition(content, errors, at + "/unlock", def.unlock(), false);
         }
     }
 
@@ -306,18 +430,729 @@ public final class ContentValidator {
         }
     }
 
+    // --------------------------------------------------------------- upgrades
+
+    private static void validateTrees(GameContent content, List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        List<TreeDef> defs = content.trees().all();
+        for (int i = 0; i < defs.size(); i++) {
+            TreeDef def = defs.get(i);
+            String at = UPGRADES_FILE + "#/trees/" + i;
+            checkId(errors, at + "/id", "tree", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate tree id '" + def.id() + "'");
+            }
+            checkCondition(content, errors, at + "/unlock", def.unlock(), false);
+        }
+    }
+
+    private static void validateUpgrades(GameContent content, List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        List<UpgradeDef> defs = content.upgrades().all();
+        for (int i = 0; i < defs.size(); i++) {
+            UpgradeDef def = defs.get(i);
+            String at = UPGRADES_FILE + "#/nodes/" + i;
+            checkId(errors, at + "/id", "upgrade", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate upgrade id '" + def.id() + "'");
+            }
+            if (!content.trees().contains(def.tree())) {
+                errors.add(at + "/tree: unknown tree '" + def.tree() + "'");
+            }
+            if (def.costs().size() != def.maxLevel()) {
+                errors.add(at + "/costs: " + def.costs().size() + " costs for maxLevel "
+                        + def.maxLevel() + " (costs.length must equal maxLevel)");
+            }
+            if (def.effectsPerLevel().isEmpty() && def.grants().isEmpty()) {
+                errors.add(at + ": node '" + def.id() + "' has neither effects nor grants");
+            }
+            for (Map.Entry<String, List<StatModifierDef>> override
+                    : def.levelOverrides().entrySet()) {
+                String key = override.getKey();
+                int level;
+                try {
+                    level = Integer.parseInt(key);
+                } catch (NumberFormatException e) {
+                    errors.add(at + "/levelOverrides/" + key + ": key is not an integer");
+                    continue;
+                }
+                if (level < 1 || level > def.maxLevel()) {
+                    errors.add(at + "/levelOverrides/" + key + ": level is outside 1.."
+                            + def.maxLevel());
+                }
+            }
+            for (int p = 0; p < def.prereqs().size(); p++) {
+                String prereqId = def.prereqs().get(p);
+                String pat = at + "/prereqs/" + p;
+                if (!content.upgrades().contains(prereqId)) {
+                    errors.add(pat + ": unknown upgrade node '" + prereqId + "'");
+                    continue;
+                }
+                UpgradeDef prereq = content.upgrades().get(prereqId);
+                if (!prereq.tree().equals(def.tree())) {
+                    errors.add(pat + ": '" + prereqId + "' is in tree '" + prereq.tree()
+                            + "', not in '" + def.tree() + "'");
+                } else if (prereq.tier() >= def.tier()) {
+                    errors.add(pat + ": '" + prereqId + "' is in tier " + prereq.tier()
+                            + ", which is not below tier " + def.tier() + " of '" + def.id() + "'");
+                }
+            }
+            for (int g = 0; g < def.grants().size(); g++) {
+                GrantDef grant = def.grants().get(g);
+                if (grant.type() == GrantType.UNLOCK) {
+                    checkUnlockable(content, errors, at + "/grants/" + g + "/id", grant.id());
+                }
+            }
+        }
+        checkPrereqDag(content, errors);
+    }
+
     /**
-     * Cost and level consistency ({@code costs.length == maxLevel}, ability level caps, E3).
-     *
-     * <p>Nothing in the M1 file set carries costs or levels: {@code upgrades.json} lands in M4 and
-     * {@code abilities.json} in M5. The hook exists so the rule has one home when it applies.
+     * The prerequisite graph must be acyclic; the tier rule above already forbids most loops, but
+     * a node whose prerequisite sits in the same tier chain would otherwise be unbuyable forever.
      *
      * @param content the content to check
      * @param errors where to append problems
      */
-    private static void validateCostsAndLevels(GameContent content, List<String> errors) {
-        // No cost- or level-bearing definition exists before M4; nothing to check yet.
+    private static void checkPrereqDag(GameContent content, List<String> errors) {
+        Set<String> done = new HashSet<>();
+        Set<String> reported = new HashSet<>();
+        for (UpgradeDef node : content.upgrades()) {
+            walkPrereqs(content, node.id(), new LinkedHashSet<>(), done, reported, errors);
+        }
     }
+
+    private static void walkPrereqs(GameContent content, String id, LinkedHashSet<String> stack,
+            Set<String> done, Set<String> reported, List<String> errors) {
+        if (done.contains(id)) {
+            return;
+        }
+        if (!stack.add(id)) {
+            List<String> loop = new ArrayList<>(stack);
+            loop.add(id);
+            String signature = new java.util.TreeSet<>(loop).toString();
+            if (reported.add(signature)) {
+                errors.add(UPGRADES_FILE + "#/nodes/" + id + "/prereqs: prerequisite cycle "
+                        + String.join(" -> ", loop));
+            }
+            return;
+        }
+        if (content.upgrades().contains(id)) {
+            for (String prereq : content.upgrades().get(id).prereqs()) {
+                walkPrereqs(content, prereq, stack, done, reported, errors);
+            }
+        }
+        stack.remove(id);
+        done.add(id);
+    }
+
+    // -------------------------------------------------------------- abilities
+
+    private static void validateAbilities(GameContent content, List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        List<AbilityDef> defs = content.abilities().all();
+        for (int i = 0; i < defs.size(); i++) {
+            AbilityDef def = defs.get(i);
+            String at = ABILITIES_FILE + "#/abilities/" + i;
+            checkId(errors, at + "/id", "ability", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate ability id '" + def.id() + "'");
+            }
+            if (def.levels().isEmpty()) {
+                errors.add(at + "/levels: ability '" + def.id() + "' has no level");
+            } else if (def.levels().get(0).cost() != 0) {
+                errors.add(at + "/levels/0/cost: level 1 comes with the unlock and must cost 0, "
+                        + "not " + def.levels().get(0).cost());
+            }
+            for (int l = 1; l < def.levels().size(); l++) {
+                AbilityLevelDef level = def.levels().get(l);
+                if (level.cost() <= 0) {
+                    errors.add(at + "/levels/" + l + "/cost: level " + (l + 1)
+                            + " is bought in the shop and must cost more than 0");
+                }
+            }
+            checkCondition(content, errors, at + "/unlock", def.unlock(), false);
+        }
+    }
+
+    // ----------------------------------------------------------------- worlds
+
+    private static void validateWorlds(GameContent content, List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        Set<Integer> orders = new HashSet<>();
+        List<WorldDef> defs = content.worlds().all();
+        for (int i = 0; i < defs.size(); i++) {
+            WorldDef def = defs.get(i);
+            String at = WORLDS_FILE + "#/worlds/" + i;
+            checkId(errors, at + "/id", "world", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate world id '" + def.id() + "'");
+            }
+            if (!orders.add(def.order())) {
+                errors.add(at + "/order: duplicate order " + def.order());
+            }
+            if (!content.curves().contains(def.curve())) {
+                errors.add(at + "/curve: unknown curve '" + def.curve() + "'");
+            }
+            checkCondition(content, errors, at + "/unlock", def.unlock(), false);
+            checkContradictions(errors, at, "world '" + def.id() + "'", def.flags(), def.effects(),
+                    null);
+            checkBoss(content, errors, at + "/boss", def.boss(), true);
+            if (def.ruleCycles() != null) {
+                List<io.github.michelbr84.flapforge.content.defs.RuleCycleOptionDef> options =
+                        def.ruleCycles().options();
+                if (options.isEmpty()) {
+                    errors.add(at + "/ruleCycles/options: a rule cycle needs at least one option");
+                }
+            }
+        }
+    }
+
+    private static void checkBoss(GameContent content, List<String> errors, String at,
+            BossDef boss, boolean rewardRequired) {
+        if (boss == null) {
+            return;
+        }
+        if (rewardRequired && boss.reward() == null) {
+            errors.add(at + "/reward: a world boss must pay a reward (E26)");
+        }
+        if (!rewardRequired && boss.reward() != null) {
+            errors.add(at + "/reward: a challenge boss never pays; the challenge does (E26)");
+        }
+        if (boss.reward() != null) {
+            checkUnlocks(content, errors, at + "/reward/unlocks", boss.reward().unlocks());
+        }
+        for (int p = 0; p < boss.patterns().size(); p++) {
+            checkPattern(content, errors, at + "/patterns/" + p, boss.patterns().get(p));
+        }
+        if (boss.patterns().isEmpty()) {
+            errors.add(at + "/patterns: a boss needs at least one pattern");
+        }
+    }
+
+    /**
+     * Pattern ids are authored in M7 ({@code patterns.json}); until that registry exists the
+     * reference is recorded and left unchecked (E19).
+     *
+     * @param content the content to check
+     * @param errors where to append problems
+     * @param at the pointer of the reference
+     * @param patternId the id
+     */
+    private static void checkPattern(GameContent content, List<String> errors, String at,
+            String patternId) {
+        if (patternId == null || patternId.isBlank()) {
+            errors.add(at + ": empty pattern id");
+        }
+        // TODO(M7): resolve against content.patterns() once patterns.json ships.
+    }
+
+    // ------------------------------------------------------------- challenges
+
+    private static void validateChallenges(GameContent content, List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        List<ChallengeDef> defs = content.challenges().all();
+        for (int i = 0; i < defs.size(); i++) {
+            ChallengeDef def = defs.get(i);
+            String at = CHALLENGES_FILE + "#/challenges/" + i;
+            checkId(errors, at + "/id", "challenge", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate challenge id '" + def.id() + "'");
+            }
+            if (content.has(GameContent.WORLDS) && !content.worlds().contains(def.world())) {
+                errors.add(at + "/world: unknown world '" + def.world() + "'");
+            }
+            if (!content.tiers().contains(def.tier())) {
+                errors.add(at + "/tier: unknown tier '" + def.tier() + "'");
+            }
+            if (!content.curves().contains(def.curve())) {
+                errors.add(at + "/curve: unknown curve '" + def.curve() + "'");
+            }
+            checkCondition(content, errors, at + "/unlock", def.unlock(), false);
+            checkUnlocks(content, errors, at + "/rewards/unlocks",
+                    def.rewardsOrNone().unlocks());
+            checkContradictions(errors, at, "challenge '" + def.id() + "'", def.flags(),
+                    def.effects(), def.objective().type());
+            // TODO(M8): a BOSS_CLEARED objective must carry a boss block once boss encounters
+            // exist; boss_corridor_1 is authored with its final rewards and gets its boss then.
+            checkBoss(content, errors, at + "/boss", def.boss(), false);
+            if (def.forcedPattern() != null) {
+                checkPattern(content, errors, at + "/forcedPattern", def.forcedPattern());
+            }
+            // forcedModifiers point at modifiers.json, which ships in M6 (E19).
+        }
+    }
+
+    // ----------------------------------------------------------- achievements
+
+    private static void validateAchievements(GameContent content, List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        List<AchievementDef> defs = content.achievements().all();
+        for (int i = 0; i < defs.size(); i++) {
+            AchievementDef def = defs.get(i);
+            String at = ACHIEVEMENTS_FILE + "#/achievements/" + i;
+            checkId(errors, at + "/id", "achievement", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate achievement id '" + def.id() + "'");
+            }
+            checkCounter(errors, at + "/condition/counter", def.condition());
+            checkUnlocks(content, errors, at + "/reward/unlocks", def.rewardOrNone().unlocks());
+        }
+    }
+
+    /**
+     * An achievement counter must resolve (D10, E5): a {@code StatisticKey} field or map entry, a
+     * profile-root scalar, one of the documented run values, or a collection percentage.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the counter
+     * @param condition the condition carrying it
+     */
+    private static void checkCounter(List<String> errors, String at,
+            AchievementConditionDef condition) {
+        String counter = condition.counter();
+        switch (condition.scope()) {
+            case LIFETIME:
+                if (StatisticKey.of(counter) == null) {
+                    errors.add(at + ": unknown LIFETIME counter '" + counter
+                            + "' (expected a StatisticKey field, <mapField>.<key>, or a"
+                            + " profile-root scalar)");
+                }
+                break;
+            case RUN:
+                if (!AchievementConditionDef.RUN_COUNTERS.contains(counter)) {
+                    errors.add(at + ": unknown RUN counter '" + counter + "' (expected one of "
+                            + AchievementConditionDef.RUN_COUNTERS + ")");
+                }
+                break;
+            case COLLECTION:
+            default: {
+                String category = condition.collectionCategory();
+                if (category == null) {
+                    errors.add(at + ": a COLLECTION counter must read '"
+                            + AchievementConditionDef.COLLECTION_PREFIX + "<category>"
+                            + AchievementConditionDef.COLLECTION_SUFFIX + "', not '" + counter
+                            + "'");
+                } else if (!AchievementConditionDef.COLLECTION_CATEGORIES.contains(category)) {
+                    errors.add(at + ": unknown collection category '" + category
+                            + "' (expected one of "
+                            + AchievementConditionDef.COLLECTION_CATEGORIES + ")");
+                }
+                break;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- aliases
+
+    private static void validateAliases(GameContent content, List<String> errors) {
+        if (!content.has(GameContent.ALIASES)) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : content.aliases().unlocked().entrySet()) {
+            checkUnlockable(content, errors,
+                    ALIASES_FILE + "#/unlocked/" + entry.getKey(), entry.getValue());
+        }
+        for (Map.Entry<String, String> entry : content.aliases().upgrades().entrySet()) {
+            if (content.has(GameContent.UPGRADES)
+                    && !content.upgrades().contains(entry.getValue())) {
+                errors.add(ALIASES_FILE + "#/upgrades/" + entry.getKey()
+                        + ": renames to unknown upgrade node '" + entry.getValue() + "'");
+            }
+        }
+        for (Map.Entry<String, String> entry : content.aliases().abilityLevels().entrySet()) {
+            if (content.has(GameContent.ABILITIES)
+                    && !content.abilities().contains(entry.getValue())) {
+                errors.add(ALIASES_FILE + "#/abilityLevels/" + entry.getKey()
+                        + ": renames to unknown ability '" + entry.getValue() + "'");
+            }
+        }
+        for (String removed : content.aliases().removedUpgrades()) {
+            if (content.has(GameContent.UPGRADES) && content.upgrades().contains(removed)) {
+                errors.add(ALIASES_FILE + "#/removedUpgrades: '" + removed
+                        + "' is still a node in " + UPGRADES_FILE);
+            }
+        }
+        for (String node : content.aliases().refunds().keySet()) {
+            if (!content.aliases().removedUpgrades().contains(node)) {
+                errors.add(ALIASES_FILE + "#/refunds/" + node
+                        + ": a refund is only paid for a removed node");
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------- caps
+
+    /**
+     * The E3 caps: the ability level cap a player can reach must not exceed the number of levels
+     * the abilities ship, and the passive slots a bird can reach must not exceed
+     * {@link #MAX_PASSIVE_SLOTS}.
+     *
+     * @param content the content to check
+     * @param errors where to append problems
+     */
+    private static void validateCaps(GameContent content, List<String> errors) {
+        long abilityCapGrants = 0;
+        long passiveSlotGrants = 0;
+        for (UpgradeDef node : content.upgrades()) {
+            for (GrantDef grant : node.grants()) {
+                if (grant.type() == GrantType.ABILITY_CAP) {
+                    abilityCapGrants += grant.amount();
+                } else if (grant.type() == GrantType.PASSIVE_SLOT) {
+                    passiveSlotGrants += grant.amount();
+                }
+            }
+        }
+        long cap = BASE_ABILITY_LEVEL_CAP + abilityCapGrants;
+        if (content.has(GameContent.ABILITIES) && !content.abilities().all().isEmpty()) {
+            int minLevels = Integer.MAX_VALUE;
+            String thinnest = null;
+            for (AbilityDef def : content.abilities()) {
+                if (def.levels().size() < minLevels) {
+                    minLevels = def.levels().size();
+                    thinnest = def.id();
+                }
+            }
+            if (cap > minLevels) {
+                errors.add(UPGRADES_FILE + "#/nodes: the ability level cap reaches "
+                        + cap + " (base " + BASE_ABILITY_LEVEL_CAP + " + " + abilityCapGrants
+                        + " from ability_cap grants) but ability '" + thinnest + "' has only "
+                        + minLevels + " levels (E3)");
+            }
+        }
+        int maxSlots = 0;
+        String widest = null;
+        for (BirdDef bird : content.birds()) {
+            if (bird.passiveSlots() > maxSlots) {
+                maxSlots = bird.passiveSlots();
+                widest = bird.id();
+            }
+        }
+        if (maxSlots + passiveSlotGrants > MAX_PASSIVE_SLOTS) {
+            errors.add(UPGRADES_FILE + "#/nodes: passive slots reach " + (maxSlots
+                    + passiveSlotGrants) + " on bird '" + widest + "' (" + maxSlots + " innate + "
+                    + passiveSlotGrants + " from passive_slot grants), above the maximum "
+                    + MAX_PASSIVE_SLOTS + " (E3)");
+        }
+    }
+
+    // ------------------------------------------------------- shared reference
+
+    /**
+     * Checks one unlock condition and everything under it (D13, E20).
+     *
+     * @param content the content to check against
+     * @param errors where to append problems
+     * @param at the pointer of the condition
+     * @param condition the condition
+     * @param cosmetic whether the owner is a cosmetic, which is the only place
+     *     {@code prestige} and {@code counter} are allowed (E20)
+     */
+    private static void checkCondition(GameContent content, List<String> errors, String at,
+            UnlockConditionDef condition, boolean cosmetic) {
+        checkCondition(content, errors, at, condition, cosmetic, true);
+    }
+
+    /**
+     * Checks one unlock condition and everything under it (D13, E20).
+     *
+     * @param content the content to check against
+     * @param errors where to append problems
+     * @param at the pointer of the condition
+     * @param condition the condition
+     * @param cosmetic whether the owner is a cosmetic, which is the only place
+     *     {@code prestige} and {@code counter} are allowed (E20)
+     * @param sellable whether a {@code purchase} at this position is a shop price: true at the
+     *     root and under an {@code any_of}, false anywhere under an {@code all_of}
+     */
+    private static void checkCondition(GameContent content, List<String> errors, String at,
+            UnlockConditionDef condition, boolean cosmetic, boolean sellable) {
+        if (condition == null) {
+            errors.add(at + ": missing unlock condition");
+            return;
+        }
+        switch (condition.type()) {
+            case DEFAULT:
+                break;
+            case BEST_GATES:
+            case BEST_POINTS:
+            case TOTAL_GATES:
+            case RUNS:
+            case LEVEL:
+            case COINS_EARNED_TOTAL:
+                if (condition.value() <= 0) {
+                    errors.add(at + "/value: " + condition.type() + " needs a positive value");
+                }
+                break;
+            case PURCHASE:
+                if (condition.amount() <= 0) {
+                    errors.add(at + "/amount: purchase needs a positive amount");
+                }
+                if (!sellable) {
+                    // The shop reads a purchase branch as "this is what it costs" and sells the
+                    // unlockable for it. Under an all_of the coins are one requirement among
+                    // several, so selling it would hand over something its siblings still gate.
+                    errors.add(at + "/type: 'purchase' may only be the whole condition or a"
+                            + " branch of an 'any_of', never a member of an 'all_of' (D13)");
+                }
+                break;
+            case CHALLENGE:
+                checkReference(content, errors, at + "/id", condition.id(), "challenge",
+                        GameContent.CHALLENGES, content.challenges()::contains);
+                break;
+            case ACHIEVEMENT:
+                checkReference(content, errors, at + "/id", condition.id(), "achievement",
+                        GameContent.ACHIEVEMENTS, content.achievements()::contains);
+                break;
+            case WORLD_CLEARED:
+                checkReference(content, errors, at + "/id", condition.id(), "world",
+                        GameContent.WORLDS, content.worlds()::contains);
+                break;
+            case PRESTIGE:
+                if (!cosmetic) {
+                    errors.add(at + "/type: 'prestige' is allowed only on a cosmetic (E20)");
+                }
+                if (condition.value() < 1) {
+                    errors.add(at + "/value: prestige needs a value of at least 1");
+                }
+                break;
+            case COUNTER:
+                if (!cosmetic) {
+                    errors.add(at + "/type: 'counter' is allowed only on a cosmetic (E20)");
+                }
+                checkCounter(errors, at + "/counter", new AchievementConditionDef(
+                        condition.counter() == null ? "" : condition.counter(),
+                        scopeOf(condition.counter()),
+                        io.github.michelbr84.flapforge.content.defs.CompareOp.GTE,
+                        condition.value()));
+                break;
+            case ALL_OF:
+            case ANY_OF:
+            default:
+                if (condition.type() == UnlockType.ALL_OF && condition.conditions().isEmpty()) {
+                    // An empty all_of is vacuously true, which silently means "default"; an empty
+                    // any_of is never true, and the unlock graph says so far more usefully than a
+                    // shape rule would ("cannot be reached from the default set").
+                    errors.add(at + "/conditions: all_of has no condition");
+                }
+                boolean childrenSellable = sellable && condition.type() == UnlockType.ANY_OF;
+                for (int i = 0; i < condition.conditions().size(); i++) {
+                    checkCondition(content, errors, at + "/conditions/" + i,
+                            condition.conditions().get(i), cosmetic, childrenSellable);
+                }
+                break;
+        }
+    }
+
+    private static io.github.michelbr84.flapforge.content.defs.CounterScope scopeOf(
+            String counter) {
+        if (counter != null && counter.startsWith(AchievementConditionDef.RUN_PREFIX)) {
+            return io.github.michelbr84.flapforge.content.defs.CounterScope.RUN;
+        }
+        if (counter != null && counter.startsWith(AchievementConditionDef.COLLECTION_PREFIX)) {
+            return io.github.michelbr84.flapforge.content.defs.CounterScope.COLLECTION;
+        }
+        return io.github.michelbr84.flapforge.content.defs.CounterScope.LIFETIME;
+    }
+
+    private static void checkReference(GameContent content, List<String> errors, String at,
+            String id, String kind, String file, java.util.function.Predicate<String> known) {
+        if (id == null || id.isBlank()) {
+            errors.add(at + ": missing " + kind + " id");
+            return;
+        }
+        if (content.has(file) && !known.test(id)) {
+            errors.add(at + ": unknown " + kind + " '" + id + "'");
+        }
+    }
+
+    private static void checkUnlocks(GameContent content, List<String> errors, String at,
+            List<String> unlocks) {
+        for (int i = 0; i < unlocks.size(); i++) {
+            checkUnlockable(content, errors, at + "/" + i, unlocks.get(i));
+        }
+    }
+
+    /**
+     * Resolves one namespaced unlockable id (D13). An id whose kind lives in a file that was not
+     * supplied is left alone (E19).
+     *
+     * @param content the content to check against
+     * @param errors where to append problems
+     * @param at the pointer of the id
+     * @param id the namespaced id
+     */
+    private static void checkUnlockable(GameContent content, List<String> errors, String at,
+            String id) {
+        if (id == null || id.isBlank()) {
+            errors.add(at + ": empty unlockable id");
+            return;
+        }
+        ContentKind kind = ContentKind.ofUnlockable(id);
+        if (kind == null) {
+            errors.add(at + ": '" + id + "' is not a namespaced unlockable id (expected one of "
+                    + namespaces() + ")");
+            return;
+        }
+        String rest = id.substring(kind.namespace().length());
+        switch (kind) {
+            case BIRD:
+                if (!content.birds().contains(rest)) {
+                    errors.add(at + ": unknown bird '" + rest + "' in '" + id + "'");
+                }
+                break;
+            case COSMETIC: {
+                int colon = rest.indexOf(':');
+                if (colon <= 0 || colon + 1 >= rest.length()) {
+                    errors.add(at + ": '" + id + "' must read cosmetic:<bird>:<palette>");
+                    break;
+                }
+                String birdId = rest.substring(0, colon);
+                String paletteId = rest.substring(colon + 1);
+                if (!content.birds().contains(birdId)) {
+                    errors.add(at + ": unknown bird '" + birdId + "' in '" + id + "'");
+                } else if (content.birds().get(birdId).palette(paletteId) == null) {
+                    errors.add(at + ": bird '" + birdId + "' has no palette '" + paletteId + "'");
+                }
+                break;
+            }
+            case ABILITY:
+                if (content.has(GameContent.ABILITIES) && !content.abilities().contains(rest)) {
+                    errors.add(at + ": unknown ability '" + rest + "' in '" + id + "'");
+                }
+                break;
+            case TREE:
+                if (content.has(GameContent.UPGRADES) && !content.trees().contains(rest)) {
+                    errors.add(at + ": unknown tree '" + rest + "' in '" + id + "'");
+                }
+                break;
+            case TIER:
+                if (!content.tiers().contains(rest)) {
+                    errors.add(at + ": unknown tier '" + rest + "' in '" + id + "'");
+                }
+                break;
+            case WORLD:
+                if (content.has(GameContent.WORLDS) && !content.worlds().contains(rest)) {
+                    errors.add(at + ": unknown world '" + rest + "' in '" + id + "'");
+                }
+                break;
+            case CHALLENGE:
+                if (content.has(GameContent.CHALLENGES) && !content.challenges().contains(rest)) {
+                    errors.add(at + ": unknown challenge '" + rest + "' in '" + id + "'");
+                }
+                break;
+            case ACHIEVEMENT:
+                if (content.has(GameContent.ACHIEVEMENTS)
+                        && !content.achievements().contains(rest)) {
+                    errors.add(at + ": unknown achievement '" + rest + "' in '" + id + "'");
+                }
+                break;
+            case FEATURE:
+                if (!content.features().contains(rest)) {
+                    errors.add(at + ": unknown feature '" + rest + "' in '" + id + "'");
+                }
+                break;
+            case MODIFIER:
+            default:
+                // modifiers.json ships in M6 (E19); the reference is left unchecked until then.
+                break;
+        }
+    }
+
+    private static List<String> namespaces() {
+        List<String> out = new ArrayList<>();
+        for (ContentKind kind : ContentKind.values()) {
+            if (kind.isUnlockable()) {
+                out.add(kind.namespace());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The contradiction rules (D10): a rule flag that zeroes a stat must not be combined with
+     * content that only exists to raise it.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the owner
+     * @param owner how to name the owner in the message
+     * @param flags the owner's rule flags
+     * @param effects the owner's stat modifiers
+     * @param objective the challenge objective, or {@code null}
+     */
+    private static void checkContradictions(List<String> errors, String at, String owner,
+            List<RuleFlag> flags, List<StatModifierDef> effects, ObjectiveType objective) {
+        if (flags.contains(RuleFlag.NO_COINS) && objective == ObjectiveType.COLLECT_COINS) {
+            errors.add(at + ": " + owner + " has flag NO_COINS and objective COLLECT_COINS, which"
+                    + " can never be met");
+        }
+        for (int i = 0; i < effects.size(); i++) {
+            StatModifierDef effect = effects.get(i);
+            if (flags.contains(RuleFlag.NO_DEFENSIVE_ABILITIES)
+                    && effect.stat() == StatId.SHIELD_CHARGES) {
+                errors.add(at + "/effects/" + i + ": " + owner + " has flag"
+                        + " NO_DEFENSIVE_ABILITIES, which zeroes SHIELD_CHARGES");
+            }
+            if (flags.contains(RuleFlag.NO_REVIVE) && effect.stat() == StatId.REVIVES) {
+                errors.add(at + "/effects/" + i + ": " + owner + " has flag NO_REVIVE, which"
+                        + " zeroes REVIVES");
+            }
+            if (flags.contains(RuleFlag.NO_COINS) && (effect.stat() == StatId.COIN_MULT
+                    || effect.stat() == StatId.COIN_SPAWN_RATE)) {
+                errors.add(at + "/effects/" + i + ": " + owner + " has flag NO_COINS, which makes "
+                        + effect.stat() + " a no-op");
+            }
+        }
+    }
+
+    /**
+     * Every unlock condition in the content, flattened (used by the E1 warning).
+     *
+     * @param content the content
+     * @return the conditions, in content order
+     */
+    private static List<UnlockConditionDef> everyCondition(GameContent content) {
+        List<UnlockConditionDef> out = new ArrayList<>();
+        for (BirdDef bird : content.birds()) {
+            flatten(bird.unlock(), out);
+            for (PaletteDef palette : bird.palettes()) {
+                flatten(palette.unlock(), out);
+            }
+        }
+        for (TierDef tier : content.tiers()) {
+            flatten(tier.unlock(), out);
+        }
+        for (TreeDef tree : content.trees()) {
+            flatten(tree.unlock(), out);
+        }
+        for (AbilityDef ability : content.abilities()) {
+            flatten(ability.unlock(), out);
+        }
+        for (WorldDef world : content.worlds()) {
+            flatten(world.unlock(), out);
+        }
+        for (ChallengeDef challenge : content.challenges()) {
+            flatten(challenge.unlock(), out);
+        }
+        if (content.economy() != null) {
+            for (FeatureDef feature : content.economy().features()) {
+                flatten(feature.unlock(), out);
+            }
+        }
+        return out;
+    }
+
+    private static void flatten(UnlockConditionDef condition, List<UnlockConditionDef> out) {
+        if (condition == null) {
+            return;
+        }
+        out.add(condition);
+        for (UnlockConditionDef child : condition.conditions()) {
+            flatten(child, out);
+        }
+    }
+
+    // ---------------------------------------------------------- classic table
 
     /**
      * The classic table (D10, §5): bird {@code classic} + curve {@code classic} + tier
@@ -393,22 +1228,10 @@ public final class ContentValidator {
         }
     }
 
-    /**
-     * Cross-reference checks deferred to M4 (E19): bird passive abilities, palette and tier
-     * unlock ids ({@code challenge}, {@code achievement}, {@code world_cleared}), upgrade
-     * prerequisites and grants, world and challenge references, achievement counters, string
-     * keys and the unlock graph. They stay off until the files they point at ship, so every
-     * milestone's data passes its own validator.
-     *
-     * @param content the content to check
-     * @param errors where to append problems
-     */
-    private static void validateCrossReferencesM4(GameContent content, List<String> errors) {
-        // TODO(M4): enable cross-reference, unlock-graph and string-key validation (E19).
-    }
+    // ---------------------------------------------------------------- strings
 
     /**
-     * Checks the shipped string files against the code and the content (D25): every
+     * Checks the shipped string files against the code and the content (D25, E31.h): every
      * {@link StringKey} and every {@code <kind>.<id>.name/.desc} of a kind that already exists
      * must be in {@code en.json} (an error), and every key {@code en.json} has should also be in
      * each translation (a warning — the missing key falls back to English at runtime).
@@ -490,9 +1313,8 @@ public final class ContentValidator {
     }
 
     /**
-     * Every {@code name}/{@code desc} key the content in hand needs. Kinds whose files land in a
-     * later milestone (ability, upgrade, world, challenge, achievement …) contribute nothing
-     * until they exist (E19).
+     * Every {@code name}/{@code desc} key the content in hand needs (E31.h). Kinds whose files
+     * land in a later milestone (modifier, synergy) contribute nothing until they exist.
      *
      * @param content the content
      * @return the keys, in content order
@@ -500,20 +1322,43 @@ public final class ContentValidator {
     public static Set<String> contentKeys(GameContent content) {
         Set<String> keys = new LinkedHashSet<>();
         for (BirdDef bird : content.birds()) {
-            addNameAndDesc(keys, KIND_BIRD, bird.id());
+            addNameAndDesc(keys, ContentKind.BIRD, bird.id());
             for (PaletteDef palette : bird.palettes()) {
-                addNameAndDesc(keys, KIND_COSMETIC, bird.id() + "." + palette.id());
+                addNameAndDesc(keys, ContentKind.COSMETIC, bird.id() + "." + palette.id());
             }
         }
+        for (AbilityDef ability : content.abilities()) {
+            addNameAndDesc(keys, ContentKind.ABILITY, ability.id());
+        }
+        for (TreeDef tree : content.trees()) {
+            addNameAndDesc(keys, ContentKind.TREE, tree.id());
+        }
+        for (UpgradeDef node : content.upgrades()) {
+            addNameAndDesc(keys, ContentKind.UPGRADE, node.id());
+        }
         for (TierDef tier : content.tiers()) {
-            addNameAndDesc(keys, KIND_TIER, tier.id());
+            addNameAndDesc(keys, ContentKind.TIER, tier.id());
+        }
+        if (content.economy() != null) {
+            for (FeatureDef feature : content.economy().features()) {
+                addNameAndDesc(keys, ContentKind.FEATURE, feature.id());
+            }
+        }
+        for (WorldDef world : content.worlds()) {
+            addNameAndDesc(keys, ContentKind.WORLD, world.id());
+        }
+        for (ChallengeDef challenge : content.challenges()) {
+            addNameAndDesc(keys, ContentKind.CHALLENGE, challenge.id());
+        }
+        for (AchievementDef achievement : content.achievements()) {
+            addNameAndDesc(keys, ContentKind.ACHIEVEMENT, achievement.id());
         }
         return keys;
     }
 
-    private static void addNameAndDesc(Set<String> keys, String kind, String id) {
-        keys.add(Strings.nameKey(kind, id));
-        keys.add(Strings.descKey(kind, id));
+    private static void addNameAndDesc(Set<String> keys, ContentKind kind, String id) {
+        keys.add(Strings.nameKey(kind.key(), id));
+        keys.add(Strings.descKey(kind.key(), id));
     }
 
     private static void checkId(List<String> errors, String at, String kind, String id) {

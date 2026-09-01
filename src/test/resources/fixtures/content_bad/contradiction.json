@@ -1,0 +1,273 @@
+{
+  "_comment": "Deliberately broken copy of challenges.json for ContentValidatorTest (M4). coin_rush_1 asks for 60 coins under the NO_COINS flag.",
+  "challenges": [
+    {
+      "id": "no_shield_1",
+      "world": "green_fields",
+      "tier": "normal",
+      "curve": "standard",
+      "allowOffers": false,
+      "flags": [
+        "NO_DEFENSIVE_ABILITIES"
+      ],
+      "effects": [],
+      "forcedModifiers": [],
+      "forcedPattern": null,
+      "boss": null,
+      "objective": {
+        "type": "SURVIVE_GATES",
+        "value": 30
+      },
+      "rewards": {
+        "coins": 200,
+        "unlocks": [
+          "cosmetic:classic:ember"
+        ]
+      },
+      "unlock": {
+        "type": "any_of",
+        "conditions": [
+          {
+            "type": "best_gates",
+            "value": 20
+          },
+          {
+            "type": "runs",
+            "value": 12
+          }
+        ]
+      }
+    },
+    {
+      "id": "speed_run_1",
+      "world": "wind_valley",
+      "tier": "normal",
+      "curve": "standard",
+      "allowOffers": false,
+      "flags": [
+        "SPEED_RAMP"
+      ],
+      "effects": [],
+      "forcedModifiers": [],
+      "forcedPattern": null,
+      "boss": null,
+      "objective": {
+        "type": "SURVIVE_GATES",
+        "value": 40
+      },
+      "rewards": {
+        "coins": 250,
+        "unlocks": [
+          "cosmetic:swift:comet"
+        ]
+      },
+      "unlock": {
+        "type": "any_of",
+        "conditions": [
+          {
+            "type": "best_gates",
+            "value": 25
+          },
+          {
+            "type": "runs",
+            "value": 15
+          }
+        ]
+      }
+    },
+    {
+      "id": "tiny_wings_1",
+      "world": "green_fields",
+      "tier": "normal",
+      "curve": "classic",
+      "allowOffers": false,
+      "flags": [],
+      "effects": [
+        {
+          "stat": "FLAP_VELOCITY",
+          "op": "MULTIPLY",
+          "value": 0.7
+        }
+      ],
+      "forcedModifiers": [],
+      "forcedPattern": null,
+      "boss": null,
+      "objective": {
+        "type": "SURVIVE_GATES",
+        "value": 20
+      },
+      "rewards": {
+        "coins": 150,
+        "unlocks": []
+      },
+      "unlock": {
+        "type": "any_of",
+        "conditions": [
+          {
+            "type": "best_gates",
+            "value": 15
+          },
+          {
+            "type": "runs",
+            "value": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "moving_world_1",
+      "world": "green_fields",
+      "tier": "normal",
+      "curve": "standard",
+      "allowOffers": false,
+      "flags": [
+        "ALL_OBSTACLES_MOVE"
+      ],
+      "effects": [],
+      "forcedModifiers": [],
+      "forcedPattern": null,
+      "boss": null,
+      "objective": {
+        "type": "SURVIVE_GATES",
+        "value": 25
+      },
+      "rewards": {
+        "coins": 250,
+        "unlocks": [
+          "cosmetic:guardian:bronze"
+        ]
+      },
+      "unlock": {
+        "type": "any_of",
+        "conditions": [
+          {
+            "type": "world_cleared",
+            "id": "green_fields"
+          },
+          {
+            "type": "total_gates",
+            "value": 300
+          }
+        ]
+      }
+    },
+    {
+      "id": "one_life_1",
+      "world": "iron_forge",
+      "tier": "normal",
+      "curve": "standard",
+      "allowOffers": false,
+      "flags": [
+        "NO_DEFENSIVE_ABILITIES",
+        "NO_REVIVE"
+      ],
+      "effects": [],
+      "forcedModifiers": [],
+      "forcedPattern": null,
+      "boss": null,
+      "objective": {
+        "type": "SURVIVE_GATES",
+        "value": 30
+      },
+      "rewards": {
+        "coins": 400,
+        "unlocks": [
+          "ability:invulnerability"
+        ]
+      },
+      "unlock": {
+        "type": "any_of",
+        "conditions": [
+          {
+            "type": "challenge",
+            "id": "no_shield_1"
+          },
+          {
+            "type": "runs",
+            "value": 25
+          }
+        ]
+      }
+    },
+    {
+      "id": "coin_rush_1",
+      "world": "wind_valley",
+      "tier": "normal",
+      "curve": "standard",
+      "allowOffers": false,
+      "flags": [
+        "NO_COINS"
+      ],
+      "effects": [
+        {
+          "stat": "COIN_SPAWN_RATE",
+          "op": "MULTIPLY",
+          "value": 3
+        }
+      ],
+      "forcedModifiers": [
+        "coin_drops"
+      ],
+      "forcedPattern": null,
+      "boss": null,
+      "objective": {
+        "type": "COLLECT_COINS",
+        "value": 60
+      },
+      "rewards": {
+        "coins": 300,
+        "unlocks": [
+          "cosmetic:gambler:gilded"
+        ]
+      },
+      "unlock": {
+        "type": "any_of",
+        "conditions": [
+          {
+            "type": "coins_earned_total",
+            "value": 1000
+          },
+          {
+            "type": "level",
+            "value": 6
+          }
+        ]
+      }
+    },
+    {
+      "id": "boss_corridor_1",
+      "world": "green_fields",
+      "tier": "normal",
+      "curve": "standard",
+      "allowOffers": false,
+      "flags": [],
+      "effects": [],
+      "forcedModifiers": [],
+      "forcedPattern": null,
+      "boss": null,
+      "objective": {
+        "type": "BOSS_CLEARED",
+        "value": 1
+      },
+      "rewards": {
+        "coins": 500,
+        "unlocks": [
+          "tier:nightmare"
+        ]
+      },
+      "unlock": {
+        "type": "any_of",
+        "conditions": [
+          {
+            "type": "world_cleared",
+            "id": "green_fields"
+          },
+          {
+            "type": "level",
+            "value": 12
+          }
+        ]
+      }
+    }
+  ]
+}

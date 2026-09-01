@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.gameplay.run.RewardContext;
 import io.github.michelbr84.flapforge.gameplay.run.RewardSummary;
@@ -394,6 +395,35 @@ class ProgressionManagerTest {
         assertEquals(1_700_000_000_000L,
                 profile.achievements.get("first_flight").unlockedAtEpochMs,
                 "an achievement already held keeps its timestamp");
+    }
+
+    @Test
+    void purchaseTriggersAchievementsAndUnlocks() {
+        // E17: M4 asserts the unlock half of D14's promise — a purchase is propagated at once,
+        // not at the end of the next run. The achievement half is asserted here with a stub hook
+        // and lands for real in M8, when AchievementEvaluator ships.
+        GameContent content = GameContent.load();
+        List<PlayerProfile> achievementCalls = new ArrayList<>();
+        ProgressionManager manager = new ProgressionManager(time, p -> {
+            achievementCalls.add(p);
+            return List.of();
+        }, UnlockEvaluator.of(content));
+        UnlockManager shop = new UnlockManager(manager, SaveTrigger.NONE);
+        Wallet.of(profile).add(COINS, 1000);
+
+        PurchaseResult bought = shop.purchase(profile, "bird:heavy", content);
+
+        assertTrue(bought.ok(), () -> "refused with " + bought.status());
+        assertEquals(1, achievementCalls.size(), "the achievement hook runs on every purchase");
+        assertSame(profile, achievementCalls.get(0));
+        assertEquals(List.of("cosmetic:heavy:default"), bought.outcome().unlocksGranted(),
+                "buying the bird makes its default palette earned, in the same call");
+        assertTrue(profile.isUnlocked("cosmetic:heavy:default"));
+        assertEquals(List.of(ProgressionManager.Step.ACHIEVEMENTS,
+                ProgressionManager.Step.UNLOCKS, ProgressionManager.Step.DIRTY),
+                manager.lastSteps());
+        assertTrue(manager.isDirty());
+        assertEquals(0, profile.statistics.totalRuns, "a purchase is not a run");
     }
 
     @Test

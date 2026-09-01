@@ -1,4 +1,4 @@
-# Balancing — the conversion table (M1) and the run economy (M3)
+# Balancing — the conversion table (M1), the run economy (M3) and the meta-progression (M4)
 
 Flapforge is a rewrite of a 30 Hz Flappy Bird clone
 ([kingyuluk/FlappyBird](https://github.com/kingyuluk/FlappyBird), the tree at commit `b811782` of
@@ -13,8 +13,9 @@ pinned by `ClassicFeelTest`, which runs a literal transliteration of the old cod
 simulation and requires the two trajectories to agree to **0.0 px**. Exactly one deviation is
 intentional — the ground rule — and it has its own section and its own test.
 
-Sections 1–4 are the M1 conversion; section 5 is the M3 economy, and the same rule holds there —
-its numbers are `BalancingSim` output over 500 seeds per skill, not estimates.
+Sections 1–4 are the M1 conversion; section 5 is the M3 economy and section 6 the M4
+meta-progression, and the same rule holds there — their numbers are measured output over hundreds of
+seeds per cell, not estimates.
 
 Every "Measured" entry in sections 1–4 is produced by the M1 test sources, not by hand:
 
@@ -211,11 +212,194 @@ participation is a deliberate amendment to E32.a's literal formula, recorded in 
 `RunRewardCalculator`'s Javadoc; the 25 coins the shipped column shows are the first run's
 unconditional bonus, which no amount of retrying pays twice.
 
-## 6. What is not yet measured here
+## 6. Meta-progression (M4)
 
-Upgrades and bird stat spreads (M4), abilities (M5), modifiers and synergies (M6), the other four
-worlds (M7), and the runs-to-unlock table that `BalancingSim --meta` prints (M9, E25) all extend
-this document as they land. The rule stays the same: a row is added only once a test or a tool
+M4 turns coins into a build, so this section is what a coin buys: how long the opening hour takes,
+what each of the eighteen nodes is worth, and what the seven birds pay. Every number below was
+produced by driving the shipped content through the real managers and the real
+`RunRewardCalculator` — the same code the game runs — and is reproducible with
+`./gradlew balancing -PtoolArgs="--bird all"`, `./gradlew simTest` and the harness described under
+each table.
+
+**Read the survival numbers with the caveat in §6.4.** `BotPilot` is not a monotone function of the
+stats the tree sells, so a row that says a node costs the bot gates says something about the bot,
+not about the node.
+
+### 6.1 The journey: how long the openings take
+
+Greedy shopper (buy the cheapest thing the wallet can pay for, node or shop offer, until nothing is
+affordable), fifteen runs, ten seed families per skill, on the shipped `economy.json` and
+`upgrades.json`. The number is the run **after which** the milestone was reached, so "1" means the
+first run paid for it.
+
+| Skill | First upgrade | Which node | Ironbeak (`bird:guardian`) | Second bird owned |
+| --- | --- | --- | --- | --- |
+| `novice` | 1 (median; 1–3 across seeds) | `feather_1`, 10/10 seeds | 3 | 3 |
+| `average` | 1 (all seeds) | `feather_1`, 10/10 seeds | 3 (1–3) | 2 (1–3) |
+| `expert` | 1 (all seeds) | `feather_1`, 10/10 seeds | 1 | 1 |
+
+M4's target (§6 of the plan, E17) is an upgrade by run 2–3 and Ironbeak by run 3; the shipped prices
+land the upgrade one run earlier than the window and Ironbeak exactly on it. `feather_1` at 50 coins
+is the cheapest thing in the game and is what every skill buys first — `NewPlayerJourneyTest` pins
+both the node and the run, so doubling any price fails it rather than quietly promoting the next
+cheapest node.
+
+Ironbeak arrives on run 3 by the free path (`runs 3`), not by the 150-coin one: a novice's first two
+runs do not pay for it. That is E18 working as intended — the reward bird is a *reward*.
+
+### 6.2 What each node is worth
+
+300 seeds per row, `average` bot, bird `classic`, tier `normal`, world Green Fields. Each row owns
+**only** that node, at its maximum level, against a baseline profile that owns nothing (84.50 gates,
+359.51 coins). `cost` is the whole ladder, `dPayout` is the E32.a payout with the run's own
+`COIN_MULT` applied.
+
+| Node | Max | Cost | Gates | ΔGates | ΔPayout | Reads it |
+| --- | --- | --- | --- | --- | --- | --- |
+| `feather_1` | 3 | 420 | 70.41 | −14.09 | −56.55 | the run |
+| `glide_1` | 2 | 290 | 84.50 | **+0.00** | **+0.00** | nothing — see §6.3 |
+| `slim_frame_1` | 3 | 1 050 | 73.30 | −11.21 | −45.42 | the run |
+| `quick_recharge_1` | 3 | 1 050 | 84.50 | +0.00 | +0.00 | M5 |
+| `updraft_1` | 2 | 1 200 | 90.03 | **+5.53** | **+23.15** | the run |
+| `featherfall_2` | 2 | 1 500 | 72.30 | −12.21 | −48.50 | the run |
+| `coin_purse_1` | 4 | 1 200 | 84.50 | +0.00 | **+63.44** | the run |
+| `scholar_1` | 4 | 1 200 | 84.50 | +0.00 | +0.00 | the run (XP, not coins) |
+| `lodestone_1` | 3 | 1 050 | 84.50 | +0.00 | +0.15 | the run |
+| `coin_rain_1` | 3 | 840 | 84.50 | +0.00 | **+25.32** | the run |
+| `hard_tier_1` | 1 | 400 | 84.50 | +0.00 | +0.00 | grants `tier:hard` |
+| `ability_scholar_1` | 1 | 900 | 84.50 | +0.00 | +0.00 | M5 |
+| `tempered_shield_1` | 2 | 1 700 | 84.50 | +0.00 | +0.00 | M5 |
+| `ability_forge_1` | 3 | 1 900 | 84.50 | +0.00 | +0.00 | M5 |
+| `cooldown_forge_1` | 3 | 1 900 | 84.50 | +0.00 | +0.00 | M5 |
+| `hitbox_forge_1` | 2 | 2 100 | 79.86 | −4.65 | −19.37 | the run |
+| `master_forge_1` | 1 | 1 200 | 84.50 | +0.00 | +0.00 | M5 |
+| `second_chance_1` | 1 | 1 500 | 84.50 | +0.00 | +0.00 | M5 |
+
+The whole tree costs **21 400** coins (`ContentIntegrityTest` pins the row-by-row table).
+
+Three groups come out of this:
+
+* **Economy nodes do exactly what they say.** `coin_purse_1` maxed is +17.6 % payout for 1 200
+  coins and `coin_rain_1` is +7.0 % for 840; both pay for themselves and neither touches survival.
+  `lodestone_1` is worth 0.15 coins a run to the bot, which flies a fixed line and picks up almost
+  the whole trail without a magnet — it is a comfort node for a human, and M9's MetaSim should
+  re-measure it against a policy that misses coins.
+* **Seven nodes are M5 content** (`quick_recharge_1`, `ability_scholar_1`, `tempered_shield_1`,
+  `ability_forge_1`, `cooldown_forge_1`, `master_forge_1`, `second_chance_1`) — 10 150 of the
+  21 400. Their effects resolve in the stat sheet today and nothing consumes them, which is why the
+  upgrade screen marks each of them *Arrives in M5* on the card and on the stat row (E19).
+* **The flight nodes measure worse than nothing**, which is a property of the bot, not of the nodes
+  (§6.4).
+
+### 6.3 `glide_1` cannot bind
+
+`glide_1` is `MAX_FALL_SPEED PERCENT_ADD −0.10` at 90/200 coins, and it is a prerequisite of
+`updraft_1`, the strongest measured node.
+
+The base cap is 1 500 px/s. With gravity 1 800 and a playfield 581.5 px tall, the fastest a bird can
+possibly be falling before it hits something is `sqrt(2 × 1800 × 581.5) = 1447 px/s`, and the
+measured maximum over 300 seeds is far below even that. So for five of the seven birds the cap is
+never reached and the node changes nothing: **+0.00 gates and +0.00 coins at both levels**, exactly
+as the table shows. It binds only for `heavy` (cap 450), where it is actively harmful.
+
+The node is what §4 of the plan specifies, and the plan's node table is binding, so M4 ships it as
+written and records the measurement here instead of re-authoring it. **For M9:** either give
+`glide_1` an effect that binds inside the reachable range (a `GRAVITY` reduction while falling, or a
+`MULTIPLY` whose floor is under 1 447), or drop it from `updraft_1.prereqs` so nobody is required to
+buy a dead node on the way to a live one. Note also that nothing refunds an upgrade —
+`UpgradeManager` has no respec path; only an `aliases.json` removal pays coins back — so a player
+who buys it on `heavy` cannot undo it.
+
+### 6.4 The bot is not a monotone oracle
+
+`feather_1` maxed is `GRAVITY −9 %` and costs the `average` bot 14 gates. `slim_frame_1` and
+`hitbox_forge_1` shrink the hitbox and also cost it gates. That is not a balance result: `BotPilot`
+aims at a fixed offset (`AIM_OFFSET_PX = 20`) over a fixed arc window (`ARC_TICKS = 27`), so any
+change to gravity or flap velocity re-phases its flap timing against constants that did not move,
+and the survival number swings ±25 % with no trend. A sweep of `feather_1` L0..L3 over 300 seeds
+gives 83.11 / 62.32 / 86.42 / 67.85 mean gates on the reviewers' seed family.
+
+**Nothing was done about it in M4 on purpose.** `BotPilot` drives the golden run and the CI
+`--headless-run` hash (`hash=eaaa01685261a433`), which M4 must not change, so re-phasing the pilot is
+an M9 change, not a fix to slip into a content milestone. **For M9 (E25):** scale the pilot's aim
+offset and arc window from the run's own resolved `GRAVITY` / `FLAP_VELOCITY` (`arc =
+2 × FLAP_VELOCITY / GRAVITY` in ticks) so the pilot is invariant to the physics it is measuring, and
+average many more seeds per data point in `MetaSim`. Until then, read the ΔPayout column — coins are
+linear in the multipliers and do not depend on the pilot's phase — and treat ΔGates as noise for any
+node that touches the physics.
+
+### 6.5 What the seven birds pay
+
+300 seeds, `average` bot, tier `normal`. `payout` is the E32.a formula with the bird's own
+`COIN_MULT`; `maxed` is the same bird owning every node at its maximum level.
+
+| Bird | Gates | Points | Payout | Payout, tree maxed |
+| --- | --- | --- | --- | --- |
+| `classic` | 84.50 | 84.50 | 359.51 | 515.10 |
+| `swift` | 78.58 | 78.58 | 334.04 | 314.95 |
+| `heavy` | 67.79 | 67.79 | 290.47 | 257.54 |
+| `guardian` | 84.50 | 84.50 | **296.07** | 442.34 |
+| `gambler` | 38.12 | 49.56 | 222.26 | 171.79 |
+| `mystic` | 84.50 | 84.50 | 359.51 | 515.10 |
+| `forge` | 58.11 | 81.98 | 277.61 | **566.84** |
+
+Two of these are honest and five need M9's attention:
+
+* **Cinder (`forge`) is the design working.** 277.61 unupgraded, 566.84 with the tree maxed — the
+  only bird that beats `classic` maxed, because `BIRD_SYNERGY` scales with `Σ upgrades`. It is meant
+  to be the late bird and it measures like one.
+* **Ironbeak (`guardian`) pays 17.6 % less than the free default and gains nothing back in M4.** Its
+  gates are identical to `classic` (the base stats are the same) and its only live difference is
+  `COIN_MULT −0.20`; the innate `shield` that pays for that is M5 content. That is why the bird
+  screen names a bird's innate passives on the ability line and marks them *Arrives in M5* — a
+  run-3 reward bird must not read as a straight upgrade while it measurably costs coins.
+* **Oracle (`mystic`) is byte-identical to `classic`** on every column, and costs 600 coins or an M8
+  achievement. Its distinguishing content is M5/M8.
+* **Jackdaw (`gambler`) does not recover its −54 % gates** with +30 % score and coins, at any tree
+  level — 222.26 plain and 171.79 maxed. It is the clearest retune candidate for M9.
+* `swift` and `heavy` both lose payout when the tree is maxed, for the §6.4 reason.
+
+### 6.6 The participation gate catches beginners
+
+E32.a pays nothing for a run with no gate that lasted under 180 ticks (3 s). Over 500 seeds on the
+shipped economy:
+
+| Skill | Zero-payout runs |
+| --- | --- |
+| `novice` | 103 / 500 = **20.6 %** |
+| `average` | 8 / 500 = 1.6 % |
+| `expert` | 0 / 500 = 0 % |
+
+The rule exists to kill the instant-retry dive (§5.4) and it does. But one novice run in five is a
+genuine attempt that ends before the first obstacle column and pays nothing, which is what pushes
+the first upgrade from run 1 to run 2–3 on some seed families. **For M9:** either lower the tick
+threshold to ~90, or pay a small consolation for a run that reached at least one obstacle column.
+The number is recorded here so that decision is made against data.
+
+### 6.7 The harness
+
+`BalancingSim` gained a `payout` column in M4: the same run through `RunRewardCalculator` with the
+run's own resolved `COIN_MULT` / `XP_MULT` and the tier's `rewardMult`, next to the multiplier-free
+`coins` column §5 uses. Without it the economy birds are invisible — `classic`, `guardian` and
+`mystic` print identical numbers, and `guardian`'s whole design is a coin multiplier.
+
+```
+./gradlew balancing -PtoolArgs="--bird all --seeds 300"
+./gradlew balancing -PtoolArgs="--skill all --csv build/balancing.csv"
+```
+
+The tables in §6.1–6.6 were produced by driving the same public APIs
+(`RunLoadout.configFor` → `RunFactory` → `HeadlessRunner` → `RunRewardCalculator`) over the seed
+ranges each table names; §6.1 additionally runs `UnlockManager` and `UpgradeManager`, which is what
+`NewPlayerJourneyTest` does with one seed family and hard assertions.
+
+## 7. What is not yet measured here
+
+Abilities (M5), modifiers and synergies (M6), the other four worlds (M7), and the runs-to-unlock
+table that `BalancingSim --meta` prints (M9, E25) all extend this document as they land. Four M4
+measurements are recorded above as open questions for M9 rather than as settled balance: `glide_1`
+cannot bind (§6.3), the bot is not monotone in the stats the tree sells (§6.4), Jackdaw and Oracle
+do not pay for themselves (§6.5), and the participation gate zeroes one novice run in five (§6.6). The rule stays the same: a row is added only once a test or a tool
 measures it — §5's numbers are `BalancingSim` output, not estimates, and the shape of the
 distributions matters as much as the means (an expert's coins are almost a constant because the bot
 reaches the tick budget; a novice's are not).

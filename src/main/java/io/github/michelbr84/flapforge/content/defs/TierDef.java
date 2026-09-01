@@ -27,6 +27,9 @@ public record TierDef(String id, @JsonName("default") boolean defaultTier,
         List<StatModifierDef> effects, List<RuleFlag> flags, double rewardMult,
         UnlockConditionDef unlock) {
 
+    /** Namespace of the unlockable id of a tier. */
+    public static final String NAMESPACE = "tier:";
+
     /**
      * Copies the collections.
      *
@@ -59,5 +62,14 @@ public record TierDef(String id, @JsonName("default") boolean defaultTier,
             out.add(e.toModifier(source));
         }
         return new TierSpec(id, out, RuleSet.of(flags), rewardMult);
+    }
+
+    /**
+     * The namespaced unlockable id, {@code tier:<id>}.
+     *
+     * @return the id
+     */
+    public String unlockableId() {
+        return NAMESPACE + id;
     }
 }

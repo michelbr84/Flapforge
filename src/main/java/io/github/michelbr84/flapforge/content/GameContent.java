@@ -1,29 +1,55 @@
 package io.github.michelbr84.flapforge.content;
 
 import com.google.gson.JsonElement;
+import io.github.michelbr84.flapforge.content.defs.AbilitiesDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.AchievementDef;
+import io.github.michelbr84.flapforge.content.defs.AchievementsDef;
+import io.github.michelbr84.flapforge.content.defs.AliasDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
+import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
+import io.github.michelbr84.flapforge.content.defs.ChallengesDef;
 import io.github.michelbr84.flapforge.content.defs.CurveDef;
 import io.github.michelbr84.flapforge.content.defs.DifficultyDef;
 import io.github.michelbr84.flapforge.content.defs.EconomyDef;
+import io.github.michelbr84.flapforge.content.defs.FeatureDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.TierGeneratorDef;
+import io.github.michelbr84.flapforge.content.defs.TreeDef;
+import io.github.michelbr84.flapforge.content.defs.UpgradeDef;
+import io.github.michelbr84.flapforge.content.defs.UpgradesDef;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
+import io.github.michelbr84.flapforge.content.defs.WorldsDef;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Every registry the game reads its rules from (D10). M1 holds birds, difficulty curves and
- * tiers, M3 adds the economy; later milestones add abilities, upgrades, modifiers, worlds,
- * patterns, challenges and achievements to the same object.
+ * tiers, M3 adds the economy, and M4 adds the upgrade trees and nodes, the id aliases and the
+ * ability / world / challenge / achievement files — the last four as stubs carrying their final
+ * unlock and reward blocks (E19), so the strict validator and the {@link UnlockGraph} can be
+ * complete a milestone before the behaviour behind them exists.
  *
  * <p>Build it with {@link #load()} (the files shipped on the classpath) or
  * {@link #fromJson(Map)} (a fixture, a test or a tool). Both paths bind strictly and validate,
- * so a {@code GameContent} instance is content that has already passed every M1 rule.
+ * so a {@code GameContent} instance is content that has already passed every rule that its file
+ * set can prove: a cross-reference into a file that was not supplied is not checked, which is how
+ * an M1-shaped fixture (birds + difficulty + economy) still validates while the shipped set is
+ * checked in full ({@link #has(String)}).
+ *
+ * <p>{@link #playable(ContentKind)} is the other half of E19: content that is authored and
+ * validated but whose systems land later says so, and the UI shows it as locked by milestone
+ * rather than pretending it works.
  */
 public final class GameContent {
 
@@ -33,24 +59,80 @@ public final class GameContent {
     public static final String DIFFICULTY = "difficulty";
     /** Base name of the economy file. */
     public static final String ECONOMY = "economy";
+    /** Base name of the upgrade file (trees and nodes). */
+    public static final String UPGRADES = "upgrades";
+    /** Base name of the id alias table (E21). */
+    public static final String ALIASES = "aliases";
+    /** Base name of the ability file. */
+    public static final String ABILITIES = "abilities";
+    /** Base name of the world file. */
+    public static final String WORLDS = "worlds";
+    /** Base name of the challenge file. */
+    public static final String CHALLENGES = "challenges";
+    /** Base name of the achievement file. */
+    public static final String ACHIEVEMENTS = "achievements";
 
+    /** The files that must be present for content to bind at all. */
+    public static final List<String> REQUIRED_FILES = List.of(BIRDS, DIFFICULTY, ECONOMY);
+
+    /** The one world that is playable before M7 (E19). */
+    public static final String PLAYABLE_WORLD = "green_fields";
+
+    /**
+     * The milestone each declared feature's system arrives in (E19). A feature that is not listed
+     * here works today; one that is listed is authored, validated and buyable, but the UI has to
+     * say when it will start doing something rather than presenting a switch that does nothing.
+     */
+    private static final Map<String, String> FEATURE_MILESTONES;
+
+    static {
+        Map<String, String> milestones = new LinkedHashMap<>();
+        milestones.put("modifiers", "M6");
+        milestones.put("seeded_runs", "M9");
+        FEATURE_MILESTONES = Collections.unmodifiableMap(milestones);
+    }
+
+    /** The kinds whose systems already exist; every other kind is authored but not yet playable. */
+    private static final Set<ContentKind> PLAYABLE_KINDS = Collections.unmodifiableSet(EnumSet.of(
+            ContentKind.BIRD, ContentKind.COSMETIC, ContentKind.UPGRADE, ContentKind.TREE,
+            ContentKind.TIER, ContentKind.FEATURE, ContentKind.WORLD));
+
+    private final Set<String> files;
     private final Registry<BirdDef> birds;
     private final Registry<CurveDef> curves;
     private final Registry<TierDef> tiers;
     private final EconomyDef economy;
+    private final Registry<FeatureDef> features;
+    private final Registry<TreeDef> trees;
+    private final Registry<UpgradeDef> upgrades;
+    private final Registry<AbilityDef> abilities;
+    private final Registry<WorldDef> worlds;
+    private final Registry<ChallengeDef> challenges;
+    private final Registry<AchievementDef> achievements;
+    private final AliasDef aliases;
     private final double speedRampPerTick;
     private final TierGeneratorDef tierGenerator;
     private final Map<String, BirdProfile> birdProfiles = new LinkedHashMap<>();
     private final Map<String, CurveSpec> curveSpecs = new LinkedHashMap<>();
     private final Map<String, TierSpec> tierSpecs = new LinkedHashMap<>();
 
-    private GameContent(List<BirdDef> birdDefs, DifficultyDef difficulty, EconomyDef economy) {
-        this.birds = new Registry<>("bird", birdDefs, BirdDef::id);
-        this.curves = new Registry<>("curve", difficulty.curveDefs(), CurveDef::id);
-        this.tiers = new Registry<>("tier", difficulty.tiers(), TierDef::id);
-        this.economy = economy;
-        this.speedRampPerTick = difficulty.speedRampPerTick();
-        this.tierGenerator = difficulty.tierGenerator();
+    private GameContent(Bound bound) {
+        this.files = Collections.unmodifiableSet(new LinkedHashSet<>(bound.files));
+        this.birds = new Registry<>("bird", bound.birds, BirdDef::id);
+        this.curves = new Registry<>("curve", bound.difficulty.curveDefs(), CurveDef::id);
+        this.tiers = new Registry<>("tier", bound.difficulty.tiers(), TierDef::id);
+        this.economy = bound.economy;
+        this.features = new Registry<>("feature",
+                bound.economy == null ? List.of() : bound.economy.features(), FeatureDef::id);
+        this.trees = new Registry<>("tree", bound.trees, TreeDef::id);
+        this.upgrades = new Registry<>("upgrade", bound.upgrades, UpgradeDef::id);
+        this.abilities = new Registry<>("ability", bound.abilities, AbilityDef::id);
+        this.worlds = new Registry<>("world", bound.worlds, WorldDef::id);
+        this.challenges = new Registry<>("challenge", bound.challenges, ChallengeDef::id);
+        this.achievements = new Registry<>("achievement", bound.achievements, AchievementDef::id);
+        this.aliases = bound.aliases == null ? AliasDef.EMPTY : bound.aliases;
+        this.speedRampPerTick = bound.difficulty.speedRampPerTick();
+        this.tierGenerator = bound.difficulty.tierGenerator();
         for (BirdDef def : birds) {
             birdProfiles.putIfAbsent(def.id(), ContentAdapters.toProfile(def));
         }
@@ -60,6 +142,21 @@ public final class GameContent {
         for (TierDef def : tiers) {
             tierSpecs.putIfAbsent(def.id(), ContentAdapters.toSpec(def));
         }
+    }
+
+    /** Everything the binder produced, before the registries are built. */
+    private static final class Bound {
+        final Set<String> files = new LinkedHashSet<>();
+        List<BirdDef> birds = List.of();
+        DifficultyDef difficulty = new DifficultyDef(Map.of(), 0, List.of(), null);
+        EconomyDef economy;
+        List<TreeDef> trees = List.of();
+        List<UpgradeDef> upgrades = List.of();
+        List<AbilityDef> abilities = List.of();
+        List<WorldDef> worlds = List.of();
+        List<ChallengeDef> challenges = List.of();
+        List<AchievementDef> achievements = List.of();
+        AliasDef aliases;
     }
 
     /**
@@ -79,63 +176,157 @@ public final class GameContent {
     /**
      * Binds and validates already-parsed content (fixtures, tests and tools).
      *
-     * @param files the parsed trees keyed by base name ({@code birds}, {@code difficulty},
-     *     {@code economy})
+     * <p>{@link #REQUIRED_FILES} must be present; every other file is optional and its absence
+     * turns off the checks that would need it (E19).
+     *
+     * @param files the parsed trees keyed by base name
      * @return the content
-     * @throws ContentException when a file is missing, does not bind or breaks a rule
+     * @throws ContentException when a required file is missing, something does not bind or a rule
+     *     is broken
      */
     public static GameContent fromJson(Map<String, JsonElement> files) {
         Objects.requireNonNull(files, "files");
         List<String> errors = new ArrayList<>();
-        List<BirdDef> birdDefs = bindBirds(files, errors);
-        DifficultyDef difficulty = bindDifficulty(files, errors);
-        EconomyDef economy = bindEconomy(files, errors);
+        Bound bound = new Bound();
+        bound.birds = bindList(files, BIRDS, BirdDef.class, bound, errors);
+        DifficultyDef difficulty = bind(files, DIFFICULTY, DifficultyDef.class, bound, errors);
+        if (difficulty != null) {
+            bound.difficulty = difficulty;
+        }
+        bound.economy = bind(files, ECONOMY, EconomyDef.class, bound, errors);
+        UpgradesDef upgrades = bind(files, UPGRADES, UpgradesDef.class, bound, errors);
+        if (upgrades != null) {
+            bound.trees = upgrades.trees();
+            bound.upgrades = upgrades.nodes();
+        }
+        AbilitiesDef abilities = bind(files, ABILITIES, AbilitiesDef.class, bound, errors);
+        if (abilities != null) {
+            bound.abilities = abilities.abilities();
+        }
+        WorldsDef worlds = bind(files, WORLDS, WorldsDef.class, bound, errors);
+        if (worlds != null) {
+            bound.worlds = worlds.worlds();
+        }
+        ChallengesDef challenges = bind(files, CHALLENGES, ChallengesDef.class, bound, errors);
+        if (challenges != null) {
+            bound.challenges = challenges.challenges();
+        }
+        AchievementsDef achievements =
+                bind(files, ACHIEVEMENTS, AchievementsDef.class, bound, errors);
+        if (achievements != null) {
+            bound.achievements = achievements.achievements();
+        }
+        bound.aliases = bind(files, ALIASES, AliasDef.class, bound, errors);
         if (!errors.isEmpty()) {
             throw new ContentException("Content failed to bind", errors);
         }
-        GameContent content = new GameContent(birdDefs, difficulty, economy);
+        GameContent content = new GameContent(bound);
         ContentValidator.validate(content);
         return content;
     }
 
-    private static List<BirdDef> bindBirds(Map<String, JsonElement> files, List<String> errors) {
-        JsonElement root = files.get(BIRDS);
-        String file = ContentLoader.fileOf(BIRDS);
+    private static <T> T bind(Map<String, JsonElement> files, String name, Class<T> type,
+            Bound bound, List<String> errors) {
+        JsonElement root = files.get(name);
+        String file = ContentLoader.fileOf(name);
         if (root == null) {
-            errors.add(file + "#: missing content file");
+            if (REQUIRED_FILES.contains(name)) {
+                errors.add(file + "#: missing content file");
+            }
+            return null;
+        }
+        bound.files.add(name);
+        StrictBinder binder = new StrictBinder(file);
+        T def = binder.bind(type, root);
+        errors.addAll(binder.errors());
+        return def;
+    }
+
+    private static <T> List<T> bindList(Map<String, JsonElement> files, String name,
+            Class<T> elementType, Bound bound, List<String> errors) {
+        JsonElement root = files.get(name);
+        String file = ContentLoader.fileOf(name);
+        if (root == null) {
+            if (REQUIRED_FILES.contains(name)) {
+                errors.add(file + "#: missing content file");
+            }
             return List.of();
         }
+        bound.files.add(name);
         StrictBinder binder = new StrictBinder(file);
-        List<BirdDef> defs = binder.bindList(BirdDef.class, root);
+        List<T> defs = binder.bindList(elementType, root);
         errors.addAll(binder.errors());
         return defs;
     }
 
-    private static DifficultyDef bindDifficulty(Map<String, JsonElement> files,
-            List<String> errors) {
-        JsonElement root = files.get(DIFFICULTY);
-        String file = ContentLoader.fileOf(DIFFICULTY);
-        if (root == null) {
-            errors.add(file + "#: missing content file");
-            return new DifficultyDef(Map.of(), 0, List.of(), null);
-        }
-        StrictBinder binder = new StrictBinder(file);
-        DifficultyDef def = binder.bind(DifficultyDef.class, root);
-        errors.addAll(binder.errors());
-        return def == null ? new DifficultyDef(Map.of(), 0, List.of(), null) : def;
+    /**
+     * Whether a content file was part of the set this content was built from.
+     *
+     * <p>Cross-reference rules that point into a file consult this first: an M1-shaped fixture
+     * cannot be blamed for a challenge id it has no challenge file to resolve (E19), while the
+     * shipped set carries every file and is therefore checked in full.
+     *
+     * @param name the base name, for example {@code worlds}
+     * @return {@code true} when the file was supplied
+     */
+    public boolean has(String name) {
+        return files.contains(name);
     }
 
-    private static EconomyDef bindEconomy(Map<String, JsonElement> files, List<String> errors) {
-        JsonElement root = files.get(ECONOMY);
-        String file = ContentLoader.fileOf(ECONOMY);
-        if (root == null) {
-            errors.add(file + "#: missing content file");
-            return null;
+    /**
+     * The base names of the files this content was built from, in load order.
+     *
+     * @return an unmodifiable set
+     */
+    public Set<String> files() {
+        return files;
+    }
+
+    /**
+     * Whether the systems behind a kind of content already exist (E19).
+     *
+     * <p>M4 authors and validates abilities, worlds, challenges and achievements, but only M5,
+     * M7 and M8 make them do anything. The UI asks this to show them as locked by milestone
+     * instead of offering something that cannot happen yet.
+     *
+     * @param kind the kind
+     * @return {@code true} when the kind can be used in a run today
+     */
+    public boolean playable(ContentKind kind) {
+        return PLAYABLE_KINDS.contains(kind);
+    }
+
+    /**
+     * Whether one entry of a kind is playable (E19). Two kinds differ per id: Green Fields plays
+     * today and the other four worlds are authored for M7, and a feature plays only once the
+     * system behind it exists ({@link #featureMilestone}).
+     *
+     * @param kind the kind
+     * @param id the entry id
+     * @return {@code true} when that entry can be used in a run today
+     */
+    public boolean playable(ContentKind kind, String id) {
+        if (kind == ContentKind.WORLD) {
+            return PLAYABLE_WORLD.equals(id);
         }
-        StrictBinder binder = new StrictBinder(file);
-        EconomyDef def = binder.bind(EconomyDef.class, root);
-        errors.addAll(binder.errors());
-        return def;
+        if (kind == ContentKind.FEATURE) {
+            return featureMilestone(id) == null && playable(kind);
+        }
+        return playable(kind);
+    }
+
+    /**
+     * The milestone the system behind a feature arrives in (E19).
+     *
+     * <p>{@code feature:modifiers} is bought in M4 and read by the modifier director in M6;
+     * {@code feature:seeded_runs} is read by the Seeded mode entry in M9. Neither is a lie the
+     * shop is allowed to tell silently, which is what this table is for.
+     *
+     * @param id the bare feature id
+     * @return the milestone name, or {@code null} when the feature works today
+     */
+    public static String featureMilestone(String id) {
+        return FEATURE_MILESTONES.get(id);
     }
 
     /**
@@ -163,6 +354,78 @@ public final class GameContent {
      */
     public Registry<TierDef> tiers() {
         return tiers;
+    }
+
+    /**
+     * The upgrade-tree registry, in file order (D13).
+     *
+     * @return the registry, empty when {@code upgrades.json} was not supplied
+     */
+    public Registry<TreeDef> trees() {
+        return trees;
+    }
+
+    /**
+     * The upgrade-node registry, in file order (D13).
+     *
+     * @return the registry, empty when {@code upgrades.json} was not supplied
+     */
+    public Registry<UpgradeDef> upgrades() {
+        return upgrades;
+    }
+
+    /**
+     * The ability registry, in file order (M4 stub, completed in M5).
+     *
+     * @return the registry, empty when {@code abilities.json} was not supplied
+     */
+    public Registry<AbilityDef> abilities() {
+        return abilities;
+    }
+
+    /**
+     * The world registry, in file order (M4 stub, completed in M7).
+     *
+     * @return the registry, empty when {@code worlds.json} was not supplied
+     */
+    public Registry<WorldDef> worlds() {
+        return worlds;
+    }
+
+    /**
+     * The challenge registry, in file order (M4 stub, completed in M8).
+     *
+     * @return the registry, empty when {@code challenges.json} was not supplied
+     */
+    public Registry<ChallengeDef> challenges() {
+        return challenges;
+    }
+
+    /**
+     * The achievement registry, in file order (M4 stub, completed in M8).
+     *
+     * @return the registry, empty when {@code achievements.json} was not supplied
+     */
+    public Registry<AchievementDef> achievements() {
+        return achievements;
+    }
+
+    /**
+     * The feature registry, in {@code economy.json} order (D13).
+     *
+     * @return the registry
+     */
+    public Registry<FeatureDef> features() {
+        return features;
+    }
+
+    /**
+     * The id alias table (E21).
+     *
+     * @return the table, or {@link AliasDef#EMPTY} when {@code aliases.json} was not supplied
+     */
+    public AliasDef aliases() {
+        return aliases;
     }
 
     /**
@@ -253,7 +516,9 @@ public final class GameContent {
 
     @Override
     public String toString() {
-        return "GameContent{birds=" + birds.ids() + ", curves=" + curves.ids() + ", tiers="
-                + tiers.ids() + '}';
+        return "GameContent{files=" + files + ", birds=" + birds.size() + ", upgrades="
+                + upgrades.size() + ", abilities=" + abilities.size() + ", worlds=" + worlds.size()
+                + ", challenges=" + challenges.size() + ", achievements=" + achievements.size()
+                + '}';
     }
 }

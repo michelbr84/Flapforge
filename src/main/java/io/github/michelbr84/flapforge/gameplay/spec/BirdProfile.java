@@ -18,16 +18,19 @@ import java.util.Objects;
  * @param hitbox the hitbox geometry
  * @param effects innate effects pushed into the {@code BIRD} layer
  * @param rampEffects effects re-evaluated on every gate into {@code BIRD_RAMP}
+ * @param synergyEffects effects resolved once at run start from the total of owned upgrade levels
+ *     into {@code BIRD_SYNERGY} (D8, M4)
  * @param passiveSlots number of passive ability slots
  */
 public record BirdProfile(String id, Map<StatId, Double> baseStats, HitboxSpec hitbox,
-        List<StatModifier> effects, List<RampEffect> rampEffects, int passiveSlots) {
+        List<StatModifier> effects, List<RampEffect> rampEffects,
+        List<SynergyEffect> synergyEffects, int passiveSlots) {
 
     /** Forgewing: the upstream feel ({@code 1800 / 405 / 1500}, hitbox 33×31 at −17/−12). */
     public static final BirdProfile CLASSIC = new BirdProfile("classic",
             Map.of(StatId.GRAVITY, 1800.0, StatId.FLAP_VELOCITY, 405.0,
                     StatId.MAX_FALL_SPEED, 1500.0),
-            HitboxSpec.CLASSIC, List.of(), List.of(), 2);
+            HitboxSpec.CLASSIC, List.of(), List.of(), List.of(), 2);
 
     /**
      * Copies the collections into deterministic, unmodifiable ones.
@@ -37,6 +40,7 @@ public record BirdProfile(String id, Map<StatId, Double> baseStats, HitboxSpec h
      * @param hitbox the hitbox geometry
      * @param effects innate effects
      * @param rampEffects ramp effects
+     * @param synergyEffects synergy effects
      * @param passiveSlots passive slots
      */
     public BirdProfile {
@@ -47,6 +51,7 @@ public record BirdProfile(String id, Map<StatId, Double> baseStats, HitboxSpec h
         baseStats = Collections.unmodifiableMap(stats);
         effects = List.copyOf(effects);
         rampEffects = List.copyOf(rampEffects);
+        synergyEffects = List.copyOf(synergyEffects);
         if (passiveSlots < 0) {
             throw new IllegalArgumentException("passiveSlots must not be negative");
         }
@@ -63,7 +68,8 @@ public record BirdProfile(String id, Map<StatId, Double> baseStats, HitboxSpec h
         EnumMap<StatId, Double> stats = new EnumMap<>(StatId.class);
         stats.putAll(baseStats);
         stats.put(stat, value);
-        return new BirdProfile(id, stats, hitbox, effects, rampEffects, passiveSlots);
+        return new BirdProfile(id, stats, hitbox, effects, rampEffects, synergyEffects,
+                passiveSlots);
     }
 
     /**
@@ -85,6 +91,7 @@ public record BirdProfile(String id, Map<StatId, Double> baseStats, HitboxSpec h
         h = 31 * h + hitbox.hashCode();
         h = 31 * h + effects.hashCode();
         h = 31 * h + rampEffects.hashCode();
+        h = 31 * h + synergyEffects.hashCode();
         return 31 * h + passiveSlots;
     }
 }

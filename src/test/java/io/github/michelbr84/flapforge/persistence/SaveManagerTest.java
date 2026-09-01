@@ -7,9 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonObject;
+import io.github.michelbr84.flapforge.content.defs.AliasDef;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProfileSchema;
 import io.github.michelbr84.flapforge.progression.Statistics;
+import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
 import java.io.IOException;
@@ -19,6 +21,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -265,6 +268,65 @@ class SaveManagerTest {
         assertFalse(profile.getAsJsonArray("unlocked").contains(JsonCodec.toTree("bird:starter")));
     }
 
+    /**
+     * E21's load order, end to end: parse → migrate → bind → aliases → normalise. The renames
+     * have to happen before normalisation, because normalisation resets a selection id no
+     * registry knows and writes the unlocks an owned id implies. Run the other way round, the
+     * renamed bird has already fallen back to the default and {@code ability:old_shield} has
+     * already been written into {@code unlocked} under its old name.
+     */
+    @Test
+    void theAliasesRunBeforeNormalisationSoARenamedSelectionSurvives() {
+        manager.load();
+        PlayerProfile saved = manager.profile();
+        saved.selected.birdId = "starter";
+        saved.selected.activeAbilityId = "old_shield";
+        saved.selected.passiveAbilityIds = new ArrayList<>(List.of("old_shield"));
+        saved.abilityLevels.put("old_shield", 2);
+        saved.upgrades.put("feather", 1);
+        manager.save();
+
+        ProfileSchema schema = ProfileSchema.builder()
+                .bird("classic", List.of("default"))
+                .bird("guardian", List.of("default"))
+                .abilities(List.of("shield", "double_flap"))
+                .upgradeNode("feather_1", "flight")
+                .defaults("classic", "default", PlayerProfile.DEFAULT_WORLD,
+                        PlayerProfile.DEFAULT_TIER, "double_flap")
+                .build();
+        AliasDef aliases = new AliasDef(1,
+                Map.of("bird:starter", "bird:guardian",
+                        "cosmetic:starter:default", "cosmetic:guardian:default",
+                        "ability:old_shield", "ability:shield"),
+                Map.of("feather", "feather_1"),
+                Map.of("old_shield", "shield"),
+                Map.of("birdId", Map.of("starter", "guardian"),
+                        "activeAbilityId", Map.of("old_shield", "shield"),
+                        "passiveAbilityIds", Map.of("old_shield", "shield")),
+                List.of(), Map.of());
+
+        SaveManager second = new SaveManager(new DirectExecutor(), time)
+                .schema(schema)
+                .profileAliasStep(profile -> UpgradeManager.reconcile(profile, aliases,
+                        PlayerProfile.CURRENCY_COINS));
+        SaveManager.LoadResult result = second.load();
+        PlayerProfile loaded = result.profile();
+
+        assertEquals("guardian", loaded.selected.birdId,
+                "the rename ran before the unknown id could be repaired away");
+        assertEquals("shield", loaded.selected.activeAbilityId);
+        assertEquals(List.of("shield"), loaded.selected.passiveAbilityIds);
+        assertEquals(2, loaded.abilityLevel("shield"));
+        assertEquals(1, loaded.upgradeLevel("feather_1"));
+        assertTrue(loaded.isUnlocked("ability:shield"),
+                () -> "the implied unlock is written under the new id: " + loaded.unlocked);
+        assertFalse(loaded.unlocked.contains("ability:old_shield"),
+                () -> "and never under the old one: " + loaded.unlocked);
+        assertTrue(loaded.isUnlocked("bird:guardian"), () -> loaded.unlocked.toString());
+        assertTrue(result.repairs().stream().anyMatch(line -> line.contains("feather")),
+                () -> "the reconciliation is reported with the repairs: " + result.repairs());
+    }
+
     @Test
     void theRunHistoryCapSurvivesAWrite() throws IOException {
         manager.load();
@@ -410,6 +472,58 @@ class SaveManagerTest {
                 "an unknown passive is dropped, not kept as a dangling id");
         assertTrue(profile.isUnlocked("world:green_fields"),
                 "the repaired selection is then implied by the unlocks (E15)");
+    }
+
+    /**
+     * {@code upgradeLevelsTotal()} feeds Cinder's {@code BIRD_SYNERGY} layer, so an owned level of
+     * a node the build no longer ships inflates the synergy of every run. The alias table (E21) is
+     * the supported way to carry a renamed node forward; a key that survives it is a node this
+     * build does not have.
+     */
+    @Test
+    void anOwnedNodeTheContentNoLongerKnowsIsDropped() throws IOException {
+        String save = """
+                {"version": 1, "profile": {
+                  "unlocked": ["bird:classic"],
+                  "upgrades": {"feather_1": 2, "ghost_node": 3},
+                  "abilityLevelCap": 99}}
+                """;
+        Files.writeString(saveFile(), save, StandardCharsets.UTF_8);
+        ProfileSchema schema = ProfileSchema.builder()
+                .upgradeNode("feather_1", "flight")
+                .abilityLevelCap(3)
+                .build();
+
+        SaveManager.LoadResult result = new SaveManager(executor, time).schema(schema).load();
+        PlayerProfile profile = result.profile();
+
+        assertEquals(2, profile.upgradeLevel("feather_1"));
+        assertEquals(0, profile.upgradeLevel("ghost_node"));
+        assertEquals(2, profile.upgradeLevelsTotal(),
+                "the synergy input counts only nodes the build ships");
+        assertEquals(3, profile.abilityLevelCap,
+                "E3: the cap is clamped from above as well as from below");
+        assertTrue(result.repairs().stream().anyMatch(line -> line.contains("ghost_node")),
+                () -> result.repairs().toString());
+        assertTrue(result.repairs().stream().anyMatch(line -> line.contains("abilityLevelCap")),
+                () -> result.repairs().toString());
+    }
+
+    @Test
+    void aPermissiveSchemaKeepsEveryOwnedNodeAndTheStoredCap() throws IOException {
+        String save = """
+                {"version": 1, "profile": {
+                  "unlocked": ["bird:classic"],
+                  "upgrades": {"whatever_1": 4},
+                  "abilityLevelCap": 5}}
+                """;
+        Files.writeString(saveFile(), save, StandardCharsets.UTF_8);
+
+        PlayerProfile profile = new SaveManager(executor, time).load().profile();
+
+        assertEquals(4, profile.upgradeLevel("whatever_1"),
+                "a build that knows no upgrade table must not repair one away");
+        assertEquals(5, profile.abilityLevelCap, "and has no ceiling to clamp to");
     }
 
     @Test

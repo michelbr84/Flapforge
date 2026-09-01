@@ -175,6 +175,10 @@ public final class ProceduralArt {
     private static final Shape BIRD_TAIL = polygon(-0.46, -0.12, -0.72, -0.28, -0.60, 0.06);
     private static final Shape BIRD_WING = polygon(-0.12, -0.02, -0.56, 0.12, -0.46, 0.30,
             0.04, 0.18);
+    /** Stroke of the one archetype detail a portrait draws (D18, M4). */
+    private static final Stroke PORTRAIT_MARK = new BasicStroke(0.055f);
+    /** Toolkit colours of the palette values a portrait is drawn with, cached by value. */
+    private static final Map<Integer, Color> PORTRAIT_COLORS = new ConcurrentHashMap<>();
     private static final double WING_PIVOT_X = -0.12;
     private static final double WING_PIVOT_Y = -0.02;
     private static final double BIRD_TILT_UP = -0.28;
@@ -730,6 +734,149 @@ public final class ProceduralArt {
             RESOLVED.put(palette, r);
         }
         return r;
+    }
+
+    /**
+     * Draws a bird in the colours of one of its cosmetic palettes and the silhouette of its
+     * archetype (D18, M4): the portrait the bird selection and the shop show.
+     *
+     * <p>{@link #drawBird(Graphics2D, double, double, double, double, WorldPalette)} takes its
+     * colours from the world palette, because in a run the bird is part of the scene; a portrait
+     * is the opposite — the world is irrelevant and the four colours the player bought are the
+     * whole point. The shape key stretches the shared unit shapes rather than replacing them, so
+     * the seven birds read as seven silhouettes without seven sets of geometry to keep in sync.
+     *
+     * @param g the context
+     * @param cx the body centre x
+     * @param cy the body centre y
+     * @param size the body width before the silhouette stretch
+     * @param wingPhase animation phase in {@code [0, 1)}: wing down at 0, up at 0.5
+     * @param bodyRgb the body colour as {@code 0xRRGGBB}
+     * @param wingRgb the wing and tail colour
+     * @param eyeRgb the eye colour
+     * @param accentRgb the beak and detail colour
+     * @param shape the silhouette key ({@code balanced}, {@code swift}, {@code heavy},
+     *     {@code guardian}, {@code gambler}, {@code mystic}, {@code forge}); anything else is
+     *     drawn balanced, which is why {@code BirdDef.SHAPES} is the validated set and this
+     *     switch is the other half of that contract
+     */
+    public static void drawBirdPortrait(Graphics2D g, double cx, double cy, double size,
+            double wingPhase, int bodyRgb, int wingRgb, int eyeRgb, int accentRgb, String shape) {
+        double sx = size;
+        double sy = size;
+        switch (shape == null ? "" : shape) {
+            case "swift":
+                sx = size * 1.12;
+                sy = size * 0.84;
+                break;
+            case "heavy":
+                sx = size * 0.94;
+                sy = size * 1.16;
+                break;
+            case "guardian":
+                sx = size * 1.04;
+                sy = size * 1.04;
+                break;
+            case "gambler":
+                sy = size * 0.94;
+                break;
+            case "mystic":
+                sx = size * 0.94;
+                sy = size * 1.06;
+                break;
+            case "forge":
+                sx = size * 1.06;
+                break;
+            default:
+                break;
+        }
+        Color body = shade(bodyRgb, 0);
+        Color wing = shade(wingRgb, 0);
+        Color belly = shade(bodyRgb, 0.35);
+        Color accent = shade(accentRgb, 0);
+        g.translate(cx, cy);
+        g.scale(sx, sy);
+        g.setColor(wing);
+        g.fill(BIRD_TAIL);
+        g.setColor(body);
+        g.fill(BIRD_BODY);
+        g.setColor(belly);
+        g.fill(BIRD_BELLY);
+        double angle = wingAngle(wingPhase);
+        g.rotate(angle, WING_PIVOT_X, WING_PIVOT_Y);
+        g.setColor(wing);
+        g.fill(BIRD_WING);
+        g.rotate(-angle, WING_PIVOT_X, WING_PIVOT_Y);
+        g.setColor(EYE_WHITE);
+        g.fill(BIRD_EYE);
+        g.setColor(shade(eyeRgb, 0));
+        g.fill(BIRD_PUPIL);
+        g.setColor(accent);
+        g.fill(BIRD_BEAK);
+        drawArchetypeMark(g, shape, accent);
+        g.scale(1 / sx, 1 / sy);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws the one detail that separates the archetypes at portrait size, in unit coordinates.
+     *
+     * @param g the context, already translated and scaled to the bird
+     * @param shape the silhouette key
+     * @param accent the palette accent colour
+     */
+    private static void drawArchetypeMark(Graphics2D g, String shape, Color accent) {
+        Stroke old = g.getStroke();
+        g.setStroke(PORTRAIT_MARK);
+        g.setColor(accent);
+        switch (shape == null ? "" : shape) {
+            case "guardian":
+                // A plate over the breast: the bird that flies with a shield.
+                g.draw(new Ellipse2D.Double(-0.34, -0.10, 0.46, 0.42));
+                break;
+            case "mystic":
+                // A halo: the bird whose abilities last longer.
+                g.draw(new Ellipse2D.Double(-0.28, -0.62, 0.56, 0.22));
+                break;
+            case "gambler":
+                // A pip, for the bird that trades width for score.
+                g.fill(new Ellipse2D.Double(-0.20, 0.02, 0.14, 0.14));
+                break;
+            case "forge":
+                // A spark off the anvil.
+                g.draw(new Line2D.Double(-0.62, 0.24, -0.38, 0.12));
+                g.draw(new Line2D.Double(-0.50, 0.34, -0.32, 0.24));
+                break;
+            case "heavy":
+                // A weight band across the body.
+                g.draw(new Line2D.Double(-0.30, 0.18, 0.24, 0.18));
+                break;
+            case "swift":
+                // Two speed lines behind the tail.
+                g.draw(new Line2D.Double(-0.86, -0.16, -0.62, -0.16));
+                g.draw(new Line2D.Double(-0.84, 0.02, -0.60, 0.02));
+                break;
+            default:
+                break;
+        }
+        g.setStroke(old);
+    }
+
+    /**
+     * A cached toolkit colour for a packed {@code 0xRRGGBB} value, optionally lightened.
+     *
+     * @param rgb the packed colour
+     * @param lighten how far to move it towards white, in {@code [0, 1]}
+     * @return the colour
+     */
+    private static Color shade(int rgb, double lighten) {
+        int value = lighten <= 0 ? (rgb & 0xFFFFFF) : WorldPalette.lighten(rgb, lighten);
+        Color cached = PORTRAIT_COLORS.get(value);
+        if (cached == null) {
+            cached = new Color(value);
+            PORTRAIT_COLORS.put(value, cached);
+        }
+        return cached;
     }
 
     private static Shape polygon(double... xy) {

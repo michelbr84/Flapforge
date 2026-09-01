@@ -37,8 +37,16 @@ public final class ContentLoader {
     /** The content files milestone M3 ships: {@link #M1_FILES} plus the economy (§4). */
     public static final List<String> M3_FILES = List.of("birds", "difficulty", "economy");
 
+    /**
+     * The content files milestone M4 ships: {@link #M3_FILES} plus the upgrade trees, the id
+     * aliases and the four stub files that carry their final unlock and reward blocks so the
+     * strict validator and the unlock graph are complete (E19).
+     */
+    public static final List<String> M4_FILES = List.of("birds", "difficulty", "economy",
+            "upgrades", "aliases", "abilities", "worlds", "challenges", "achievements");
+
     /** The content files the game currently loads (the latest milestone's set). */
-    public static final List<String> FILES = M3_FILES;
+    public static final List<String> FILES = M4_FILES;
 
     private static final Gson GSON = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)

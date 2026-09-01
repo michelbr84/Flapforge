@@ -527,6 +527,143 @@ is fixed here, with a test that fails without the fix.
   still overwrite each other. D15 does not ask for one and the recovery policy
   does not depend on it, so it is a note, not a gap.
 
+### Fixed — M4
+
+- The GUI smoke suite no longer fails when the desktop session is locked: each
+  Robot-driven test first checks that an unbound canary key reaches the canvas
+  and is skipped with an explicit message when the session swallows synthetic
+  input, so a locked screen reports an unavailable desktop instead of a broken
+  game. A session that delivers the canary and then drops an event still fails.
+
+### Added — M4: birds, upgrades, unlocks, shop
+
+- Content (`content`): the full seven-bird roster in `data/birds.json` (base
+  stats, `BIRD` effects, `rampEffects`, `synergyEffects`, innate passives, three
+  palettes each with their E20 conditions, silhouette key and unlock), the three
+  upgrade trees and their eighteen nodes in `data/upgrades.json`
+  (`defs/{TreeDef,UpgradeDef,GrantDef,GrantType}`), and `data/aliases.json` with
+  the per-field id reconciliation table of E21 (`defs/AliasDef`, empty until an
+  id is renamed). Stub `data/{abilities,worlds,challenges,achievements}.json`
+  ship their **final** unlock and reward blocks so the graph can be proved a
+  milestone before the systems that read the rest exist (E19), with
+  `defs/{AbilitiesDef,AbilityDef,AbilityKind,AbilityLevelDef,AbilityTag,
+  WorldsDef,WorldDef,WorldPaletteDef,AmbientDef,BossDef,MusicDef,SfxSet,
+  RuleCyclesDef,RuleCycleOptionDef,ChallengesDef,ChallengeDef,ObjectiveDef,
+  ObjectiveType,AchievementsDef,AchievementDef,AchievementConditionDef,
+  CompareOp,CounterScope,RewardDef}` and `ContentKind`.
+- `ContentValidator` is complete (D10): shape, ids, cross-references, counters
+  (E5), cost/level ladders, the prerequisite DAG and its tier consistency, the
+  E3 caps, the E20 cosmetic-only conditions, rule contradictions, the classic
+  table, `BirdDef.shape` against `BirdDef.SHAPES`, the placement rule for a
+  `purchase` condition (root or directly under an `any_of`, never inside an
+  `all_of`), the string keys of E31.h, and the warnings (a no-op modifier, a
+  points sink with no consumer). One `content_bad` fixture per rule.
+- `content/UnlockGraph` (D13): every condition, reward and grant as one directed
+  graph, proving no cycle, reachability from the E18 default set, a cumulative
+  path for every non-cosmetic unlockable, and that every declared currency has a
+  source derived from the reward blocks. An `UNLOCK` upgrade grant is priced at
+  the node's first level plus one level of every prerequisite, transitively.
+- Progression (`progression`): `UnlockEvaluator` (every D13/E20 condition type,
+  "since prestige" per E23, a palette needs its bird, a `purchase` is never
+  earned), `UnlockManager` (the shop: check → deduct → grant → account →
+  `applyPurchase` → save), `UpgradeManager` (one level of one node, the E31.f
+  grants and their E3 ceilings, the `UPGRADES` layer, and `reconcile` for
+  `aliases.json`), `SelectionManager`, `RunLoadout` (profile → `RunConfig`),
+  `ProgressionManager.applyPurchase`, and `PurchaseResult`/`PurchaseStatus`/
+  `SaveTrigger`.
+- `gameplay/spec/SynergyEffect` and the `BIRD_SYNERGY` layer: a bird's synergy
+  effects scale with `Σ profile.upgrades.values()`, resolved once at run start,
+  which is what makes Cinder the late-game bird.
+- UI (`ui`): `component/{CardGrid,TabBar,Tooltip}` and
+  `screens/{BirdSelectionScreen,UpgradeTreeScreen,ShopScreen,ProgressionText}`.
+  The bird screen shows the roster with procedural portraits in the selected
+  palette, the palette swatches, the tier picker and the stat breakdown of the
+  run that would start now, by source and layer; the upgrade screen lays the
+  nodes out by tier with a line from every prerequisite and moves wallet, card
+  and live stat panel in the same tick as a purchase; the shop lists every
+  priced id the profile does not own, cheapest first. The main menu gained
+  Birds, Upgrades and Shop.
+- `tools/ContentCheck` and the `contentCheck` Gradle task: the full validator,
+  the string check and the unlock graph, failing on any error.
+- Docs: `docs/PROGRESSION.md` and `docs/CONTENT.md`; `docs/BALANCING.md` §6 —
+  the measured journey table per skill, the per-node value table, the per-bird
+  payout table, and four measurements recorded as open questions for M9.
+
+### Changed — M4
+
+- `SaveManager` gained `profileAliasStep`, and the load order is now E21's:
+  parse → migrate → bind → **aliases** → normalize. The renames used to run
+  after the load completed, so `normalize()` had already reset a renamed
+  selection to the default and written `ability:<oldId>` into `unlocked`; two of
+  `aliases.json`'s five tables were dead and a third left a dangling id behind.
+  The reconciliation report is returned with the load's other repairs.
+- A launch now runs the unlock evaluator once over the loaded profile
+  (`GameApplication.grantWhatIsAlreadyEarned`) and writes the result. Without
+  it, every profile carried over from M3 opened M4 with what it had already
+  earned still locked — and the shop offered to sell it back.
+- `UpgradeManager.buy` refuses a node that would grant nothing: no
+  `effectsPerLevel` and every grant already at its ceiling returns
+  `ALREADY_OWNED` before the debit, and `isAvailable` is false. `hard_tier_1`
+  could otherwise be bought for 400 coins after `tier:hard` had already been
+  earned by playing, and did nothing at all.
+- `UpgradeManager.reconcile` pays an alias refund only to a profile that owned
+  the removed node. It used to credit every profile unconditionally, which on
+  the first launch after any content removal handed every player free coins —
+  and, because a refund counts in `statistics.coinsEarned`, free unlocks with
+  them.
+- `PlayerProfile.normalize` drops owned levels of upgrade nodes the build no
+  longer ships (they inflate Cinder's synergy input) and clamps
+  `abilityLevelCap` from above as well as from below, against a ceiling
+  `ProfileSchema` now carries: E3's `baseCap + Σ ability_cap grants`, capped by
+  the levels the thinnest ability ships. `UpgradeManager.abilityLevelCeiling` is
+  the one place that number is computed.
+- `UnlockEvaluator.priceOf` no longer descends into an `all_of`: a `purchase`
+  nested there is one requirement among several, not a price, and selling for it
+  would hand over an unlockable its siblings still gate. The validator refuses
+  that shape too.
+- `GameContent.playable(FEATURE, id)` is false while `featureMilestone(id)`
+  names a milestone, and the shop labels `feature:modifiers` *Arrives in M6* and
+  `feature:seeded_runs` *M9*. Both are buyable in M4 and read by nothing until
+  then; they used to be sold as working switches (E19).
+- The upgrade screen marks the seven nodes whose effects no system reads before
+  M5 — `ABILITY_COOLDOWN_MULT`, `ABILITY_DURATION_MULT`, `SHIELD_CHARGES`,
+  `REVIVES` and the `ABILITY_CAP` / `PASSIVE_SLOT` grants, 10 150 of the 21 400
+  coins the tree costs — on the card and on the stat row. The bird screen names
+  a bird's innate passives on the ability line with the same note, so Ironbeak's
+  −20 % `COIN_MULT` is not presented as a straight upgrade while the shield that
+  pays for it is M5 content.
+- `CardGrid` measures a card's title and subtitle and ends them in an ellipsis
+  instead of clipping mid-word; the upgrade card carries the short effect phrase
+  and the detail panel the full one.
+- The main menu draws its tagline outlined: M4's re-layout moved the title block
+  up into the cloud band to fit the three new buttons, and a cloud crossed it.
+- `BalancingSim` gained a `payout` column (the run's own `COIN_MULT`, `XP_MULT`
+  and the tier's `rewardMult` applied). Without it `classic`, `guardian` and
+  `mystic` print identical numbers and the economy birds cannot be balanced with
+  the tool the milestone names as its check.
+- `worlds.json` records that the `ambient.darkness` of `iron_forge` and `void`
+  are placeholders for M7, not authored balance: §4's world table specifies
+  darkness only for `storm_sky`.
+
+### Deferred — M4
+
+- `glide_1` (`MAX_FALL_SPEED −10 %`) cannot bind for five of the seven birds —
+  the cap is unreachable inside the playfield — and it is a mandatory
+  prerequisite of `updraft_1`. The node is what §4 of the plan specifies and the
+  node table is binding, so it ships as written and the measurement is recorded
+  in `docs/BALANCING.md` §6.3 for M9.
+- `BotPilot` is not monotone in the stats the tree sells: its fixed aim offset
+  and arc window re-phase against any change to gravity or flap velocity, so
+  survival swings ±25 % with no trend. Making the pilot invariant would change
+  the CI `--headless-run` hash, which M4 must not, so it is an M9 change (E25);
+  `docs/BALANCING.md` §6.4.
+- Jackdaw and Oracle do not pay for themselves against the free default bird,
+  and the participation gate zeroes one novice run in five. Both are measured
+  and recorded (`docs/BALANCING.md` §6.5, §6.6) for M9's retune.
+- Upgrade materials as a second currency (README): D13 maps them to coins, and
+  `RewardDef` carries an amount and no currency, so a second declared currency
+  has no source. The graph check reports exactly that.
+
 ---
 
 ## Inherited upstream history (kingyuluk/FlappyBird)

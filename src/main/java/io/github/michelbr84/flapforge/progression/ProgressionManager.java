@@ -200,8 +200,24 @@ public final class ProgressionManager {
      * @return what the two evaluators granted
      */
     public ProgressionOutcome applyPurchase(PlayerProfile profile, ProgressionRules rules) {
-        Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(rules, "rules");
+        return applyPurchase(profile);
+    }
+
+    /**
+     * Runs the trailing steps of the pipeline after an atomic purchase (D14, E17): achievements →
+     * unlocks → dirty.
+     *
+     * <p>This is the form {@link UnlockManager} and {@link UpgradeManager} call. There is no
+     * economy to read — a purchase pays no rewards — so the rules are not a parameter here; the
+     * overload that takes them exists for callers that hold a {@link ProgressionRules} and would
+     * otherwise have to know that it is unused.
+     *
+     * @param profile the profile, already debited and granted by the caller
+     * @return what the two evaluators granted
+     */
+    public ProgressionOutcome applyPurchase(PlayerProfile profile) {
+        Objects.requireNonNull(profile, "profile");
         steps.clear();
         List<String> achievements = evaluateAchievements(profile);
         List<String> unlocks = evaluateUnlocks(profile);
@@ -407,6 +423,17 @@ public final class ProgressionManager {
     private void markDirty() {
         changedVersion++;
         steps.add(Step.DIRTY);
+    }
+
+    /**
+     * Records a change made outside the two pipelines — a selection change (D15's third write
+     * trigger), a prestige, a tool edit — so the profile counts as dirty until it is written.
+     *
+     * <p>It does not touch {@link #lastSteps()}: no pipeline ran, and a trace of one step called
+     * {@code DIRTY} would only be misleading.
+     */
+    public void markChanged() {
+        changedVersion++;
     }
 
     /**

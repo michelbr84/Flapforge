@@ -23,6 +23,11 @@ import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionOutcome;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
+import io.github.michelbr84.flapforge.progression.SelectionManager;
+import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
+import io.github.michelbr84.flapforge.progression.UnlockManager;
+import io.github.michelbr84.flapforge.progression.UpgradeManager;
+import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.AssetManager;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
@@ -34,6 +39,7 @@ import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
+import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.BootScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
@@ -43,7 +49,9 @@ import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.RunSummaryScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
+import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
 import io.github.michelbr84.flapforge.ui.screens.StatisticsScreen;
+import io.github.michelbr84.flapforge.ui.screens.UpgradeTreeScreen;
 import java.awt.Font;
 import java.awt.image.BufferedImage;
 import java.util.EnumSet;
@@ -261,6 +269,21 @@ class ProceduralRenderTest {
                         "statistics is uniform in " + language);
                 byLanguage.put(language + "-statistics", copy(statistics));
 
+                Meta meta = Meta.spent();
+                BufferedImage birds = renderScreen(meta::birds, 5);
+                assertTrue(distinctColours(birds, 2) >= 2,
+                        "bird selection is uniform in " + language);
+                byLanguage.put(language + "-birds", copy(birds));
+
+                BufferedImage trees = renderScreen(meta::upgrades, 5);
+                assertTrue(distinctColours(trees, 2) >= 2,
+                        "upgrade trees are uniform in " + language);
+                byLanguage.put(language + "-upgrades", copy(trees));
+
+                BufferedImage shop = renderScreen(meta::shop, 5);
+                assertTrue(distinctColours(shop, 2) >= 2, "shop is uniform in " + language);
+                byLanguage.put(language + "-shop", copy(shop));
+
                 for (Phase phase : Phase.values()) {
                     Rig rig = new Rig();
                     rig.driveTo(phase);
@@ -282,6 +305,101 @@ class ProceduralRenderTest {
         assertFalse(identical(byLanguage.get("en-statistics"),
                         byLanguage.get("pt_BR-statistics")),
                 "the statistics screen must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-birds"), byLanguage.get("pt_BR-birds")),
+                "the bird selection must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-upgrades"), byLanguage.get("pt_BR-upgrades")),
+                "the upgrade trees must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-shop"), byLanguage.get("pt_BR-shop")),
+                "the shop must look different in the two languages");
+    }
+
+    @Test
+    void theThreeMetaScreensRenderNonBlank() {
+        Meta meta = Meta.spent();
+        assertTrue(distinctColours(renderScreen(meta::birds, 5), 2) >= 2,
+                "bird selection is uniform");
+        assertTrue(distinctColours(renderScreen(meta::upgrades, 5), 2) >= 2,
+                "upgrade trees are uniform");
+        assertTrue(distinctColours(renderScreen(meta::shop, 5), 2) >= 2, "shop is uniform");
+    }
+
+    @Test
+    void theMetaScreensRenderTheirTooltipsAndAFreshProfile() {
+        // A brand-new profile: everything but the starter bird is locked, no node is owned and
+        // the shop is full. Neither the locked states nor the empty breakdown may throw.
+        Meta fresh = Meta.fresh();
+        assertTrue(distinctColours(renderScreen(fresh::birds, 3), 2) >= 2);
+        assertTrue(distinctColours(renderScreen(fresh::upgrades, 3), 2) >= 2);
+        assertTrue(distinctColours(renderScreen(fresh::shop, 3), 2) >= 2);
+
+        // The tooltip appears after its delay and is drawn over the panel it explains.
+        Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
+        ScreenManager screens = new ScreenManager(viewport);
+        NullPresenter presenter = new NullPresenter(screens, viewport, Playfield.WIDTH,
+                Playfield.HEIGHT);
+        screens.setPresenter(presenter);
+        BirdSelectionScreen birds = (BirdSelectionScreen) fresh.birds(screens);
+        screens.push(birds);
+        screens.applyPending();
+        for (int i = 0; i < 40; i++) {
+            screens.tick(InputFrame.EMPTY);
+        }
+        assertTrue(birds.tooltip().isShowing(), "a focused card explains itself");
+        presenter.present(0.0);
+        assertTrue(distinctColours(presenter.image(), 2) >= 2);
+    }
+
+    /**
+     * A profile for the three M4 screens: {@link #fresh()} owns nothing but the starter bird,
+     * {@link #spent()} has coins, a bought upgrade node and a second tree, so the cards, the
+     * prerequisite links and the stat breakdown all have something to draw.
+     */
+    private static final class Meta {
+        final GameContent content = GameContent.load();
+        final PlayerProfile profile;
+        final SelectionManager selection;
+        final UnlockManager unlocks;
+        final UpgradeManager upgrades;
+
+        private Meta(boolean spent) {
+            FixedTimeSource time = new FixedTimeSource(1_700_000_000_000L);
+            profile = PlayerProfile.fresh(time.epochMillis()).normalize();
+            ProgressionManager progression = new ProgressionManager(time,
+                    ProgressionManager.AchievementHook.NONE, UnlockEvaluator.of(content));
+            selection = new SelectionManager(progression, null);
+            unlocks = new UnlockManager(progression, null);
+            upgrades = new UpgradeManager(progression, null);
+            if (!spent) {
+                return;
+            }
+            Wallet.of(profile).add(PlayerProfile.CURRENCY_COINS, 5_000);
+            unlocks.purchase(profile, "bird:guardian", content);
+            unlocks.purchase(profile, "tree:economy", content);
+            upgrades.buy(profile, "feather_1", content);
+            upgrades.buy(profile, "glide_1", content);
+            selection.selectBird(profile, "guardian", content);
+        }
+
+        static Meta fresh() {
+            return new Meta(false);
+        }
+
+        static Meta spent() {
+            return new Meta(true);
+        }
+
+        Screen birds(ScreenManager sm) {
+            return new BirdSelectionScreen(sm, Strings.active(), content, profile, selection,
+                    unlocks, null);
+        }
+
+        Screen upgrades(ScreenManager sm) {
+            return new UpgradeTreeScreen(sm, Strings.active(), content, profile, upgrades, null);
+        }
+
+        Screen shop(ScreenManager sm) {
+            return new ShopScreen(sm, Strings.active(), content, profile, unlocks, null);
+        }
     }
 
     /**
