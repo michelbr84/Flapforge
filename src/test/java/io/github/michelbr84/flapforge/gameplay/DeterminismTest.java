@@ -30,6 +30,11 @@ class DeterminismTest {
         assertEquals(a.hashes(), b.hashes());
         assertEquals(a.result().gatesPassed(), b.result().gatesPassed());
         assertEquals(a.result().counters(), b.result().counters());
+        assertTrue(a.result().stats().coinsCollected() > 0, "the coin trails are part of the run");
+        assertEquals(a.result().stats().coinsCollected(), b.result().stats().coinsCollected());
+        assertTrue(a.result().stats().streakBest() > 0, "and so is the clean-gate streak");
+        assertEquals(a.result().stats().streakBest(), b.result().stats().streakBest());
+        assertEquals(a.result().stats().streakSteps(), b.result().stats().streakSteps());
     }
 
     @Test

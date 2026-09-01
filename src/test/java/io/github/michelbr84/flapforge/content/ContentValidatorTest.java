@@ -37,6 +37,25 @@ class ContentValidatorTest {
     @Test
     void theFrozenFixtureIsValid() {
         assertEquals(List.of(), ContentValidator.errorsOf(TestContent.frozen()));
+        assertEquals(List.of(), ContentValidator.warningsOf(TestContent.frozen()));
+    }
+
+    /**
+     * E1: {@code coinsPerPoint} is the only thing that reads {@code points}, so setting it to 0
+     * makes {@code SCORE_MULT} — and every bird spread, upgrade and modifier that touches it —
+     * silently worthless. It is a warning, not an error: the game still runs.
+     */
+    @Test
+    void aScoreMultiplierWithNoSinkIsWarnedAbout() {
+        Map<String, JsonElement> files = mutate("economy", economy -> economy.getAsJsonObject()
+                .getAsJsonObject("rewards").addProperty("coinsPerPoint", 0));
+        GameContent content = GameContent.fromJson(files);
+        assertEquals(List.of(), ContentValidator.errorsOf(content), "it still loads");
+        List<String> warnings = ContentValidator.warningsOf(content);
+        assertEquals(1, warnings.size(), warnings.toString());
+        assertTrue(warnings.get(0).startsWith("economy.json#/rewards/coinsPerPoint"),
+                warnings.get(0));
+        assertTrue(warnings.get(0).contains("SCORE_MULT"), warnings.get(0));
     }
 
     @Test
@@ -282,6 +301,131 @@ class ContentValidatorTest {
         void loadingTheShippedContentRaisesMissingStrings() {
             assertTrue(ContentValidator.validateStrings(GameContent.load()).ok(),
                     "GameContent.load() validates the shipped strings too");
+        }
+    }
+
+    /** The economy rules of M3 (§4, E1, E4), driven from the frozen {@code economy.json}. */
+    @Nested
+    class Economy {
+
+        private JsonObject economy(JsonElement root) {
+            return root.getAsJsonObject();
+        }
+
+        @Test
+        void theFrozenEconomyIsValid() {
+            assertEquals(List.of(), ContentValidator.errorsOf(TestContent.frozen()));
+        }
+
+        @Test
+        void anEmptyCurrencyListIsRejected() {
+            List<String> errors = errorsOf(mutate("economy",
+                    root -> economy(root).add("currencies", new JsonArray())));
+            assertEquals(List.of("economy.json#/currencies: no currency is defined"), errors);
+        }
+
+        @Test
+        void theCurrencyTheRewardsArePaidInMustExist() {
+            List<String> errors = errorsOf(mutate("economy", root -> {
+                JsonArray currencies = new JsonArray();
+                currencies.add("shards");
+                economy(root).add("currencies", currencies);
+            }));
+            assertEquals(List.of("economy.json#/currencies: every reward is paid in 'coins', "
+                    + "which is not a declared currency"), errors);
+        }
+
+        @Test
+        void currencyIdsFollowTheRegexAndAreUnique() {
+            List<String> errors = errorsOf(mutate("economy", root -> {
+                JsonArray currencies = new JsonArray();
+                currencies.add("coins");
+                currencies.add("coins");
+                currencies.add("Gold Bars");
+                economy(root).add("currencies", currencies);
+            }));
+            assertEquals(2, errors.size(), errors.toString());
+            assertEquals("economy.json#/currencies/1: duplicate currency id 'coins'",
+                    errors.get(0));
+            assertTrue(errors.get(1).startsWith(
+                    "economy.json#/currencies/2: currency id 'Gold Bars' does not match"),
+                    errors.get(1));
+        }
+
+        @Test
+        void levelRewardKeysMustBeIntegersInsideTheCurve() {
+            List<String> errors = errorsOf(mutate("economy", root -> {
+                JsonObject rewards = economy(root).getAsJsonObject("xp")
+                        .getAsJsonObject("levelRewards");
+                rewards.add("two", new JsonObject());
+                rewards.add("1", new JsonObject());
+                rewards.add("99", new JsonObject());
+            }));
+            assertEquals(3, errors.size(), errors.toString());
+            assertEquals("economy.json#/xp/levelRewards/two: level reward key 'two' is not an "
+                    + "integer", errors.get(0));
+            assertTrue(errors.get(1).contains("must be at least 2"), errors.get(1));
+            assertTrue(errors.get(2).contains("above xp.curve.maxLevel 50"), errors.get(2));
+        }
+
+        @Test
+        void featureIdsAreUniqueAndFollowTheRegex() {
+            List<String> errors = errorsOf(mutate("economy", root -> {
+                JsonArray features = economy(root).getAsJsonArray("features");
+                features.add(features.get(0).deepCopy());
+                features.get(1).getAsJsonObject().addProperty("id", "Seeded Runs");
+            }));
+            assertEquals(2, errors.size(), errors.toString());
+            assertTrue(errors.get(0).startsWith(
+                    "economy.json#/features/1/id: feature id 'Seeded Runs' does not match"),
+                    errors.get(0));
+            assertEquals("economy.json#/features/2/id: duplicate feature id 'modifiers'",
+                    errors.get(1));
+        }
+
+        @Test
+        void prestigeOnlyKeepsWhatAPrestigeCanKeep() {
+            List<String> errors = errorsOf(mutate("economy", root -> {
+                JsonArray keeps = new JsonArray();
+                keeps.add("birds");
+                keeps.add("coins");
+                economy(root).getAsJsonObject("prestige").add("keeps", keeps);
+            }));
+            assertEquals(1, errors.size(), errors.toString());
+            assertTrue(errors.get(0).startsWith("economy.json#/prestige/keeps/1: unknown keep "
+                    + "'coins'"), errors.get(0));
+        }
+
+        @Test
+        void aStreakStepBelowOneIsRejectedAtBindTime() {
+            Map<String, JsonElement> files = mutate("economy", root -> economy(root)
+                    .getAsJsonObject("rewards").getAsJsonObject("streak")
+                    .addProperty("step", 0));
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(files));
+            assertEquals(1, e.errors().size(), e.errors().toString());
+            assertTrue(e.errors().get(0).contains("streak.step must be at least 1"),
+                    e.errors().get(0));
+        }
+
+        @Test
+        void prestigeShardsAreGoneForGood() {
+            Map<String, JsonElement> files = mutate("economy", root -> economy(root)
+                    .getAsJsonObject("prestige").addProperty("shardsPerLevel", 3));
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(files));
+            assertTrue(e.errors().get(0).startsWith(
+                    "economy.json#/prestige/shardsPerLevel: unknown key 'shardsPerLevel'"),
+                    e.errors().get(0));
+        }
+
+        @Test
+        void aMissingEconomyFileIsReportedWithItsName() {
+            Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.frozenJson());
+            files.remove("economy");
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(files));
+            assertEquals(List.of("economy.json#: missing content file"), e.errors());
         }
     }
 

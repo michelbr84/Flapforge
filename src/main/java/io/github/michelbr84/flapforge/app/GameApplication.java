@@ -6,6 +6,7 @@ import io.github.michelbr84.flapforge.audio.AudioManager;
 import io.github.michelbr84.flapforge.audio.NullAudio;
 import io.github.michelbr84.flapforge.audio.SoundBank;
 import io.github.michelbr84.flapforge.content.ContentException;
+import io.github.michelbr84.flapforge.content.ContentValidator;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
 import io.github.michelbr84.flapforge.content.StringKey;
@@ -20,9 +21,13 @@ import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.input.InputQueue;
+import io.github.michelbr84.flapforge.persistence.SaveFile;
+import io.github.michelbr84.flapforge.persistence.SaveManager;
 import io.github.michelbr84.flapforge.persistence.SavePaths;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
+import io.github.michelbr84.flapforge.progression.ProgressionManager;
+import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.render.AssetManager;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
@@ -57,6 +62,15 @@ import java.util.Objects;
  * {@code data/*.json} (D10, D11). Content that fails to bind or validate prints every error and
  * aborts the launch — a broken data file must never reach a window.
  *
+ * <p>Profile (D14, D15, M3): a windowed launch also opens the {@link SaveManager} on
+ * {@link Threads#saveExecutor()} with the injected {@link SystemTimeSource}, loads the profile
+ * before the window exists, and turns a load that has something to report — the backup was used,
+ * the file was unusable, the file is newer than this build — into a warning toast. The economy
+ * becomes {@link ProgressionRules}; {@code GameScreen} writes each finished run through the
+ * {@link ProgressionManager} and saves. {@code --reset-save} quarantines the old file first and
+ * says so on stdout. A headless run has none of this: it must depend on the seed and the shipped
+ * data alone.
+ *
  * <p>Windowed launch: the window is built on the event-dispatch thread, the loop runs on the
  * non-daemon {@code flapforge-loop} thread and the main thread returns. Without a display the
  * launch prints a hint and returns (no {@code System.exit}). Quit path: {@code CloseRequested}
@@ -85,6 +99,9 @@ public final class GameApplication {
     /** Delay before the watchdog forces the JVM to exit after a clean shutdown began. */
     public static final long WATCHDOG_MS = 5_000L;
 
+    /** Ticks between two autosaves of a dirty profile (D15: every 60 s at 60 Hz). */
+    public static final int AUTOSAVE_TICKS = 3_600;
+
     /** Seed of a headless run started without {@code --seed} (the CI reference seed, D12). */
     public static final long DEFAULT_HEADLESS_SEED = 42L;
 
@@ -93,6 +110,7 @@ public final class GameApplication {
 
     private final LaunchOptions options;
     private GameContext context;
+    private int ticksSinceAutosave;
     private volatile Thread loopThread;
     private volatile Thread watchdog;
 
@@ -191,9 +209,11 @@ public final class GameApplication {
         SeedSequence seeds = SeedSequence.from(options.seed());
         // A headless run never opens a device: NullAudio keeps the context uniform without it.
         AudioManager audio = new AudioManager(new NullAudio());
+        // A headless run neither reads nor writes a profile: it must depend on the seed and the
+        // shipped data alone (D12), so there is nothing to progress and nothing to save.
         context = new GameContext(options, clock, timeSource, threads, input, viewport, screens,
                 presenter, null, loop, limiter, null, new EventBus(), audio, strings,
-                new ToastLayer(), content);
+                new ToastLayer(), content, null, null, null);
         screens.push(new MainMenuScreen(context, runFactory(content, seeds), seeds));
         screens.applyPending();
 
@@ -206,7 +226,55 @@ public final class GameApplication {
         System.out.println("headless-run frames=" + loop.frameCount() + " ticks=" + loop.tickCount()
                 + " presents=" + presenter.presentCount() + " seed=" + seed);
         System.out.println(simulationHashLine(content, seed, frames));
-        threads.shutdown(2_000L);
+        drainSaves(threads);
+    }
+
+    /**
+     * Reads the profile, or wipes it first for {@code --reset-save} (D15).
+     *
+     * <p>{@code --reset-save} is confirmed on stdout, not in a dialog: it is a command-line flag,
+     * so its answer belongs on the command line, and the old file is quarantined rather than
+     * deleted, so the line has something useful to name.
+     *
+     * @param save the manager to load through
+     * @return what the load produced
+     */
+    private SaveManager.LoadResult loadProfile(SaveManager save) {
+        if (!options.resetSave()) {
+            return save.load();
+        }
+        SaveManager.LoadResult reset = save.resetToFresh();
+        System.out.println("--reset-save: " + reset.detail());
+        return reset;
+    }
+
+    /**
+     * The toast a load with a notice deserves (D15): the backup was used, the file was unusable,
+     * or the file is newer than this build and nothing will be written this session.
+     *
+     * @param strings the string table
+     * @param save the manager (it names the files)
+     * @param loaded the load result
+     * @return the toast text
+     */
+    private static String saveNotice(Strings strings, SaveManager save,
+            SaveManager.LoadResult loaded) {
+        switch (loaded.status()) {
+            case RESTORED_FROM_BACKUP:
+                return strings.format(StringKey.TOAST_SAVE_RESTORED,
+                        save.backupFile().getFileName());
+            case RESET_AFTER_CORRUPT:
+                return strings.format(StringKey.TOAST_SAVE_RESET,
+                        loaded.quarantined() == null ? save.file().getFileName()
+                                : loaded.quarantined().getFileName());
+            case UNREADABLE:
+                return strings.format(StringKey.TOAST_SAVE_UNREADABLE,
+                        save.file().getFileName());
+            case REFUSED_NEWER_VERSION:
+                return strings.get(StringKey.TOAST_SAVE_READ_ONLY);
+            default:
+                return loaded.detail();
+        }
     }
 
     /**
@@ -233,7 +301,11 @@ public final class GameApplication {
      */
     private static GameContent loadContent() {
         try {
-            return GameContent.load();
+            GameContent content = GameContent.load();
+            for (String warning : ContentValidator.warningsOf(content)) {
+                System.err.println("Content warning: " + warning);
+            }
+            return content;
         } catch (ContentException e) {
             System.err.println(e.getMessage());
             return null;
@@ -304,6 +376,14 @@ public final class GameApplication {
                     loaded.archived() == null ? settingsStore.file().getFileName()
                             : loaded.archived().getFileName()), Toast.Kind.WARNING);
         }
+        SaveManager save = new SaveManager(threads.saveExecutor(), timeSource)
+                .stamp(Flapforge.version(), SaveFile.CONTENT_VERSION);
+        SaveManager.LoadResult profileLoad = loadProfile(save);
+        if (profileLoad.hasNotice()) {
+            toasts.push(saveNotice(strings, save, profileLoad), Toast.Kind.WARNING);
+        }
+        ProgressionManager progression = new ProgressionManager(timeSource);
+        ProgressionRules progressionRules = ProgressionRules.fromEconomy(content.economy());
         InputQueue input = new InputQueue(settings.bindings());
 
         GameWindow window;
@@ -344,7 +424,7 @@ public final class GameApplication {
         AudioManager audio = new AudioManager(new NullAudio());
         context = new GameContext(options, clock, timeSource, threads, input, viewport, screens,
                 presenter, window, loop, limiter, settingsStore, events, audio, strings, toasts,
-                content);
+                content, save, progression, progressionRules);
         GameContext bootContext = context;
         // The three global hotkeys change a setting, so they go through the settings path rather
         // than poking the presenter and the overlay behind the stored state's back.
@@ -352,8 +432,8 @@ public final class GameApplication {
         screens.setFullscreenHandler(bootContext::toggleFullscreen);
         screens.setDebugOverlayHandler(bootContext::toggleDebugOverlay);
         // A settings write finishes on the save thread; this is where its outcome re-enters the
-        // loop thread as a SaveFailed event and a toast (D15).
-        screens.setTickTask(bootContext::drainSaveResults);
+        // loop thread as a SaveFailed event and a toast (D15) — and where the autosave lives.
+        screens.setTickTask(() -> loopTick(bootContext));
         // Menu blips: the components call UiCues, which lands on the manager (D17, D19).
         UiCues.use(UiCues.of(audio::uiMove, audio::uiSelect, audio::uiBack));
         // Boot -> menu (M2). The warm-up runs on its own daemon thread, never on the loop, and
@@ -366,7 +446,7 @@ public final class GameApplication {
                 () -> new MainMenuScreen(bootContext, runFactory(content, seeds), seeds)));
         screens.applyPending();
 
-        Thread shutdownHook = new Thread(() -> threads.shutdown(2_000L), "flapforge-shutdown");
+        Thread shutdownHook = new Thread(() -> drainSaves(threads), "flapforge-shutdown");
         Runtime.getRuntime().addShutdownHook(shutdownHook);
 
         Thread thread = threads.loopThread(() -> {
@@ -387,12 +467,76 @@ public final class GameApplication {
                 e.printStackTrace(System.err);
             } finally {
                 UiCues.silence();
+                // A quit in the first moments can catch the warm-up mid-way through opening the
+                // device; closing the audio before it finished would leak the line it is about to
+                // install (D19).
+                threads.awaitBootIdle(2_000L);
                 audio.close();
+                saveOnExit();
                 shutdown(presenter, bridge, window, threads);
             }
         });
         loopThread = thread;
         thread.start();
+    }
+
+    /**
+     * The "exit" save trigger (D15): a profile that changed since the last write is queued one
+     * last time on the loop thread, before {@link Threads#shutdown(long)} drains the save
+     * executor with its own bounded wait.
+     */
+    private void saveOnExit() {
+        GameContext ctx = context;
+        if (ctx != null && ctx.progression() != null && ctx.progression().isDirty()) {
+            ctx.saveProfile();
+        }
+    }
+
+    /**
+     * The loop-thread task {@link ScreenManager} runs once per tick: it turns finished writes into
+     * events and toasts, and it runs D15's autosave.
+     *
+     * <p>The autosave is the only safety net for a session that ends without running the quit path
+     * — a {@code SIGTERM}, an out-of-memory kill, a driver hang — and it is also what retries a
+     * write that failed, since a failure leaves the profile dirty. It never fires during a live
+     * run ({@link Screen#blocksAutosave()}), and it re-checks every tick until it can, rather than
+     * waiting another minute.
+     *
+     * @param ctx the context the loop runs on
+     */
+    private void loopTick(GameContext ctx) {
+        ctx.drainSaveResults();
+        if (ticksSinceAutosave < AUTOSAVE_TICKS) {
+            ticksSinceAutosave++;
+            return;
+        }
+        ProgressionManager progression = ctx.progression();
+        if (progression == null || !progression.isDirty()) {
+            ticksSinceAutosave = 0;
+            return;
+        }
+        Screen top = ctx.screens() == null ? null : ctx.screens().top();
+        if (top != null && top.blocksAutosave()) {
+            return;
+        }
+        ticksSinceAutosave = 0;
+        ctx.saveProfile();
+    }
+
+    /**
+     * Stops the save executor and says so when the drain did not finish: the save thread is a
+     * daemon, so what is still queued dies with the JVM, and a silent loss is the one thing this
+     * program does not do to a player.
+     *
+     * @param threads the thread owner
+     * @return {@code true} when everything queued reached the disk
+     */
+    private static boolean drainSaves(Threads threads) {
+        if (threads.shutdown(2_000L)) {
+            return true;
+        }
+        System.err.println("The last save did not finish within 2000 ms and was dropped.");
+        return false;
     }
 
     /**
@@ -452,7 +596,7 @@ public final class GameApplication {
             System.err.println("Input bridge detach failed: " + e);
         }
         window.dispose();
-        threads.shutdown(2_000L);
+        drainSaves(threads);
         Thread dog = new Thread(() -> {
             try {
                 Thread.sleep(WATCHDOG_MS);

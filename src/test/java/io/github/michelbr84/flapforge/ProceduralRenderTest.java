@@ -8,11 +8,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.michelbr84.flapforge.app.NullPresenter;
+import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
+import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
+import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
+import io.github.michelbr84.flapforge.gameplay.run.RunResult;
+import io.github.michelbr84.flapforge.gameplay.run.RunStats;
 import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.progression.PlayerProfile;
+import io.github.michelbr84.flapforge.progression.ProgressionManager;
+import io.github.michelbr84.flapforge.progression.ProgressionOutcome;
+import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.render.AssetManager;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
@@ -23,14 +33,17 @@ import io.github.michelbr84.flapforge.render.WorldPalette;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
+import io.github.michelbr84.flapforge.support.FixedTimeSource;
 import io.github.michelbr84.flapforge.ui.screens.BootScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
+import io.github.michelbr84.flapforge.ui.screens.RunSummaryScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
+import io.github.michelbr84.flapforge.ui.screens.StatisticsScreen;
 import java.awt.Font;
 import java.awt.image.BufferedImage;
 import java.util.EnumSet;
@@ -95,6 +108,31 @@ class ProceduralRenderTest {
     void settingsScreenRendersNonBlank() {
         BufferedImage frame = renderScreen(SettingsScreen::new, 5);
         assertTrue(distinctColours(frame, 2) >= 2, "settings screen is uniform");
+    }
+
+    @Test
+    void runSummaryRendersNonBlank() {
+        Fixture fixture = Fixture.played();
+        BufferedImage frame = renderScreen(sm -> fixture.summary(sm), 5);
+        assertTrue(distinctColours(frame, 2) >= 2, "run summary is uniform");
+    }
+
+    @Test
+    void statisticsScreenRendersNonBlank() {
+        Fixture fixture = Fixture.played();
+        BufferedImage frame = renderScreen(sm -> fixture.statistics(sm), 5);
+        assertTrue(distinctColours(frame, 2) >= 2, "statistics screen is uniform");
+    }
+
+    @Test
+    void anEmptyProfileRendersBothM3Screens() {
+        // A brand-new installation: no run has been played, so the summary has no reward section
+        // and every statistic is zero. Neither may throw, and neither may come out blank.
+        Fixture fresh = Fixture.fresh();
+        assertTrue(distinctColours(renderScreen(sm -> fresh.summary(sm), 3), 2) >= 2,
+                "the summary of an empty profile is uniform");
+        assertTrue(distinctColours(renderScreen(sm -> new StatisticsScreen(sm), 3), 2) >= 2,
+                "the statistics of an empty profile are uniform");
     }
 
     @Test
@@ -212,6 +250,17 @@ class ProceduralRenderTest {
                 assertTrue(distinctColours(capture, 2) >= 2,
                         "the key-capture prompt is uniform in " + language);
 
+                Fixture fixture = Fixture.played();
+                BufferedImage summary = renderScreen(sm -> fixture.summary(sm), 5);
+                assertTrue(distinctColours(summary, 2) >= 2,
+                        "run summary is uniform in " + language);
+                byLanguage.put(language + "-summary", copy(summary));
+
+                BufferedImage statistics = renderScreen(sm -> fixture.statistics(sm), 5);
+                assertTrue(distinctColours(statistics, 2) >= 2,
+                        "statistics is uniform in " + language);
+                byLanguage.put(language + "-statistics", copy(statistics));
+
                 for (Phase phase : Phase.values()) {
                     Rig rig = new Rig();
                     rig.driveTo(phase);
@@ -228,6 +277,68 @@ class ProceduralRenderTest {
                 "the menu must look different in the two languages");
         assertFalse(identical(byLanguage.get("en-settings"), byLanguage.get("pt_BR-settings")),
                 "the settings screen must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-summary"), byLanguage.get("pt_BR-summary")),
+                "the run summary must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-statistics"),
+                        byLanguage.get("pt_BR-statistics")),
+                "the statistics screen must look different in the two languages");
+    }
+
+    /**
+     * A profile and a finished run to draw the M3 screens from: {@link #played()} has three runs
+     * written into it through the real progression pipeline, {@link #fresh()} has none.
+     */
+    private static final class Fixture {
+        final ProgressionRules rules =
+                ProgressionRules.fromEconomy(GameContent.load().economy());
+        final PlayerProfile profile;
+        final RunResult result = run(12);
+        final ProgressionOutcome outcome;
+
+        private Fixture(boolean played) {
+            FixedTimeSource time = new FixedTimeSource(1_700_000_000_000L);
+            profile = PlayerProfile.fresh(time.epochMillis()).normalize();
+            if (!played) {
+                outcome = null;
+                return;
+            }
+            ProgressionManager progression = new ProgressionManager(time);
+            outcome = progression.apply(profile, result, rules);
+            progression.apply(profile, run(5), rules);
+            progression.apply(profile, run(21), rules);
+        }
+
+        static Fixture played() {
+            return new Fixture(true);
+        }
+
+        static Fixture fresh() {
+            return new Fixture(false);
+        }
+
+        Screen summary(ScreenManager sm) {
+            return new RunSummaryScreen(sm, result, outcome, outcome == null ? null : profile,
+                    outcome == null ? null : rules, () -> { }, Strings.active());
+        }
+
+        Screen statistics(ScreenManager sm) {
+            return new StatisticsScreen(sm, Strings.active(), profile);
+        }
+
+        private static RunResult run(int gates) {
+            RunStats stats = new RunStats();
+            stats.setGatesPassed(gates);
+            stats.setPoints(gates);
+            stats.addCoinsCollected(7);
+            stats.setStreak(gates);
+            stats.setStreakSteps(gates / 5);
+            for (int i = 0; i < gates * 60; i++) {
+                stats.tickAlive();
+            }
+            stats.setDeathCause(CollisionCause.OBSTACLE);
+            return new RunResult(RunConfig.builder(42L).mode(RunMode.SEEDED).build(), stats,
+                    Map.of());
+        }
     }
 
     @Test

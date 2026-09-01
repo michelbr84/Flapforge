@@ -6,73 +6,73 @@ maxTicks=3000
 hashEvery=50
 ticks=3000
 finished=false
-tick=50 hash=be25078a3a769460
-tick=100 hash=9f8bc88433748e98
-tick=150 hash=9cddf8e61c73a63f
-tick=200 hash=5a70482ea8bb1855
-tick=250 hash=cf0bb6460559a14a
-tick=300 hash=927445677d844af1
-tick=350 hash=e0946677b6a04e21
-tick=400 hash=7533d43f6e1c9aef
-tick=450 hash=8c972b07aa19a102
-tick=500 hash=89d99dcdfcf1fcbd
-tick=550 hash=b8dcee37fcfc4d60
-tick=600 hash=a26b5744b9856f80
-tick=650 hash=7775d88b9a9a2687
-tick=700 hash=7209387d8f45cac2
-tick=750 hash=118e85fd2a04e601
-tick=800 hash=36e5cee2a55c4203
-tick=850 hash=759b50a84cde06ca
-tick=900 hash=810e810b12545d3d
-tick=950 hash=ae2994aa11664d71
-tick=1000 hash=616805d0a7561073
-tick=1050 hash=eb577b3f385ee8a4
-tick=1100 hash=ea6c209ac913b852
-tick=1150 hash=8708879ac8eee613
-tick=1200 hash=a6a5e38cd90d9496
-tick=1250 hash=e7ace1bcded22194
-tick=1300 hash=d1db7797e6dd7f0f
-tick=1350 hash=641333c350d1f7e6
-tick=1400 hash=ef5c4441020d6ead
-tick=1450 hash=6930fe029fc1ed24
-tick=1500 hash=927f911bfd91b15a
-tick=1550 hash=6b0763e51c9dc14c
-tick=1600 hash=767490f6862dc572
-tick=1650 hash=25fc59154c4a3b22
-tick=1700 hash=f67149d83a32be42
-tick=1750 hash=082fb197dcfcf6eb
-tick=1800 hash=010e02029ce8584d
-tick=1850 hash=94a5ae4351445189
-tick=1900 hash=b5e4410ca2096434
-tick=1950 hash=2051ee143550211b
-tick=2000 hash=ad82f4a981e1c8a9
-tick=2050 hash=e819de846e1b2fa3
-tick=2100 hash=065f3aa32cf3e64e
-tick=2150 hash=40b0e0fd05091fd1
-tick=2200 hash=a1e4bf9ecf13180b
-tick=2250 hash=8def9d3126a09489
-tick=2300 hash=5cea3fac3b3e5dc8
-tick=2350 hash=7c99d00c5e924d49
-tick=2400 hash=b3722a1e4df60241
-tick=2450 hash=1f2920919b0e9378
-tick=2500 hash=1331da6745aa69fc
-tick=2550 hash=af719ded227b20f1
-tick=2600 hash=bd655b73caaeef20
-tick=2650 hash=8cfba418cade9bfd
-tick=2700 hash=acfa8f5d433ecc3a
-tick=2750 hash=3b7f20f755c62623
-tick=2800 hash=70715d5e32731a35
-tick=2850 hash=7f7489cf188149b4
-tick=2900 hash=49f63d1d9da9b283
-tick=2950 hash=0fb36bada728104f
-tick=3000 hash=f258f8f597a3fda0
-finalHash=f258f8f597a3fda0
+tick=50 hash=6c1cc8b9889ceb91
+tick=100 hash=b41e953192248465
+tick=150 hash=380f40053f6cf412
+tick=200 hash=16e39c78cf1968e9
+tick=250 hash=7c5aa0a94e1ba852
+tick=300 hash=92294dd61237feb8
+tick=350 hash=34e2e80a4d0f74b6
+tick=400 hash=2f9359fbeb4edb19
+tick=450 hash=895a7274322b0187
+tick=500 hash=76b14d587d571762
+tick=550 hash=218f872ad14e323c
+tick=600 hash=f6d95fe53280d04e
+tick=650 hash=e5f67f5c1eef809a
+tick=700 hash=5dd2f959623c68a1
+tick=750 hash=7939fb3936c84145
+tick=800 hash=a494b9543f47f29f
+tick=850 hash=fcdf6228d7b18015
+tick=900 hash=8053fdc6a8056466
+tick=950 hash=fe42f1bd570bd87e
+tick=1000 hash=4e8ba6215203f07b
+tick=1050 hash=136a75a0e05ab7c7
+tick=1100 hash=b2674928dbdeff5d
+tick=1150 hash=f5d7381c71d3b7b1
+tick=1200 hash=0be673f17c82452f
+tick=1250 hash=8e6eb561eb28c842
+tick=1300 hash=00d5aefb3a292716
+tick=1350 hash=ef94aba5ba7776df
+tick=1400 hash=3be7e8f911141dfe
+tick=1450 hash=c5196fd576a650ae
+tick=1500 hash=10bf009a99e44635
+tick=1550 hash=8740f554ec73c7f0
+tick=1600 hash=e9c2dd05195f3d0a
+tick=1650 hash=cde99014c2a52b8d
+tick=1700 hash=8ca9e332fe339f11
+tick=1750 hash=89fd73e8261c0f36
+tick=1800 hash=8d71f2094f61dff2
+tick=1850 hash=25cbc6bf02f8d9f0
+tick=1900 hash=fdd78785d47ef626
+tick=1950 hash=8aa5a01c5ba8b0c5
+tick=2000 hash=d7b979dcf034b10e
+tick=2050 hash=276b637e18126cce
+tick=2100 hash=b590e869fd9be403
+tick=2150 hash=2b5e51f50e3fbb0b
+tick=2200 hash=0e775cb3724a2b51
+tick=2250 hash=a99a43c78bc9d5dd
+tick=2300 hash=09d7f6b3b0d9f743
+tick=2350 hash=b4053af03ed1a57a
+tick=2400 hash=acba5051928c3830
+tick=2450 hash=105a9e97f911f05f
+tick=2500 hash=941441f0e3bb5d78
+tick=2550 hash=cfbf625019741cb2
+tick=2600 hash=a54148c2ca94081d
+tick=2650 hash=e480a10459d46c9c
+tick=2700 hash=2a08baa63583fab0
+tick=2750 hash=120b192accac64ce
+tick=2800 hash=b4ec89af2aa9ffcf
+tick=2850 hash=fc55477130a48f1c
+tick=2900 hash=aaa1fd1957ab3a45
+tick=2950 hash=f283e9ada679e056
+tick=3000 hash=cf577d8dadd1e60a
+finalHash=cf577d8dadd1e60a
 stats.gatesPassed=36
 stats.points=36.0
-stats.coinsCollected=0
-stats.streak=0
-stats.streakBest=0
-stats.streakSteps=0
+stats.coinsCollected=23
+stats.streak=5
+stats.streakBest=14
+stats.streakSteps=5
 stats.ticksAlive=3000
 stats.deathCause=null
 stats.shieldAbsorbs=0
@@ -89,5 +89,7 @@ counter.points=36
 counter.ticks=3000
 counter.flaps=217
 counter.flapsRefused=0
+counter.coins=23
+counter.streakBest=14
 counter.nearMisses=3
 counter.obstaclesSpawned=39

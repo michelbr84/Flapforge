@@ -232,7 +232,7 @@ public final class ToneSynth {
 
     /**
      * Whether this synth has a hand-written recipe for an id. Unknown ids still render (with
-     * {@link #UNKNOWN}), so this is a diagnostic, not a precondition.
+     * the fallback recipe built from {@code UNKNOWN_ROOT}), so this is a diagnostic, not a precondition.
      *
      * @param id the sound id
      * @return {@code true} when the id is one of {@link #IDS}

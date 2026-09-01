@@ -120,8 +120,33 @@ public final class ProceduralArt {
     public static final Color TEXT_DARK = new Color(0x1C3A3E);
     /** Secondary text. */
     public static final Color TEXT_MUTED = new Color(0xA9BABC);
+    /** Ticks one coin needs for a full turn (D18). */
+    public static final int COIN_SPIN_TICKS = 48;
+    /** The gold a coin is drawn in; the HUD and the currency display share it. */
+    public static final Color COIN_GOLD = new Color(0xF5C542);
 
     private static volatile boolean smoothing = true;
+
+    /** Narrowest a spinning coin gets, as a fraction of its radius. */
+    private static final double COIN_MIN_SQUASH = 0.12;
+    /** Below this visible width no highlight is drawn: the coin is seen almost edge on. */
+    private static final double COIN_SHINE_MIN_WIDTH = 0.35;
+    private static final Color COIN_BODY = COIN_GOLD;
+    private static final Color COIN_RIM = new Color(0xB8860B);
+    private static final Color COIN_SHINE = new Color(0xFFF3C4);
+    /**
+     * The squash of a coin at every phase of its turn, tabulated once. Building it here costs one
+     * array of {@value #COIN_SPIN_TICKS} doubles and removes {@link Math#cos} from every frame.
+     */
+    private static final double[] COIN_SPIN = coinSpinTable();
+
+    private static double[] coinSpinTable() {
+        double[] table = new double[COIN_SPIN_TICKS];
+        for (int i = 0; i < COIN_SPIN_TICKS; i++) {
+            table[i] = Math.cos(2 * Math.PI * i / COIN_SPIN_TICKS);
+        }
+        return table;
+    }
 
     private static final Color PANEL_FILL = new Color(0x1C, 0x3A, 0x3E, 0xD2);
     private static final Color PANEL_BORDER = new Color(0xFF, 0xFF, 0xFF, 0x59);
@@ -508,6 +533,62 @@ public final class ProceduralArt {
         double p = phase - Math.floor(phase);
         double t = p < 0.5 ? p * 2 : 2 - p * 2;
         return -0.35 + 0.85 * t;
+    }
+
+    /**
+     * The squash of a spinning coin at an animation phase, read from a table built once (D18: a
+     * per-frame call must not allocate and must not depend on the platform's trigonometry).
+     *
+     * <p>The value is the cosine of the phase, so it walks {@code 1 → 0 → −1 → 0 → 1} over
+     * {@value #COIN_SPIN_TICKS} ticks: the sign says which face is turned towards the player and
+     * the magnitude is the visible width of the disc as a fraction of its diameter.
+     *
+     * @param phaseTicks the animation phase in simulation ticks (any value; it is wrapped)
+     * @return the squash in {@code [-1, 1]}
+     */
+    public static double coinSpin(long phaseTicks) {
+        return COIN_SPIN[(int) Math.floorMod(phaseTicks, (long) COIN_SPIN_TICKS)];
+    }
+
+    /**
+     * Draws one spinning coin: a gold disc squashed horizontally by {@code spin}, with a rim and,
+     * while a face is turned towards the player, a highlight (D18).
+     *
+     * <p>The caller owns the ellipse the coin is drawn with, exactly like
+     * {@link #drawCloud(Graphics2D, Ellipse2D.Double, double, double, double, double, int)}: a renderer
+     * keeps one scratch shape for the life of the run and a frame allocates nothing.
+     *
+     * @param g the context in logical coordinates
+     * @param scratch the caller's reusable ellipse
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param radius the radius of the disc seen face on
+     * @param spin the squash from {@link #coinSpin(long)}; {@code ±1} is face on, {@code 0} edge on
+     */
+    public static void drawCoin(Graphics2D g, Ellipse2D.Double scratch, double cx, double cy,
+            double radius, double spin) {
+        // Edge on the disc would vanish; a minimum width keeps the coin readable through the
+        // whole turn instead of blinking once per revolution.
+        double halfWidth = Math.max(radius * COIN_MIN_SQUASH, radius * Math.abs(spin));
+        scratch.setFrame(cx - halfWidth, cy - radius, 2 * halfWidth, 2 * radius);
+        g.setColor(COIN_BODY);
+        g.fill(scratch);
+        Stroke old = g.getStroke();
+        g.setStroke(THIN);
+        g.setColor(COIN_RIM);
+        g.draw(scratch);
+        g.setStroke(old);
+        if (halfWidth < radius * COIN_SHINE_MIN_WIDTH) {
+            return;
+        }
+        double shineW = halfWidth * 0.30;
+        double shineH = radius * 0.30;
+        // The highlight follows the face that is turned towards the player, so the coin reads as
+        // one disc turning rather than as two shapes swapping places.
+        double shineCx = cx + halfWidth * (spin < 0 ? 0.34 : -0.34);
+        scratch.setFrame(shineCx - shineW, cy - radius * 0.45 - shineH, 2 * shineW, 2 * shineH);
+        g.setColor(COIN_SHINE);
+        g.fill(scratch);
     }
 
     /**

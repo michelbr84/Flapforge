@@ -11,8 +11,9 @@ import java.util.Objects;
  *
  * @param config the run configuration
  * @param stats a snapshot of the stats
- * @param counters named counters ({@code gates}, {@code points}, {@code flaps},
- *     {@code flapsRefused}, {@code ticks}, {@code nearMisses}, {@code obstaclesSpawned} ...)
+ * @param counters named counters ({@code gates}, {@code points}, {@code ticks}, {@code flaps},
+ *     {@code flapsRefused}, {@code coins}, {@code streakBest}, {@code nearMisses},
+ *     {@code obstaclesSpawned} ...)
  */
 public record RunResult(RunConfig config, RunStats stats, Map<String, Long> counters) {
 

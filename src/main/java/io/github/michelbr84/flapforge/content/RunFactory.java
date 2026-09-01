@@ -58,7 +58,8 @@ public final class RunFactory {
                 content.curveSpec(curveIdFor(config.worldId())), List.of(),
                 RuleSet.EMPTY, Map.of(ObstacleKind.PIPE_GATE, PIPE_GATE_WEIGHT));
         return new RunSetup(content.birdProfile(config.birdId()), world,
-                content.tierSpec(config.tierId()), content.speedRampPerTick());
+                content.tierSpec(config.tierId()), content.speedRampPerTick(),
+                content.economy().rewards().streak().step());
     }
 
     /**

@@ -33,7 +33,12 @@ import io.github.michelbr84.flapforge.input.InputQueue;
 import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.persistence.SaveManager;
 import io.github.michelbr84.flapforge.persistence.SavePaths;
+import io.github.michelbr84.flapforge.progression.PlayerProfile;
+import io.github.michelbr84.flapforge.progression.ProgressionManager;
+import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
@@ -49,6 +54,7 @@ import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
+import io.github.michelbr84.flapforge.ui.screens.RunSummaryScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
@@ -180,10 +186,21 @@ class SmokeWindowTest {
         final EventBus events = new EventBus();
         final ToastLayer toasts = new ToastLayer();
         final AudioManager audio;
+        final SaveManager save;
         final GameContext context;
         boolean closed;
 
         Rig(String title, boolean startFullscreen) {
+            this(title, startFullscreen, false);
+        }
+
+        /**
+         * @param withProfile wires the save layer and the progression pipeline, so a finished run
+         *     is written into a profile and the game-over strip carries what it paid (D14, D29).
+         *     The profile goes to {@code build/smoke/home}, never to the player's own
+         *     {@code ~/.flapforge}.
+         */
+        Rig(String title, boolean startFullscreen, boolean withProfile) {
             window = GameWindow.create(title, 1, startFullscreen);
             window.setIcons(ProceduralArt.icons());
             viewport = new Viewport(window.canvasWidth(), window.canvasHeight(), false);
@@ -212,9 +229,29 @@ class SmokeWindowTest {
             Strings.use(strings);
             // E30.j: the smoke rig never opens a sound device.
             audio = new AudioManager(new NullAudio());
+            GameContent content = null;
+            ProgressionManager progression = null;
+            ProgressionRules progressionRules = null;
+            if (withProfile) {
+                Path saveFile = OUT_DIR.resolve("home").resolve("save.json");
+                try {
+                    Files.deleteIfExists(saveFile);
+                } catch (java.io.IOException e) {
+                    throw new IllegalStateException("cannot reset " + saveFile, e);
+                }
+                content = GameContent.load();
+                // Runnable::run: the write finishes before save() returns, so the assertions can
+                // read the file without waiting for a background thread.
+                save = new SaveManager(Runnable::run, () -> 0L, saveFile);
+                save.load();
+                progression = new ProgressionManager(() -> 0L);
+                progressionRules = ProgressionRules.fromEconomy(content.economy());
+            } else {
+                save = null;
+            }
             context = new GameContext(LaunchOptions.DEFAULTS, clock, () -> 0L, new Threads(),
                     input, viewport, screens, presenter, window, loop, limiter, store, events,
-                    audio, strings, toasts, null);
+                    audio, strings, toasts, content, save, progression, progressionRules);
             audio.attach(events);
             screens.setEvents(events);
             // The same handlers GameApplication installs, so F11, F3 and M take the real path:
@@ -734,6 +771,71 @@ class SmokeWindowTest {
 
             rig.requestCloseAndVerify();
         }
+    }
+
+    @Test
+    void aRunWithAProfilePaysAndShowsTheRewardStripAndTheSummary() throws Exception {
+        requireDisplay();
+        try (Rig rig = new Rig("Flapforge smoke test (rewards)", false, true)) {
+            MainMenuScreen menu = new MainMenuScreen(rig.context,
+                    new ClassicRunFactory(RunMode.SEEDED), SeedSequence.of(42));
+            rig.start(menu);
+            rig.frames(30);
+            focusCanvasOrAbort(rig);
+            Driver driver = new Driver(rig);
+            assertEquals(0, walletOf(rig), "a fresh profile starts empty");
+
+            // Menu -> game, then the scripted flight of the phase test: a few flaps to hold
+            // altitude, then no flap at all, so the bird falls to the ground line and the run ends.
+            driver.tap(KeyEvent.VK_ENTER, () -> rig.screens.top() instanceof GameScreen);
+            GameScreen game = (GameScreen) rig.screens.top();
+            driver.tap(KeyEvent.VK_SPACE, () -> game.run().phase() == RunPhase.FLYING);
+            holdAltitude(rig, game, FLIGHT_FLAPS, 600);
+            diveToGameOver(rig, 900);
+            assertTrue(rig.screens.top() instanceof GameOverOverlay, "the dive ended the run");
+            assertEquals(RunPhase.FINISHED, game.run().phase());
+
+            // D14/D29: the run is written into the profile and queued for the disk before the
+            // strip is pushed, so by now the wallet and the file are already ahead.
+            GameOverOverlay strip = (GameOverOverlay) rig.screens.top();
+            assertNotNull(strip.outcome(), "the strip carries what the run paid");
+            long paid = strip.outcome().rewardSummary().coins();
+            // A profile's very first run always pays: firstRunBonus is not gated on gates or on
+            // ticks (E32.a), so this holds however short the scripted dive turns out to be.
+            assertTrue(paid > 0, "the first run of a profile pays at least the bonus, got "
+                    + paid);
+            assertTrue(walletOf(rig) >= paid, "the wallet was credited: " + walletOf(rig));
+            assertTrue(Files.exists(rig.save.file()), "the profile was written to "
+                    + rig.save.file());
+            String coinsRow = Strings.active().get(StringKey.STAT_COINS);
+            assertTrue(strip.rowTexts().stream().anyMatch(row -> row.startsWith(coinsRow)),
+                    () -> "the reward strip shows the coins: " + strip.rowTexts());
+            rig.frames(HudRenderer.BLINK_HALF_TICKS + 10);
+            assertTrue(saveShot("reward-strip", rig) >= 2, "reward strip frame is uniform");
+
+            // Enter opens the full breakdown (D29).
+            focusCanvasOrAbort(rig);
+            driver.tap(KeyEvent.VK_ENTER, () -> rig.screens.top() instanceof RunSummaryScreen);
+            RunSummaryScreen summary = (RunSummaryScreen) rig.screens.top();
+            rig.frames(20);
+            assertNotNull(summary.row("participation"), "every reward term has a row");
+            assertNotNull(summary.row("coins"));
+            assertNotNull(summary.levelBar(), "the level bar needs the profile");
+            assertTrue(saveShot("run-summary", rig) >= 2, "run summary frame is uniform");
+
+            rig.requestCloseAndVerify();
+        }
+    }
+
+    /**
+     * The coins of the rig's profile.
+     *
+     * @param rig the window and loop
+     * @return the balance, 0 when the wallet has no coin entry yet
+     */
+    private static long walletOf(Rig rig) {
+        Long coins = rig.save.profile().wallet.get(PlayerProfile.CURRENCY_COINS);
+        return coins == null ? 0 : coins;
     }
 
     @Test

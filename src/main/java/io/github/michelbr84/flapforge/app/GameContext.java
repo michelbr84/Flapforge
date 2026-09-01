@@ -9,8 +9,12 @@ import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.input.InputQueue;
 import io.github.michelbr84.flapforge.persistence.AtomicFiles;
+import io.github.michelbr84.flapforge.persistence.SaveManager;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
+import io.github.michelbr84.flapforge.progression.PlayerProfile;
+import io.github.michelbr84.flapforge.progression.ProgressionManager;
+import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -22,8 +26,10 @@ import java.util.Locale;
 import java.util.Objects;
 
 /**
- * Shared services handed to screens and subsystems (the M0 set plus the M2 presentation services;
- * later milestones add the player profile).
+ * Shared services handed to screens and subsystems (the M0 set, the M2 presentation services and
+ * the M3 profile: the loaded {@link PlayerProfile} behind its {@link SaveManager}, the
+ * {@link ProgressionManager} that writes runs into it and the {@link ProgressionRules} the loaded
+ * {@code economy.json} produced).
  *
  * <p>It is also the one place that knows <em>how</em> a setting reaches the running game:
  * {@link #applySettings(Settings)} pushes each field to the object that owns that behaviour —
@@ -57,12 +63,16 @@ import java.util.Objects;
  * @param strings the active string table
  * @param toasts the shared toast queue
  * @param content the loaded game content, or {@code null} when a context has none
+ * @param save the save file and the profile it loaded, or {@code null} without persistence
+ * @param progression the run/purchase write path (D14), or {@code null} without persistence
+ * @param progressionRules the economy numbers the write path reads, or {@code null} without them
  */
 public record GameContext(LaunchOptions options, Clock clock, TimeSource timeSource,
         Threads threads, InputQueue input, Viewport viewport, ScreenManager screens,
         FramePresenter presenter, GameWindow window, GameLoop loop, FrameLimiter limiter,
         SettingsStore settingsStore, EventBus events, AudioManager audio, Strings strings,
-        ToastLayer toasts, GameContent content) {
+        ToastLayer toasts, GameContent content, SaveManager save, ProgressionManager progression,
+        ProgressionRules progressionRules) {
 
     /**
      * Whether the application runs without a window.
@@ -76,6 +86,50 @@ public record GameContext(LaunchOptions options, Clock clock, TimeSource timeSou
     /** Asks the application to quit cleanly. */
     public void requestQuit() {
         screens.requestClose();
+    }
+
+    /**
+     * The profile the session plays on. It is read from the save manager rather than held here,
+     * because {@code --reset-save} and a prestige replace the instance.
+     *
+     * @return the live profile, or {@code null} in a context without persistence
+     */
+    public PlayerProfile profile() {
+        return save == null ? null : save.profile();
+    }
+
+    /**
+     * Whether a finished run can be written into a profile (D14): a context built without
+     * persistence — the headless launch, most tests — has no profile to write into.
+     *
+     * @return {@code true} when profile, manager and rules are all present
+     */
+    public boolean canProgress() {
+        return save != null && progression != null && progressionRules != null;
+    }
+
+    /**
+     * Queues a write of the profile and reports a write that has already failed (D15).
+     *
+     * <p>The dirty flag is <em>not</em> cleared here. A queued write is not a written write: a full
+     * disk or a read-only profile directory makes every write fail, and clearing the flag on the
+     * way out would tell {@code GameApplication.saveOnExit} there is nothing left to save. It is
+     * cleared in {@link #drainSaveResults()}, for a write that actually reported OK, and only once
+     * nothing newer is still in flight — so a failure leaves the profile dirty and the autosave
+     * and the exit save both try again.
+     *
+     * @return {@code true} when a write was queued
+     */
+    public boolean saveProfile() {
+        if (save == null) {
+            return false;
+        }
+        boolean queued = save.save();
+        if (queued && progression != null) {
+            progression.markSaveQueued();
+        }
+        drainSaveResults();
+        return queued;
     }
 
     /**
@@ -183,19 +237,44 @@ public record GameContext(LaunchOptions options, Clock clock, TimeSource timeSou
      * — because that is where the bus and the toast layer live.
      */
     public void drainSaveResults() {
-        if (settingsStore == null) {
+        if (settingsStore != null) {
+            AtomicFiles.WriteResult write;
+            while ((write = settingsStore.pollCompletedWrite()) != null) {
+                reportWrite(write);
+            }
+        }
+        if (save == null) {
             return;
         }
+        boolean landed = false;
+        boolean failed = false;
         AtomicFiles.WriteResult write;
-        while ((write = settingsStore.pollCompletedWrite()) != null) {
-            if (write.ok()) {
-                continue;
-            }
-            publish(new GameEvent.SaveFailed(String.valueOf(write.target()), write.detail()));
-            if (toasts != null && strings != null) {
-                toasts.push(strings.format(StringKey.TOAST_SAVE_FAILED, write.detail()),
-                        Toast.Kind.WARNING);
-            }
+        while ((write = save.pollCompletedWrite()) != null) {
+            reportWrite(write);
+            landed |= write.ok();
+            failed |= !write.ok();
+        }
+        // Clean only when a write reported OK, none failed, and nothing newer is still on its way:
+        // what is on the disk is then exactly the state that was queued last (D15).
+        if (landed && !failed && progression != null && save.pendingWrites() == 0) {
+            progression.confirmSave();
+        }
+    }
+
+    /**
+     * Turns one finished write into a {@code SaveFailed} event and a warning toast, or into
+     * nothing when it succeeded.
+     *
+     * @param write the finished write
+     */
+    private void reportWrite(AtomicFiles.WriteResult write) {
+        if (write.ok()) {
+            return;
+        }
+        publish(new GameEvent.SaveFailed(String.valueOf(write.target()), write.detail()));
+        if (toasts != null && strings != null) {
+            toasts.push(strings.format(StringKey.TOAST_SAVE_FAILED, write.detail()),
+                    Toast.Kind.WARNING);
         }
     }
 

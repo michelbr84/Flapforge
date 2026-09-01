@@ -2,7 +2,11 @@ package io.github.michelbr84.flapforge.content;
 
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.CurveDef;
+import io.github.michelbr84.flapforge.content.defs.EconomyDef;
+import io.github.michelbr84.flapforge.content.defs.FeatureDef;
+import io.github.michelbr84.flapforge.content.defs.LevelRewardDef;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
+import io.github.michelbr84.flapforge.content.defs.PrestigeDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.gameplay.difficulty.DifficultyCurve;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
@@ -24,9 +28,10 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * The M1 content rules (D10, E19). Milestones M1–M3 ship the <em>minimal</em> validator: id
+ * The M1–M3 content rules (D10, E19). Milestones M1–M3 ship the <em>minimal</em> validator: id
  * syntax and uniqueness, enum validity (already enforced by {@link StrictBinder}), the
- * cost/level consistency of whatever carries costs, and the classic table — the numeric proof
+ * cost/level consistency of whatever carries costs, the economy's own shape (currencies,
+ * level-reward keys, feature ids, prestige keeps) and the classic table — the numeric proof
  * that the shipped data still reproduces the upstream feel through the real stat pipeline.
  *
  * <p>Cross-reference, unlock-graph and string-key checks are FULL from M4, when the files they
@@ -57,6 +62,7 @@ public final class ContentValidator {
     private static final double EPSILON = 1e-9;
     private static final String BIRDS_FILE = "birds.json";
     private static final String DIFFICULTY_FILE = "difficulty.json";
+    private static final String ECONOMY_FILE = "economy.json";
 
     /** Content kinds that already exist and therefore need {@code name}/{@code desc} strings. */
     public static final String KIND_BIRD = "bird";
@@ -121,6 +127,7 @@ public final class ContentValidator {
         validateBirds(content, errors);
         validateCurves(content, errors);
         validateTiers(content, errors);
+        validateEconomy(content, errors);
         validateCostsAndLevels(content, errors);
         validateClassicTable(content, errors);
         validateCrossReferencesM4(content, errors);
@@ -184,6 +191,118 @@ public final class ContentValidator {
         } else if (defaults != 1) {
             errors.add(DIFFICULTY_FILE + "#/tiers: exactly one tier must be flagged \"default\", "
                     + "found " + defaults);
+        }
+    }
+
+    /**
+     * The economy rules (§4, E1, E4): at least one currency, every currency id well formed, the
+     * currency the rewards are paid in declared, integer level-reward keys inside the curve, unique
+     * and well-formed feature ids, and a prestige block that only keeps things a prestige can keep.
+     *
+     * @param content the content to check
+     * @param errors where to append problems
+     */
+    private static void validateEconomy(GameContent content, List<String> errors) {
+        EconomyDef economy = content.economy();
+        if (economy == null) {
+            errors.add(ECONOMY_FILE + "#: missing economy");
+            return;
+        }
+        validateCurrencies(economy, errors);
+        validateLevelRewards(economy, errors);
+        validateFeatures(economy, errors);
+        validatePrestige(economy, errors);
+    }
+
+    /**
+     * Problems that do not stop the game from running but that a balance pass has to see (E1).
+     *
+     * <p>Today there is exactly one: {@code SCORE_MULT} raises {@code points}, and the only thing
+     * that reads {@code points} is {@code rewards.coinsPerPoint}. Set that to 0 and the whole stat
+     * — every bird spread, upgrade and modifier that touches it — silently pays nothing. The
+     * consumers E1 lists as the alternative sinks ({@code best_points} unlock conditions,
+     * {@code REACH_POINTS} objectives) arrive with M4 and M8; until then a 0 is always a mistake,
+     * and from M4 this check gains the "unless one of those exists" half.
+     *
+     * @param content the content to check
+     * @return the warnings, in discovery order
+     */
+    public static List<String> warningsOf(GameContent content) {
+        List<String> warnings = new ArrayList<>();
+        EconomyDef economy = content.economy();
+        if (economy != null && economy.rewards() != null
+                && economy.rewards().coinsPerPoint() == 0) {
+            warnings.add(ECONOMY_FILE + "#/rewards/coinsPerPoint: 0 leaves SCORE_MULT with no sink"
+                    + " — points would pay nothing, and no best_points unlock or REACH_POINTS"
+                    + " objective exists yet to read them (E1)");
+        }
+        return warnings;
+    }
+
+    private static void validateCurrencies(EconomyDef economy, List<String> errors) {
+        List<String> currencies = economy.currencies();
+        if (currencies.isEmpty()) {
+            errors.add(ECONOMY_FILE + "#/currencies: no currency is defined");
+            return;
+        }
+        Set<String> seen = new HashSet<>();
+        for (int i = 0; i < currencies.size(); i++) {
+            String id = currencies.get(i);
+            String at = ECONOMY_FILE + "#/currencies/" + i;
+            checkId(errors, at, "currency", id);
+            if (!seen.add(id)) {
+                errors.add(at + ": duplicate currency id '" + id + "'");
+            }
+        }
+        if (!currencies.contains(EconomyDef.COINS)) {
+            errors.add(ECONOMY_FILE + "#/currencies: every reward is paid in '" + EconomyDef.COINS
+                    + "', which is not a declared currency");
+        }
+    }
+
+    private static void validateLevelRewards(EconomyDef economy, List<String> errors) {
+        int maxLevel = economy.xp().curve().maxLevel();
+        for (Map.Entry<String, LevelRewardDef> entry : economy.xp().levelRewards().entrySet()) {
+            String key = entry.getKey();
+            String at = ECONOMY_FILE + "#/xp/levelRewards/" + key;
+            int level;
+            try {
+                level = Integer.parseInt(key);
+            } catch (NumberFormatException e) {
+                errors.add(at + ": level reward key '" + key + "' is not an integer");
+                continue;
+            }
+            if (level < 2) {
+                errors.add(at + ": level reward key '" + key + "' must be at least 2 (a profile "
+                        + "starts at level 1)");
+            } else if (level > maxLevel) {
+                errors.add(at + ": level reward key '" + key + "' is above xp.curve.maxLevel "
+                        + maxLevel);
+            }
+        }
+    }
+
+    private static void validateFeatures(EconomyDef economy, List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        List<FeatureDef> features = economy.features();
+        for (int i = 0; i < features.size(); i++) {
+            FeatureDef def = features.get(i);
+            String at = ECONOMY_FILE + "#/features/" + i + "/id";
+            checkId(errors, at, "feature", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + ": duplicate feature id '" + def.id() + "'");
+            }
+        }
+    }
+
+    private static void validatePrestige(EconomyDef economy, List<String> errors) {
+        PrestigeDef prestige = economy.prestige();
+        List<String> keeps = prestige.keeps();
+        for (int i = 0; i < keeps.size(); i++) {
+            if (!PrestigeDef.KEEPS.contains(keeps.get(i))) {
+                errors.add(ECONOMY_FILE + "#/prestige/keeps/" + i + ": unknown keep '"
+                        + keeps.get(i) + "' (expected one of " + PrestigeDef.KEEPS + ")");
+            }
         }
     }
 

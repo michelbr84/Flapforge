@@ -297,6 +297,236 @@ for attribution; those versions were never Flapforge releases.
 - `ui/UiText`, the M0 placeholder for player-facing strings: `content.Strings`
   and `StringKey` replace it, and every screen now reads the shipped tables.
 
+### Added — M3: run economy, streaks and save
+
+- Run economy (`gameplay`): `gameplay/pickup/{Coin,PickupLayer}` — coins are
+  spawned as a trail through the safe band of every scoring obstacle,
+  `COIN_SPAWN_RATE` being the *expected* number of coins per gate (E2, exactly
+  one draw from the `coins` stream per scoring spawn, none at all under
+  `NO_COINS`), scroll with the world, are attracted by `MAGNET_RADIUS` and are
+  collected by the bird's hitbox. `run/StreakTracker` counts clean gates (D26:
+  no near miss on that column, no shield absorb, no revive) and the reward
+  steps they earn. Both fold into `Simulation.stateHash()`.
+- `run/{RewardSummary,RewardContext,RunRewardCalculator}`: the E32.a coin and
+  XP formula, pure and term by term, so the game-over strip can show the
+  breakdown instead of one number. Participation is gated (a 0-gate, sub-180
+  tick dive earns nothing) while the first-run bonus is not, so a profile's
+  first run always pays.
+- Content (`content`): `defs/{EconomyDef,RewardsDef,StreakRewardDef,XpDef,
+  XpCurveDef,LevelRewardDef,FeatureDef,DailyDef,PrestigeDef}` and
+  `data/economy.json` (currencies, run rewards, the XP curve with its level
+  rewards, the two feature unlocks, the daily block and the prestige block —
+  no shards, E4). `GameContent.economy()` exposes it; `ContentValidator` gained
+  the economy rules (currencies, integer level-reward keys inside the curve,
+  unique feature ids, known prestige keeps).
+- Progression (`progression`): `PlayerProfile` — the **complete v1 field set**
+  of §4 as patched by E3/E4/E21/E23/E27 — with `normalize()`/
+  `normalizeAndReport()`, `Statistics` + `StatisticKey` (the §4 list plus a
+  capped 100-entry run history), `Wallet`, `PlayerLevel` (thresholds by
+  repeated multiplication, never `Math.pow`), `ProgressionRules`
+  (`fromEconomy` is the single adapter between `economy.json` and the write
+  path), `ProgressionManager` — D14's fixed order, applied exactly once per
+  run, with the M4 unlock and M8 achievement evaluators already in their slots
+  as hooks — and `ProgressionOutcome`. The package imports neither `event` nor
+  the toolkit.
+- Persistence (`persistence`): `SaveFile` (versioned envelope), `SaveManager`
+  (parse → migrate → aliases → bind → normalise; write = the remembered JSON
+  tree deep-overlaid with the serialised profile, so an unknown field at any
+  depth survives while every map and list node is replaced wholesale, E22),
+  `SaveMigrator` + `Migration` (ordered, idempotent, pre-migration backup, a
+  save newer than the build is refused and the session plays without saving)
+  and the quarantine/backup policy — nothing is ever deleted, `--reset-save`
+  included.
+- Application wiring: `GameApplication` opens the save on
+  `Threads.saveExecutor()` with the injected `SystemTimeSource`, loads the
+  profile before the window exists and turns a load notice into a toast;
+  `GameContext` carries `save`/`progression`/`progressionRules`, exposes
+  `profile()` and `saveProfile()`, and drains both write queues into one
+  `SaveFailed` event and toast per failure. `GameScreen` writes each finished
+  run through `ProgressionManager.apply` once, publishes `CurrencyChanged`,
+  `XpGained`, `LevelUp`, `AchievementUnlocked`, `UnlockGranted`,
+  `ChallengeCompleted` and `DailyRecorded`, and saves — all before the
+  game-over overlay is pushed, so the instant retry keeps every reward (D29).
+  `--reset-save` quarantines the old file and confirms on stdout.
+- UI and rendering: `render/PickupRenderer` draws the coins as discs turning on
+  their vertical axis — the phase comes from the simulation tick, so two
+  captures of the same tick are identical — and turns every coin the bird takes
+  into a flourish in the shared `ParticleSystem`, because the model drops a
+  collected coin on the next tick. The HUD grew a coin counter behind a small
+  spinning icon and a clean-gate streak line under the score that lights a
+  flame once the streak reaches `economy.rewards.streak.step`. The score keeps
+  its upstream place (centred, baseline 64, bold 32).
+- `GameOverOverlay` grew into a reward strip — gates, points, time, coins (with
+  the level-reward bonus in brackets), XP, best streak and the level reached —
+  sized to its rows, and `Enter` on it opens `ui/screens/RunSummaryScreen`: the
+  full breakdown with **every** term of `RewardSummary` on its own row
+  (participation, first-run bonus, gates, points, streak steps, bosses,
+  challenge, their base sum, the three multipliers, the coins collected in the
+  world and the total), the XP with the level `ProgressBar` it moved and any
+  level-up, the personal-best markers, the run duration, and the seed with its
+  mode; Retry starts a new run with a new seed and Menu returns (D29).
+- `ui/screens/StatisticsScreen`, reachable from the main menu: the lifetime
+  counters grouped (flights, distance, economy, streaks, deaths by cause) and
+  the last runs of `statistics.runHistory` paged newest first in a `ListView`.
+- `ui/component/{ProgressBar,CurrencyDisplay}`: a labelled 0..1 bar (the level
+  progress; M8's milestones reuse it) and an icon-plus-amount wallet readout
+  that rolls its number up on the simulation clock. The main menu gained the
+  Statistics entry and, when the session has a profile, the wallet readout.
+- New string keys in both languages: `stat.coins`, `stat.xp`,
+  `stat.streak_best`, `gameover.level_up`, `toast.save_restored`,
+  `toast.save_reset`, `toast.save_read_only`, `toast.level_up`,
+  `menu.statistics`, `hud.coins`, `toast.save_unreadable`, the `summary.*`,
+  `mode.*`, `reward.*`, `stats.*` and `death.*` families.
+- Tools and docs: `tools/SaveInspector` (+ `tools/save-inspector/`) reads a
+  profile directory through the same `SaveManager` the game uses and fails when
+  the save was unusable, refused or repaired; `docs/SAVE_SYSTEM.md` documents
+  the layout, the load order, migrations, the overlay rule, the failure policy,
+  the pre-1.0 reset policy and how the application wires it;
+  `docs/ARCHITECTURE.md` gained the progression write path.
+- Tests (475 at M2 → **653** in `test`, all green, plus 7 in `smokeTest`):
+  `PickupTest`, `StreakTrackerTest`,
+  `RunRewardCalculatorTest`, `WalletTest`, `PlayerLevelTest`,
+  `ProgressionManagerTest`, `SaveManagerTest`, `SaveCorruptRecoveryTest`,
+  `SaveMigrationTest`, plus the two integration suites written when the halves
+  were joined: `ProgressionEconomyTest` (the shipped `economy.json` really pays
+  E32.a's 75 coins and 115 XP for a first 10-gate run, and its level 2 reward
+  on top) and `ProgressionWiringTest` (the game-over path end to end on the
+  loop, every write in a `@TempDir`). Fixtures: `save_v1.json`,
+  `save_corrupt.json`, `save_future.json`, `save_unknown_fields.json`, the
+  `save_v1_to_v2` pair and `content_frozen/economy.json`. The UI half adds
+  `RunSummaryScreenTest` and `StatisticsScreenTest` (queue-driven on the real
+  loop: the breakdown rows carry the numbers the formula produced, Retry starts
+  a new run with a new seed, Menu returns, an empty profile renders),
+  `ProceduralRenderTest` covering both new screens in both languages and with
+  an empty profile, and a `SmokeWindowTest` case that plays a scripted run to
+  death with the save layer wired and screenshots `reward-strip` and
+  `run-summary` into `build/smoke/`. `RenderLayerTest` gained the coin rows:
+  the spin is a pure function of the tick, one pickup is exactly one flourish
+  (counted off the layer, so a collected coin still in the list cannot fire
+  twice) and the HUD lights its streak flame at the economy's reward step.
+
+### Changed — M3
+
+- The golden run and the `--headless-run` hash moved: coins are part of the
+  simulation now, so they are part of its state hash, and the streak resolves
+  one step later than the score (see *Fixed* below). `fixtures/golden_seed42
+  .txt` was re-recorded; `--headless-run 3000 --seed 42` prints
+  `hash=eaaa01685261a433 ticks=3000 gates=36 points=36` and the 600-frame line
+  CI compares is `hash=b014de5e0ccf63dc ticks=600 gates=6 points=6`, both
+  identical on JDK 17 and JDK 21.
+- `RunSetup` gained `streakStep` (from `economy.json.rewards.streak.step`);
+  the four-argument constructor still exists and defaults it, so the hard-coded
+  classic seam and the tests that load no economy are unaffected.
+- `ContentLoader.FILES` is the set the game loads (`birds`, `difficulty`,
+  `economy`); `M1_FILES` stays for the fixtures that predate the economy.
+- `Threads.awaitBootIdle(long)`: the quit path now waits (bounded) for the boot
+  warm-up before closing the audio. A quit within the first few hundred
+  milliseconds could otherwise close the `AudioManager` a moment before the
+  warm-up handed it a freshly opened line, leaking that line — and left a
+  `flapforge-boot` thread alive past the shutdown, which
+  `SmokeWindowTest.quitPathThroughGameApplicationEndsBeforeTheWatchdog` was
+  already failing on before this milestone.
+- D15's **60-second autosave** is wired after all (it needed no M4 screen): the
+  per-tick loop task saves a dirty profile every 3600 ticks unless the top
+  screen is running a live run (`Screen.blocksAutosave()`, overridden by
+  `GameScreen`). It is also what retries a write that failed, since a failure
+  now leaves the profile dirty.
+- `--reset-save` moves `save.json.bak` aside as well
+  (`save.bak.reset-<epochMs>.json`). Without that the next launch would restore
+  the abandoned profile from the backup and silently undo the flag; the help
+  text and the README/DEVELOPMENT tables say what the flag does — move the save
+  aside — instead of "delete", which it never did.
+- `Threads.saveExecutor()` no longer collapses a burst of writes with
+  `DiscardOldestPolicy` (see *Fixed*); it is a plain single daemon thread with
+  an unbounded queue, and `SaveManager` does the coalescing itself.
+
+### Fixed — M3 (review pass)
+
+Three reviewers audited the milestone; every finding of theirs that is a defect
+is fixed here, with a test that fails without the fix.
+
+- **A restored backup is written back to `save.json` immediately**, and a
+  missing `save.json` now consults `save.json.bak` before starting a fresh
+  profile. Previously a player who recovered from the backup, browsed the menu
+  and quit found `NEW_PROFILE` next session, and that session's first write
+  replaced the good `.bak` with a 0-coin profile — the whole profile was gone
+  two sessions after the corruption, which is exactly what `SAVE_SYSTEM.md`
+  promises can never happen.
+- **The once-per-session backup goes through `AtomicFiles`.** It was a plain
+  `Files.copy(REPLACE_EXISTING)`, which truncates the destination before it
+  writes: a crash in the middle of it destroyed the previous good
+  `save.json.bak`, the one artefact the recovery policy rests on. The copy is
+  also no longer recorded as done unless it reported OK, so a transient failure
+  is retried on the next load instead of skipped for the session.
+- **A save that cannot be *opened* is no longer treated as corrupt.** An
+  antivirus lock, a cloud-sync placeholder or a transient `EIO` used to
+  quarantine an intact file as `save.corrupt-<epochMs>.json` and never look at
+  it again. There is a new status `UNREADABLE`: the file is left exactly where
+  it is, the backup carries the session if there is one, and the session runs
+  read-only so it cannot overwrite what it failed to read
+  (`toast.save_unreadable` in both languages).
+- **The dirty flag is cleared by a write that landed, not by a write that was
+  queued.** A read-only profile directory or a full disk made every write fail
+  while `saveOnExit` was told there was nothing left to save. `isDirty()` is now
+  a version comparison (`markSaveQueued`/`confirmSave`), so a change made after
+  a write was queued also keeps the profile dirty.
+- **`SaveManager` coalesces its own writes.** The save executor used to do it by
+  discarding the queued task, which never ran and never reported, so `pending`
+  leaked one slot per discard and `flush(timeoutMs)` could never return `true`
+  again for the life of the manager.
+- **`profile.prestigeBaseline` left `REPLACE_WHOLESALE`.** E22 replaces maps and
+  lists; `PrestigeBaseline` is a fixed-shape POJO, so listing it only dropped
+  unknown fields a newer build had put inside it. Its one list member is a JSON
+  array, which the overlay already replaces wholesale.
+- **The clean-gate streak is resolved after the graze window closes, not at the
+  score line (D26).** A gate scores when its right edge passes the bird's
+  hitbox; the near-miss test uses that box inflated by 6 px, so for three more
+  ticks the bird could graze a column already counted as clean. Measured over
+  200 seeded runs per preset, 98 % of an expert's near misses cost nothing —
+  the golden run itself recorded `nearMisses=3` beside a perfect `streakBest=36`
+  over 36 gates. The score, the points and the ramp stay exactly where they
+  were; only the streak waits. The same seed now records `streakBest=14`.
+- **The XP participation is gated like the coin participation.** This is a
+  deliberate amendment to E32.a's literal XP formula: XP buys levels and levels
+  pay coins, so an ungated XP participation handed the 0-gate instant-retry dive
+  back everything the coin gate takes from it. Measured with the shipped
+  `economy.json`: 400 dives of 48 ticks reached level 21 and 2725 coins in 5.3
+  minutes of simulated time — **511 coins/min against 251** for a bot that
+  actually plays. The same 400 dives now pay 25 coins in total (the
+  unconditional first-run bonus) and no XP at all.
+- **A coin trail follows its gate.** The trail was placed on
+  `Obstacle.safeBandY` at spawn time and never moved, while a moving gate swings
+  ±51 px around it; the worst-case clearance is `gap / 2 − 51 − 8`, which is
+  5.0 px at the shipped `normal` gap but −1.4 px at `hard` and −7.8 px at
+  `nightmare` — a coin inside a lethal hitbox, a pickup you could only take by
+  dying. Coins now re-read the band every tick and detach the first time the
+  magnet pulls them.
+- **`ProgressionManager`'s "apply a run once" guard works.** It compares result
+  identity, and `Run.result()` built a fresh snapshot on every call, so two
+  reads of one finished run paid it twice (measured: 1857 → 3789 coins,
+  `totalRuns` 2). A finished run now returns the same `RunResult` instance to
+  every caller.
+- `Coin` uses `StrictMath.hypot` for the magnet distance: `Math.hypot` is only
+  specified to within 1 ulp, so it is not guaranteed bit-identical across JVMs,
+  and the magnet lands in M6.
+- `ContentValidator.warningsOf(GameContent)` implements E1's missing rule:
+  `rewards.coinsPerPoint == 0` leaves `SCORE_MULT` with no sink at all. It is a
+  warning, printed at launch, not a load failure.
+- `Threads.shutdown(long)`'s answer is used: a drain that did not finish inside
+  2000 ms now says so on stderr instead of losing the last write in silence.
+- `BalancingSim` reports the economy: `coinsSpawned`, `coinsCollected`,
+  `streakBest`, `streakSteps`, `coins` and `xp` per run, in the summary and in
+  the CSV. Every M3 number in `docs/BALANCING.md` comes from it.
+
+### Deferred — M3
+
+- The purchase and selection-change write triggers of D15: the run-end, exit
+  and 60-second autosave triggers are wired; those two arrive with the shop and
+  selection screens that can fire them (M4).
+- No advisory lock on the profile directory: two instances on one `save.json`
+  still overwrite each other. D15 does not ask for one and the recovery policy
+  does not depend on it, so it is a note, not a gap.
+
 ---
 
 ## Inherited upstream history (kingyuluk/FlappyBird)

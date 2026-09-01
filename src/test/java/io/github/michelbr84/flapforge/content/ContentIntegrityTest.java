@@ -8,7 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.michelbr84.flapforge.content.defs.BirdArchetype;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
+import io.github.michelbr84.flapforge.content.defs.EconomyDef;
+import io.github.michelbr84.flapforge.content.defs.FeatureDef;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
+import io.github.michelbr84.flapforge.content.defs.PrestigeDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
@@ -19,6 +22,7 @@ import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
+import io.github.michelbr84.flapforge.gameplay.stats.StatOp;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
 import io.github.michelbr84.flapforge.support.TestContent;
 import java.util.List;
@@ -111,6 +115,59 @@ class ContentIntegrityTest {
         assertEquals(2.5, nightmare.rewardMult());
         assertEquals(UnlockType.ANY_OF, nightmare.unlock().type());
         assertEquals(2, nightmare.unlock().conditions().size());
+    }
+
+    /** {@code economy.json} as §4 patched by E1 (points pay) and E4 (no prestige shards). */
+    @Test
+    void theEconomyShipsTheDocumentedNumbers() {
+        EconomyDef economy = SHIPPED.economy();
+        assertEquals(List.of("coins"), economy.currencies());
+        assertEquals("coins", economy.primaryCurrency());
+
+        assertEquals(20, economy.rewards().participation());
+        assertEquals(25, economy.rewards().firstRunBonus());
+        assertEquals(2, economy.rewards().coinsPerGate(), "E1: gates pay 2");
+        assertEquals(1, economy.rewards().coinsPerPoint(), "E1: points feed progression");
+        assertEquals(150, economy.rewards().bossBonus());
+        assertEquals(100, economy.rewards().challengeBonus());
+        assertEquals(5, economy.rewards().streak().step());
+        assertEquals(5, economy.rewards().streak().coins());
+
+        assertEquals(15, economy.xp().participation());
+        assertEquals(10, economy.xp().perGate());
+        assertEquals(200, economy.xp().bossBonus());
+        assertEquals(100, economy.xp().curve().base());
+        assertEquals(1.10, economy.xp().curve().growth());
+        assertEquals(50, economy.xp().curve().maxLevel());
+        assertEquals(List.of("2", "5", "10", "15", "20", "25"),
+                List.copyOf(economy.xp().levelRewards().keySet()));
+        assertEquals(2000, economy.xp().levelRewards().get("25").coins());
+
+        assertEquals(List.of("modifiers", "seeded_runs"),
+                economy.features().stream().map(FeatureDef::id).toList());
+        assertEquals("feature:modifiers", economy.feature("modifiers").unlockableId());
+        assertEquals(UnlockType.ANY_OF, economy.feature("seeded_runs").unlock().type());
+        assertNull(economy.feature("nothing"));
+
+        assertEquals(List.of("normal", "hard"), economy.daily().tierPool());
+        assertEquals(2, economy.daily().forcedModifierCount());
+        assertEquals(1.25, economy.daily().rewardMult());
+
+        PrestigeDef prestige = economy.prestige();
+        assertEquals(25, prestige.requiredLevel());
+        assertEquals(5, prestige.maxPrestige(), "E4: five prestiges, no shards");
+        assertEquals(PrestigeDef.KEEPS, prestige.keeps());
+        assertEquals(1, prestige.bonusPerPrestige().size());
+        assertEquals(StatId.COIN_MULT, prestige.bonusPerPrestige().get(0).stat());
+        assertEquals(StatOp.PERCENT_ADD, prestige.bonusPerPrestige().get(0).op());
+        assertEquals(0.05, prestige.bonusPerPrestige().get(0).value());
+    }
+
+    /** D26: the run reads its streak step from the economy, not from a constant. */
+    @Test
+    void theStreakStepReachesTheRun() {
+        assertEquals(SHIPPED.economy().rewards().streak().step(),
+                new RunFactory(SHIPPED).setup(RunConfig.classic(1)).streakStep());
     }
 
     @Test

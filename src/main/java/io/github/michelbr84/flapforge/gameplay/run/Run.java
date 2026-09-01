@@ -34,6 +34,7 @@ public final class Run {
     private RunPhase phase = RunPhase.READY;
     private int tick;
     private int obstaclesSpawned;
+    private RunResult finalResult;
 
     /**
      * Creates a run.
@@ -95,6 +96,11 @@ public final class Run {
                 stats.setPoints(sim.points());
             } else if (f instanceof TickFact.NearMiss) {
                 stats.countNearMiss();
+            } else if (f instanceof TickFact.CoinCollected coin) {
+                stats.addCoinsCollected(coin.value());
+            } else if (f instanceof TickFact.StreakChanged streak) {
+                stats.setStreak(streak.streak());
+                stats.setStreakSteps(sim.streaks().steps());
             } else if (f instanceof TickFact.ObstacleSpawned) {
                 obstaclesSpawned++;
             } else if (f instanceof TickFact.Crashed crashed) {
@@ -130,18 +136,32 @@ public final class Run {
     /**
      * Snapshot of the outcome (final once {@link #isFinished()}).
      *
+     * <p>Once the run is {@code FINISHED} the same instance is returned to every caller. Nothing
+     * can change after that, so a fresh snapshot per call differs only by identity — and that
+     * identity is exactly what {@code ProgressionManager}'s "apply a run once" guard compares, so
+     * two callers reading the result of one finished run must not be able to pay it twice (D14).
+     *
      * @return the result
      */
     public RunResult result() {
+        if (finalResult != null) {
+            return finalResult;
+        }
         Map<String, Long> counters = new LinkedHashMap<>();
         counters.put("gates", (long) stats.gatesPassed());
         counters.put("points", Math.round(stats.points()));
         counters.put("ticks", (long) stats.ticksAlive());
         counters.put("flaps", (long) sim.flaps());
         counters.put("flapsRefused", (long) sim.flapsRefused());
+        counters.put("coins", (long) stats.coinsCollected());
+        counters.put("streakBest", (long) stats.streakBest());
         counters.put("nearMisses", (long) stats.nearMisses());
         counters.put("obstaclesSpawned", (long) obstaclesSpawned);
-        return new RunResult(config, stats.copy(), counters);
+        RunResult result = new RunResult(config, stats.copy(), counters);
+        if (phase == RunPhase.FINISHED) {
+            finalResult = result;
+        }
+        return result;
     }
 
     /**

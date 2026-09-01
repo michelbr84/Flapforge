@@ -6,15 +6,22 @@ import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.gameplay.TickFact;
 import io.github.michelbr84.flapforge.gameplay.TickReport;
+import io.github.michelbr84.flapforge.gameplay.run.RewardSummary;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunInput;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
+import io.github.michelbr84.flapforge.gameplay.run.RunResult;
+import io.github.michelbr84.flapforge.gameplay.run.StreakTracker;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.progression.PlayerProfile;
+import io.github.michelbr84.flapforge.progression.ProgressionManager;
+import io.github.michelbr84.flapforge.progression.ProgressionOutcome;
+import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.GameRenderer;
 import io.github.michelbr84.flapforge.render.WorldPalette;
@@ -24,7 +31,9 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiCues;
 import java.awt.Graphics2D;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -52,10 +61,13 @@ import java.util.Set;
  * inside that window is ignored. An {@code Esc} press or an iconify is always honoured, since
  * neither can be produced by the handshake.
  *
- * <h2>Game over (D29)</h2>
- * The tick that moves the run to {@code FINISHED} pushes a {@link GameOverOverlay}. Retry starts a
- * new run with the next seed from the {@link SeedSequence} and the same configuration; quitting
- * pops back to the menu.
+ * <h2>Game over (D29, D14)</h2>
+ * The tick that moves the run to {@code FINISHED} writes the run into the profile — exactly once,
+ * through {@link ProgressionManager#apply} — publishes what it paid on the bus, queues a save and
+ * only then pushes a {@link GameOverOverlay} carrying the outcome. Doing it in that order is what
+ * makes the instant retry safe: the rewards are already banked when the retry key is read. Retry
+ * starts a new run with the next seed from the {@link SeedSequence} and the same configuration;
+ * quitting pops back to the menu.
  */
 public final class GameScreen implements Screen {
 
@@ -74,6 +86,7 @@ public final class GameScreen implements Screen {
     private boolean holdToFlap;
     private boolean gameOverShown;
     private int runsStarted;
+    private ProgressionOutcome lastOutcome = ProgressionOutcome.EMPTY;
 
     /**
      * Creates a screen playing classic runs with clock-derived seeds.
@@ -119,6 +132,9 @@ public final class GameScreen implements Screen {
         this.toasts = context != null ? context.toasts() : null;
         this.renderer = new GameRenderer(WorldPalette.GREEN_FIELDS,
                 strings.get(StringKey.GAME_READY_HINT));
+        this.renderer.setStreakLabel(strings.get(StringKey.HUD_STREAK));
+        this.renderer.setCoinLabel(strings.get(StringKey.HUD_COINS));
+        this.renderer.setStreakStep(streakStep());
         this.shownLanguage = strings.language();
         this.holdToFlap = context != null && context.settings().holdToFlap;
         startRun();
@@ -131,6 +147,19 @@ public final class GameScreen implements Screen {
      */
     public Run run() {
         return run;
+    }
+
+    /**
+     * A run that has not ended yet holds off the 60-second autosave (D15): the profile is written
+     * at run end anyway, and a disk write in the middle of a flap is exactly the hitch the rule
+     * exists to avoid. {@code BOSS} and {@code CHOOSING_MODIFIER} are the same case and arrive
+     * with the phases that name them.
+     *
+     * @return {@code true} while the run is still being played
+     */
+    @Override
+    public boolean blocksAutosave() {
+        return run != null && !run.isFinished();
     }
 
     /**
@@ -193,6 +222,7 @@ public final class GameScreen implements Screen {
         renderer.applyAssets(AssetResolver.active(), run.config().birdId(),
                 run.config().worldId());
         gameOverShown = false;
+        lastOutcome = ProgressionOutcome.EMPTY;
         runsStarted++;
         publish(new GameEvent.RunStarted(run.config().birdId(), run.config().worldId(),
                 run.config().tierId(), seed));
@@ -204,9 +234,25 @@ public final class GameScreen implements Screen {
         }
     }
 
+    /**
+     * The streak length that pays a reward step, so the HUD can mark it (D26, E32.a). Without
+     * content — a bare screen stack in a test — the tracker's own default stands in, which is the
+     * same number {@code economy.json} ships.
+     *
+     * @return {@code economy.rewards.streak.step}
+     */
+    private int streakStep() {
+        if (context != null && context.content() != null && context.content().economy() != null) {
+            return context.content().economy().rewards().streak().step();
+        }
+        return StreakTracker.DEFAULT_STEP;
+    }
+
     /** Re-reads the texts the HUD draws (a live language switch, D25). */
     private void refreshTexts() {
         renderer.setReadyHint(strings.get(StringKey.GAME_READY_HINT));
+        renderer.setStreakLabel(strings.get(StringKey.HUD_STREAK));
+        renderer.setCoinLabel(strings.get(StringKey.HUD_COINS));
         seedText = seeds.isExplicit() ? strings.format(StringKey.HUD_SEED, seed) : null;
         shownLanguage = strings.language();
     }
@@ -242,11 +288,14 @@ public final class GameScreen implements Screen {
         publishFacts(report, flapped, crashed);
         if (run.isFinished() && !gameOverShown) {
             gameOverShown = true;
-            publish(new GameEvent.RunEnded(run.result().gatesPassed(),
-                    (int) Math.round(run.result().stats().points()),
-                    run.result().stats().ticksAlive(), false));
-            screens.push(new GameOverOverlay(screens, run.result(), this::restart, renderer,
-                    strings));
+            RunResult result = run.result();
+            publish(new GameEvent.RunEnded(result.gatesPassed(),
+                    (int) Math.round(result.stats().points()),
+                    result.stats().ticksAlive(), result.stats().objectiveMet()));
+            ProgressionOutcome outcome = applyProgression(result);
+            screens.push(new GameOverOverlay(screens, result, outcome, this::restart, renderer,
+                    strings).withProfile(context == null ? null : context.profile(),
+                    context == null ? null : context.progressionRules()));
         }
     }
 
@@ -256,9 +305,10 @@ public final class GameScreen implements Screen {
      * the toast layer or the debug overlay can hear.
      *
      * <p>Facts are published in the order the simulation produced them, so a shield absorb is
-     * heard before the crash it prevented. Several of the cases below cannot fire yet — coins are
-     * M3, shields and revives M5, synergies M6, rule shifts M7 — but the mapping is written once,
-     * here, so a milestone that adds the fact does not have to remember to add its sound.
+     * heard before the crash it prevented. Coins and the streak fire from M3 on; several of the
+     * remaining cases cannot fire yet — shields and revives are M5, synergies M6, rule shifts M7
+     * — but the mapping is written once, here, so a milestone that adds the fact does not have to
+     * remember to add its sound.
      *
      * <p>Three facts stay deliberately unmapped: {@code OfferOpened} (the event carries the
      * offered card ids, which the modifier director owns from M6), and the boss trio (the event
@@ -300,6 +350,106 @@ public final class GameScreen implements Screen {
         if (crashed) {
             publish(new GameEvent.Crashed(causeOf(report), run.stats().gatesPassed()));
         }
+    }
+
+    /**
+     * Writes the finished run into the profile (D14) and announces what it paid (D29).
+     *
+     * <p>Called from the one tick that moves the run to {@code FINISHED}, before the overlay is
+     * pushed, so a retry can never lose the rewards. {@link ProgressionManager#apply} is itself
+     * guarded against a second call with the same result; the {@code gameOverShown} flag above
+     * means it is never reached twice anyway.
+     *
+     * @param result the finished run
+     * @return what changed, or {@code null} when the session has no profile to write into
+     */
+    private ProgressionOutcome applyProgression(RunResult result) {
+        if (context == null || !context.canProgress()) {
+            return null;
+        }
+        PlayerProfile profile = context.profile();
+        ProgressionManager progression = context.progression();
+        ProgressionRules rules = context.progressionRules();
+        ProgressionOutcome outcome = progression.apply(profile, result, rules, multipliers());
+        lastOutcome = outcome;
+        publishProgress(profile, outcome);
+        context.saveProfile();
+        return outcome;
+    }
+
+    /**
+     * The multipliers the run was played under (E32.a): the two stats off the run's own sheet,
+     * the tier's reward multiplier off its setup, and the daily multiplier off the economy — the
+     * formula applies the last one only to a run in {@code DAILY} mode.
+     *
+     * @return the multipliers
+     */
+    private ProgressionRules.RewardMultipliers multipliers() {
+        double daily = 1;
+        if (context.content() != null && context.content().economy() != null) {
+            daily = context.content().economy().daily().rewardMult();
+        }
+        return new ProgressionRules.RewardMultipliers(
+                run.simulation().stats().resolve(StatId.COIN_MULT),
+                run.simulation().stats().resolve(StatId.XP_MULT),
+                run.setup().tier().rewardMult(), daily);
+    }
+
+    /**
+     * Turns one progression pass into bus events and the toasts that go with them (D14, E31.b):
+     * {@code progression} may not import the bus, so this is the seam where a credited coin
+     * becomes something the audio manager and the toast layer can hear.
+     *
+     * @param profile the profile the pass wrote into (it holds the new totals)
+     * @param outcome what the pass changed
+     */
+    private void publishProgress(PlayerProfile profile, ProgressionOutcome outcome) {
+        RewardSummary rewards = outcome.rewardSummary();
+        Map<String, Long> credited = new LinkedHashMap<>();
+        String currency = context.progressionRules().primaryCurrency();
+        if (rewards.coins() != 0) {
+            credited.merge(currency, rewards.coins(), Long::sum);
+        }
+        for (Map.Entry<String, Long> grant : outcome.levelRewardsGranted().entrySet()) {
+            credited.merge(grant.getKey(), grant.getValue(), Long::sum);
+        }
+        for (Map.Entry<String, Long> change : credited.entrySet()) {
+            Long total = profile.wallet.get(change.getKey());
+            publish(new GameEvent.CurrencyChanged(change.getKey(), change.getValue(),
+                    total == null ? 0 : total));
+        }
+        if (rewards.xp() != 0) {
+            publish(new GameEvent.XpGained(rewards.xp(), profile.xp));
+        }
+        for (Integer level : outcome.levelUps()) {
+            publish(new GameEvent.LevelUp(level));
+            if (toasts != null) {
+                toasts.push(strings.format(StringKey.TOAST_LEVEL_UP, level));
+            }
+        }
+        for (String id : outcome.achievementsUnlocked()) {
+            publish(new GameEvent.AchievementUnlocked(id));
+        }
+        for (String id : outcome.unlocksGranted()) {
+            publish(new GameEvent.UnlockGranted(id));
+        }
+        String challengeId = run.config().challengeId();
+        if (outcome.challengeFirstCompleted() && challengeId != null) {
+            publish(new GameEvent.ChallengeCompleted(challengeId, true));
+        }
+        if (outcome.dailyRecorded()) {
+            publish(new GameEvent.DailyRecorded(profile.daily.date, run.stats().gatesPassed()));
+        }
+    }
+
+    /**
+     * What the last finished run paid.
+     *
+     * @return the outcome, {@link ProgressionOutcome#EMPTY} while a run is in flight or when the
+     *     session has no profile
+     */
+    public ProgressionOutcome lastOutcome() {
+        return lastOutcome;
     }
 
     /**

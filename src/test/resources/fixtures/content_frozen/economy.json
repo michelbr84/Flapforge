@@ -1,0 +1,45 @@
+{
+  "currencies": ["coins"],
+  "rewards": {
+    "participation": 20,
+    "firstRunBonus": 25,
+    "coinsPerGate": 2,
+    "coinsPerPoint": 1,
+    "bossBonus": 150,
+    "challengeBonus": 100,
+    "streak": { "step": 5, "coins": 5 }
+  },
+  "xp": {
+    "participation": 15,
+    "perGate": 10,
+    "bossBonus": 200,
+    "curve": { "base": 100, "growth": 1.10, "maxLevel": 50 },
+    "levelRewards": {
+      "2": { "coins": 50 },
+      "5": { "coins": 150 },
+      "10": { "coins": 500 },
+      "15": { "coins": 800 },
+      "20": { "coins": 1200 },
+      "25": { "coins": 2000 }
+    }
+  },
+  "features": [
+    { "id": "modifiers",
+      "unlock": { "type": "any_of", "conditions": [
+        { "type": "runs", "value": 7 },
+        { "type": "purchase", "amount": 150 }
+      ] } },
+    { "id": "seeded_runs",
+      "unlock": { "type": "any_of", "conditions": [
+        { "type": "level", "value": 5 },
+        { "type": "purchase", "amount": 100 }
+      ] } }
+  ],
+  "daily": { "tierPool": ["normal", "hard"], "forcedModifierCount": 2, "rewardMult": 1.25 },
+  "prestige": {
+    "requiredLevel": 25,
+    "keeps": ["birds", "achievements", "cosmetics", "statistics"],
+    "maxPrestige": 5,
+    "bonusPerPrestige": [ { "stat": "COIN_MULT", "op": "PERCENT_ADD", "value": 0.05 } ]
+  }
+}

@@ -16,7 +16,7 @@ import java.util.Objects;
  * @param noAudio disable audio output
  * @param home profile directory override, or {@code null}
  * @param headlessRun number of frames to simulate without a window (0 = normal launch)
- * @param resetSave delete the save file before starting
+ * @param resetSave start fresh, keeping the old save as {@code save.reset-<time>.json}
  * @param lang language override ({@code en}, {@code pt_BR}), or {@code null} for auto
  * @param noWindow do not open a window (implies headless)
  * @param help print usage and exit
@@ -184,7 +184,7 @@ public record LaunchOptions(Long seed, String world, String bird, String tier, I
                 "  --no-audio          disable audio",
                 "  --home PATH         profile directory override",
                 "  --headless-run N    simulate N frames without a window and print a summary",
-                "  --reset-save        delete the save file before starting",
+                "  --reset-save        start fresh (the old save is kept as save.reset-<time>.json)",
                 "  --lang CODE         language (en, pt_BR)",
                 "  --no-window         do not open a window",
                 "  --help, -h          print this help");

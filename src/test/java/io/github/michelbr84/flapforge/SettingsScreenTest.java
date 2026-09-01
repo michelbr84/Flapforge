@@ -104,7 +104,7 @@ class SettingsScreenTest {
         audio = new AudioManager(new NullAudio());
         context = new GameContext(LaunchOptions.DEFAULTS, (Clock) clock, () -> 0L, new Threads(),
                 input, viewport, screens, presenter, null, loop, limiter, store, events, audio,
-                strings, toasts, null);
+                strings, toasts, null, null, null, null);
         audio.attach(events);
         // The same three handlers GameApplication installs, so the hotkeys travel the real path.
         screens.setMuteHandler(context::toggleMute);

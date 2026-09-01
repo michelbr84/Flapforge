@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "appVersion": "0.1.0",
+  "contentVersion": 1,
+  "savedAtEpochMs": 1756684800000,
+  "profile": {
+    "createdAtEpochMs": 1756598400000,
+    "coins": 250,
+    "xp": 100,
+    "level": 2,
+    "unlocked": [
+      "bird:classic",
+      "ability:double_flap",
+      "world:green_fields",
+      "tree:flight",
+      "tier:normal",
+      "cosmetic:classic:default"
+    ],
+    "keptByTheMigration": "an unrelated field the step must not touch",
+    "statistics": {
+      "totalRuns": 2,
+      "totalGates": 11,
+      "bestGates": 8
+    },
+    "selected": {
+      "birdId": "classic",
+      "paletteId": "default",
+      "worldId": "green_fields",
+      "tierId": "normal",
+      "activeAbilityId": "double_flap",
+      "passiveAbilityIds": []
+    },
+    "lastSeed": 11
+  }
+}

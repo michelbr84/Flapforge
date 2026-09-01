@@ -205,6 +205,29 @@ class RunLifecycleTest {
         assertEquals(0, late.counter("missing"));
     }
 
+    /** M3: the coins of a run and its clean-gate streak are tallied into the result (D11). */
+    @Test
+    void coinsAndStreaksAreTalliedIntoTheResult() {
+        Run run = Run.classic(RunConfig.classic(42));
+        BotPilot bot = new BotPilot(BotPilot.Preset.PERFECT, 42);
+        int coinFacts = 0;
+        int streakFacts = 0;
+        for (int t = 0; t < 1200 && !run.isFinished(); t++) {
+            TickReport report = run.tick(bot.decide(run));
+            coinFacts += report.count(TickFact.CoinCollected.class);
+            streakFacts += report.count(TickFact.StreakChanged.class);
+            assertEquals(coinFacts, run.stats().coinsCollected(), "every coin fact is tallied");
+            assertEquals(run.simulation().streaks().streak(), run.stats().streak());
+        }
+        assertTrue(coinFacts > 0, "the perfect bot flies through the coin trails");
+        assertEquals(run.stats().gatesPassed(), streakFacts, "one streak change per gate");
+        RunResult result = run.result();
+        assertEquals(coinFacts, result.counter("coins"));
+        assertEquals(run.stats().streakBest(), result.counter("streakBest"));
+        assertEquals(run.simulation().streaks().steps(), result.stats().streakSteps());
+        assertTrue(result.stats().streakBest() >= result.stats().streak());
+    }
+
     @Test
     void stateHashChangesEveryTick() {
         Run run = Run.classic(RunConfig.classic(9));

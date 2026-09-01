@@ -45,6 +45,8 @@ public final class ParticleSystem {
     public static final int CRASH_BURST_COUNT = 26;
     /** Particles one UI sparkle emits. */
     public static final int UI_SPARKLE_COUNT = 10;
+    /** Particles the flourish of one collected coin emits. */
+    public static final int COIN_PICKUP_COUNT = 8;
 
     private static volatile boolean defaultReduceFlashing = Boolean.TRUE;
 
@@ -267,6 +269,28 @@ public final class ParticleSystem {
                         (random.nextDouble() * 2 - 1) * 110, 0.16 + random.nextDouble() * 0.10,
                         3.0 + random.nextDouble() * 2.0, 0xFFFFFF, 1.0, 0.2);
             }
+        }
+    }
+
+    /**
+     * Emits the flourish a collected coin leaves behind (M3): a small ring of gold flecks that
+     * drift upwards, so the pickup is visible even when the coin itself disappears on the same
+     * tick it is taken.
+     *
+     * <p>Like every other emitter it draws from this pool's own random source, never from the
+     * run's streams: how many frames were drawn must not change the simulation.
+     *
+     * @param px the emission x in logical coordinates
+     * @param py the emission y in logical coordinates
+     */
+    public void emitCoinPickup(double px, double py) {
+        int n = scaled(COIN_PICKUP_COUNT);
+        for (int i = 0; i < n; i++) {
+            double angle = random.nextDouble() * 2 - 1;
+            double speed = 40 + random.nextDouble() * 70;
+            spawn(px, py, angle * speed, -50 - random.nextDouble() * 70,
+                    0.30 + random.nextDouble() * 0.20, 1.5 + random.nextDouble() * 1.5,
+                    ProceduralArt.COIN_GOLD.getRGB() & 0xFFFFFF, 0.9, 0.35);
         }
     }
 

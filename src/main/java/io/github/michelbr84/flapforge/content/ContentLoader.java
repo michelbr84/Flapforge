@@ -34,6 +34,12 @@ public final class ContentLoader {
     /** The content files milestone M1 ships (base names, without the {@code .json} suffix). */
     public static final List<String> M1_FILES = List.of("birds", "difficulty");
 
+    /** The content files milestone M3 ships: {@link #M1_FILES} plus the economy (§4). */
+    public static final List<String> M3_FILES = List.of("birds", "difficulty", "economy");
+
+    /** The content files the game currently loads (the latest milestone's set). */
+    public static final List<String> FILES = M3_FILES;
+
     private static final Gson GSON = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
             .setNumberToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)

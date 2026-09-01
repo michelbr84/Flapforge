@@ -91,6 +91,6 @@ public final class TestContent {
      * @return the names
      */
     public static List<String> files() {
-        return ContentLoader.M1_FILES;
+        return ContentLoader.FILES;
     }
 }

@@ -135,7 +135,12 @@ class MenuNavigationTest {
     void keyboardMovesFocusOpensTheGameAndEscapesBack() {
         assertSame(menu.playButton(), menu.focusRing().focused(), "Play focused on entry");
         tap(Keys.DOWN);
+        assertSame(menu.statisticsButton(), menu.focusRing().focused(),
+                "Down moves to Statistics");
+        tap(Keys.DOWN);
         assertSame(menu.settingsButton(), menu.focusRing().focused(), "Down moves to Settings");
+        tap(Keys.UP);
+        assertSame(menu.statisticsButton(), menu.focusRing().focused());
         tap(Keys.UP);
         assertSame(menu.playButton(), menu.focusRing().focused(), "Up moves back to Play");
         tap(Keys.ENTER);
@@ -171,6 +176,7 @@ class MenuNavigationTest {
 
         Strings pt = Strings.load("pt_BR");
         assertEquals(pt.get(StringKey.MENU_PLAY), menu.playButton().text(), "Play was relabelled");
+        assertEquals(pt.get(StringKey.MENU_STATISTICS), menu.statisticsButton().text());
         assertEquals(pt.get(StringKey.MENU_SETTINGS), menu.settingsButton().text());
         assertEquals(pt.get(StringKey.MENU_QUIT), menu.quitButton().text());
         assertNotEquals(Strings.load("en").get(StringKey.MENU_PLAY), menu.playButton().text(),
@@ -179,6 +185,7 @@ class MenuNavigationTest {
 
     @Test
     void quitThroughTheMenuRequestsClose() {
+        tap(Keys.DOWN);
         tap(Keys.DOWN);
         tap(Keys.DOWN);
         assertSame(menu.quitButton(), menu.focusRing().focused());

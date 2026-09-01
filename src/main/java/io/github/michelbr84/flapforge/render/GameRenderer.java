@@ -11,8 +11,8 @@ import java.util.Objects;
 /**
  * Composes the whole in-run picture from the M1 renderers (D18).
  *
- * <p>Draw order: backdrop (sky, hills, ground), clouds, obstacles, bird, HUD. Upstream drew its
- * clouds as a "foreground" layer between background and pipes; keeping them behind the pipes is
+ * <p>Draw order: backdrop (sky, hills, ground), clouds, obstacles, coins, bird, HUD. Upstream
+ * drew its clouds as a "foreground" layer between background and pipes; keeping them behind the pipes is
  * the same visual result (clouds live in the top third and pipes are opaque) and avoids clouds
  * crossing in front of a gate the player is aiming at.
  *
@@ -36,6 +36,7 @@ public final class GameRenderer {
     private final BackgroundRenderer background = new BackgroundRenderer();
     private final CloudLayer clouds = new CloudLayer();
     private final ObstacleRenderer obstacles = new ObstacleRenderer();
+    private final PickupRenderer pickups = new PickupRenderer();
     private final BirdRenderer bird = new BirdRenderer();
     private final HudRenderer hud;
     private final ParticleSystem particles = new ParticleSystem();
@@ -143,12 +144,48 @@ public final class GameRenderer {
     }
 
     /**
-     * Replaces the text blinked while the run waits for its first flap (a language switch).
+     * Replaces the HUD's streak template (a live language switch, D25).
+     *
+     * @param streakLabel the translated {@code hud.streak} pattern, {@code {0}} the length
+     */
+    public void setStreakLabel(String streakLabel) {
+        hud.setStreakLabel(streakLabel);
+    }
+
+    /**
+     * Replaces the READY hint (a live language switch, D25).
      *
      * @param readyHint the new text
      */
     public void setReadyHint(String readyHint) {
         hud.setReadyHint(readyHint);
+    }
+
+    /**
+     * Replaces the HUD's coin-counter template (a live language switch, D25).
+     *
+     * @param coinLabel the translated {@code hud.coins} pattern, {@code {0}} the count
+     */
+    public void setCoinLabel(String coinLabel) {
+        hud.setCoinLabel(coinLabel);
+    }
+
+    /**
+     * Tells the HUD which streak length pays a reward step, so it can mark it (E32.a).
+     *
+     * @param step {@code economy.rewards.streak.step}
+     */
+    public void setStreakStep(int step) {
+        hud.setStreakStep(step);
+    }
+
+    /**
+     * The coin renderer (its spin and flourish state).
+     *
+     * @return the pickup renderer
+     */
+    public PickupRenderer pickups() {
+        return pickups;
     }
 
     /**
@@ -180,6 +217,9 @@ public final class GameRenderer {
         background.tick(scroll, frozen);
         clouds.tick(scroll, frozen);
         bird.tick(flapped);
+        // The coins are ticked before the HUD so a coin taken this tick has already produced its
+        // flourish when the counter next to the icon changes.
+        pickups.tick(run.simulation().pickups(), particles);
         hud.tick();
         camera.tick();
         particles.update(1.0 / Playfield.TICK_RATE);
@@ -219,6 +259,7 @@ public final class GameRenderer {
         background.reset();
         bird.reset();
         hud.reset();
+        pickups.reset();
         particles.clear();
         camera.reset();
         particles.setReduceFlashing(ParticleSystem.defaultReduceFlashing());
@@ -247,6 +288,7 @@ public final class GameRenderer {
         clouds.render(g, alpha, palette);
         camera.apply(g, alpha);
         obstacles.render(g, alpha, run.simulation().obstacles(), palette, debugBoxes);
+        pickups.render(g, alpha, run.simulation().pickups(), debugBoxes);
         Bird b = run.simulation().bird();
         double hitboxScale = run.simulation().stats().resolve(StatId.HITBOX_SCALE);
         bird.render(g, alpha, b, palette, hitboxScale, debugBoxes);

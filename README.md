@@ -655,7 +655,7 @@ Launch flags (some arrive with later milestones, see
 | `--headless-run N` | simulate `N` frames without a window and print a summary line plus the determinism hash CI compares across platforms |
 | `--no-window` | run without a window |
 | `--help`, `-h` | print the usage text |
-| `--reset-save` | delete the save file (a backup is kept) and start fresh |
+| `--reset-save` | start from a fresh profile; the old save and its backup are moved aside as `save.reset-<time>.json` and `save.bak.reset-<time>.json`, never deleted |
 | `--lang CODE` | UI language for this launch: `auto` (system locale), `en`, `pt_BR`; it can also be changed live in Settings |
 
 ---

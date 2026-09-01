@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "appVersion": "0.1.0",
+  "contentVersion": 1,
+  "savedAtEpochMs": 1756684800000,
+  "profile": {
+    "wallet": { "coins": 999
+    "unlocked": ["bird:classic",

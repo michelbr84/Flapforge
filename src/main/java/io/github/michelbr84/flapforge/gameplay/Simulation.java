@@ -15,8 +15,11 @@ import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleLayer;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleSpawner;
 import io.github.michelbr84.flapforge.gameplay.obstacle.SpawnTable;
+import io.github.michelbr84.flapforge.gameplay.pickup.Coin;
+import io.github.michelbr84.flapforge.gameplay.pickup.PickupLayer;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
+import io.github.michelbr84.flapforge.gameplay.run.StreakTracker;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.RampEffect;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
@@ -34,10 +37,11 @@ import java.util.Objects;
  * difficulty. {@link #tick(SimInput)} advances the world by one 60 Hz tick and returns the facts
  * it produced; {@link #stateHash()} folds the visible state for determinism checks.
  *
- * <p>Tick order: flap → bird integration → world scroll and obstacle phases (scaled by
- * {@code TIME_SCALE}) → obstacle effects on the bird → collision → scoring → spawning →
- * difficulty refresh. Scoring (D7): a scoring column is awarded once, when
- * {@code scoreLineX ≤ hitboxLeft}, adding {@code 1 × SCORE_MULT} points.
+ * <p>Tick order: flap → bird integration → world scroll, obstacle phases and pickups (scaled by
+ * {@code TIME_SCALE}) → obstacle effects on the bird → collision → coin pickup → scoring and
+ * streak → spawning (obstacle first, then its coin trail) → difficulty refresh. Scoring (D7): a
+ * scoring column is awarded once, when {@code scoreLineX ≤ hitboxLeft}, adding
+ * {@code 1 × SCORE_MULT} points.
  *
  * <p>Hold-to-flap (D2): while {@link SimInput#autoFlapHeld()} is set a synthetic flap is issued
  * whenever {@link Playfield#AUTO_FLAP_PERIOD_TICKS} ticks passed since the last flap.
@@ -56,6 +60,8 @@ public final class Simulation {
     private final BirdPhysics physics;
     private final ObstacleLayer obstacles = new ObstacleLayer();
     private final ObstacleSpawner spawner;
+    private final PickupLayer pickups;
+    private final StreakTracker streaks;
     private final CollisionSystem collision = new CollisionSystem();
     private final DifficultyState difficulty;
     private int tick;
@@ -65,6 +71,7 @@ public final class Simulation {
     private int flaps;
     private int flapsRefused;
     private int nearMisses;
+    private int coinsCollected;
 
     /**
      * Builds the model for a configuration and its resolved content.
@@ -87,6 +94,8 @@ public final class Simulation {
         this.physics = new BirdPhysics(stats);
         this.spawner = new ObstacleSpawner(obstacles, new SpawnTable(setup.world().spawnWeights()),
                 rng);
+        this.pickups = new PickupLayer(rng);
+        this.streaks = new StreakTracker(setup.streakStep());
         refreshRamp();
         difficulty.refresh(0, 0);
     }
@@ -130,6 +139,7 @@ public final class Simulation {
 
         SimContext ctx = context();
         obstacles.update(ctx);
+        pickups.update(ctx);
         for (Obstacle o : obstacles.obstacles()) {
             o.affectBird(bird, ctx);
         }
@@ -152,8 +162,13 @@ public final class Simulation {
             }
         }
 
-        boolean gateChanged = false;
         Aabb box = bird.hitbox(hitboxScale);
+        for (Coin coin : pickups.collect(box)) {
+            coinsCollected += coin.value();
+            facts.add(new TickFact.CoinCollected(coin.value()));
+        }
+
+        boolean gateChanged = false;
         for (Obstacle o : obstacles.obstacles()) {
             if (o.isScoring() && !o.isScored() && o.scoreLineX() <= box.x()) {
                 o.markScored();
@@ -165,10 +180,14 @@ public final class Simulation {
                 facts.add(new TickFact.Scored(awarded));
             }
         }
+        resolveStreaks(box, facts);
 
         Obstacle spawned = spawner.update(ctx);
         if (spawned != null) {
             facts.add(new TickFact.ObstacleSpawned(spawned.kind()));
+            if (spawned.isScoring()) {
+                pickups.spawnFor(spawned, ctx);
+            }
         }
 
         if (gateChanged) {
@@ -181,6 +200,37 @@ public final class Simulation {
     }
 
     /**
+     * Counts the columns the streak can now judge (D26).
+     *
+     * <p>The score line and the graze window do not close together. A gate scores when its right
+     * edge passes the bird's hitbox left edge; the near-miss test uses that box inflated by
+     * {@link Playfield#NEAR_MISS_INFLATE_PX}, so for another 6 px — three ticks at the classic
+     * scroll — the bird can still graze a column it has already scored. Resolving the streak at
+     * the score line therefore forgave almost every graze (measured: 98 % of an expert's near
+     * misses), which is not "a gate is clean when it was passed with no near miss". So the score,
+     * the points and the ramp stay where upstream put them, and the streak waits until the column
+     * is out of the inflated box for good.
+     *
+     * <p>The cost is a three-tick tail: a run that ends within three ticks of a gate never counts
+     * that last gate in the streak. That is the right trade — the alternative counts a gate the
+     * bird is still grazing — and it is deterministic, so the golden run pins it.
+     *
+     * @param box the bird hitbox of this tick
+     * @param facts where a {@code StreakChanged} is appended
+     */
+    private void resolveStreaks(Aabb box, List<TickFact> facts) {
+        for (Obstacle o : obstacles.obstacles()) {
+            if (o.isScoring() && o.isScored() && !o.isStreakResolved()
+                    && o.scoreLineX() + Playfield.NEAR_MISS_INFLATE_PX <= box.x()) {
+                o.markStreakResolved();
+                if (streaks.onGatePassed(!o.isDirty())) {
+                    facts.add(new TickFact.StreakChanged(streaks.streak()));
+                }
+            }
+        }
+    }
+
+    /**
      * Seeds the death fall (E28): the world freezes and the bird starts falling at +15 px/s,
      * which makes the fall bit-identical to upstream's {@code velocity = 0}.
      */
@@ -188,6 +238,7 @@ public final class Simulation {
         bird.setState(Bird.State.DYING);
         bird.setVy(15);
         obstacles.settle();
+        pickups.settle();
     }
 
     /**
@@ -228,7 +279,10 @@ public final class Simulation {
         h = bird.hashState(h);
         h = MathUtil.fold(h, gatesPassed);
         h = MathUtil.fold(h, Double.doubleToLongBits(points));
-        return obstacles.hashState(h);
+        h = MathUtil.fold(h, coinsCollected);
+        h = streaks.hashState(h);
+        h = obstacles.hashState(h);
+        return pickups.hashState(h);
     }
 
     /**
@@ -265,6 +319,24 @@ public final class Simulation {
      */
     public ObstacleSpawner spawner() {
         return spawner;
+    }
+
+    /**
+     * The coins alive in the world.
+     *
+     * @return the pickup layer
+     */
+    public PickupLayer pickups() {
+        return pickups;
+    }
+
+    /**
+     * The clean-gate streak (D26).
+     *
+     * @return the tracker
+     */
+    public StreakTracker streaks() {
+        return streaks;
     }
 
     /**
@@ -382,6 +454,15 @@ public final class Simulation {
      */
     public int nearMisses() {
         return nearMisses;
+    }
+
+    /**
+     * Total value of the coins picked up so far.
+     *
+     * @return the value
+     */
+    public int coinsCollected() {
+        return coinsCollected;
     }
 
     private void refreshRamp() {

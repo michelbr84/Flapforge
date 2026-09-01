@@ -95,7 +95,7 @@ watchdog, D4). Without a display a windowed launch prints
 | `--no-audio` | never open a sound device: `AudioBackend.create` returns `NullAudio` without touching the sound system. Use it in scripts, on CI and on machines whose audio stack is slow to open; the game plays exactly the same, silently. A machine where no line opens ends up here anyway, after one line on stderr. | M2 |
 | `--lang CODE` | UI language for this launch: `auto` (default locale), `en`, `pt_BR`. Overrides `settings.language`; an unknown code is ignored and `auto` applies. The language can also be changed live in Settings, and both take effect immediately (the menu behind the settings screen re-labels itself). | M2 |
 | `--home DIR` | profile directory (`settings.json`, and from M3 `save.json`) instead of the per-OS default. Always pass it in tests and scripts so nothing writes to the real profile. | M2 (settings) |
-| `--reset-save` | delete the save file (a backup is kept) and start fresh | M3 |
+| `--reset-save` | start from a fresh profile; the old save and its backup are moved aside as `save.reset-<time>.json` / `save.bak.reset-<time>.json`, never deleted | M3 |
 | `--bird ID` | start with the given bird | M4 |
 | `--tier ID` | difficulty tier (`normal`, `hard`, `nightmare`) | M4 |
 | `--world ID` | start in the given world (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`) | M7 |

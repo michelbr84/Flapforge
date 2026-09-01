@@ -36,6 +36,17 @@ public interface Screen {
     void render(Graphics2D g, double alpha);
 
     /**
+     * Tells whether a run is in progress on this screen, which the 60-second autosave must not
+     * interrupt (D15: never while the phase is {@code FLYING}, {@code BOSS} or
+     * {@code CHOOSING_MODIFIER}).
+     *
+     * @return {@code true} while the screen is running a live run
+     */
+    default boolean blocksAutosave() {
+        return false;
+    }
+
+    /**
      * Tells whether the screen is an overlay drawn over the screen below it.
      *
      * @return {@code true} for overlays; {@code false} for full screens

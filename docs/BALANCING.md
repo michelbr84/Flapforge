@@ -1,4 +1,4 @@
-# Balancing — the physics conversion table (M1)
+# Balancing — the conversion table (M1) and the run economy (M3)
 
 Flapforge is a rewrite of a 30 Hz Flappy Bird clone
 ([kingyuluk/FlappyBird](https://github.com/kingyuluk/FlappyBird), the tree at commit `b811782` of
@@ -13,7 +13,10 @@ pinned by `ClassicFeelTest`, which runs a literal transliteration of the old cod
 simulation and requires the two trajectories to agree to **0.0 px**. Exactly one deviation is
 intentional — the ground rule — and it has its own section and its own test.
 
-Every "Measured" entry below is produced by the M1 test sources, not by hand:
+Sections 1–4 are the M1 conversion; section 5 is the M3 economy, and the same rule holds there —
+its numbers are `BalancingSim` output over 500 seeds per skill, not estimates.
+
+Every "Measured" entry in sections 1–4 is produced by the M1 test sources, not by hand:
 
 | Source | What it measures |
 | --- | --- |
@@ -111,9 +114,108 @@ model from M1 but are only *balanced* in M9, against the `MetaSim` thresholds. N
 document was tuned to make a bot survive longer; when a number has to change, the change belongs in
 `difficulty.json`, never in the conversion table above.
 
-## 5. What is not yet measured here
+## 5. The run economy (M3)
 
-Coins, streaks, rewards and XP (M3), upgrades and bird stat spreads (M4), abilities (M5),
-modifiers and synergies (M6), the other four worlds (M7), and the runs-to-unlock table that
-`BalancingSim --meta` prints (M9, E25) all extend this document as they land. The rule stays the
-same: a row is added only once a test measures it.
+Everything below was **measured**, not chosen: the tables come from `BalancingSim`, which drives the
+shipped content with `BotPilot` and runs the real `RunRewardCalculator` against the shipped
+`economy.json`. Reproduce every row with
+
+```bash
+./gradlew balancing -PtoolArgs="--seeds 500 --skill all --ticks 20000 --csv build/balancing-m3.csv"
+```
+
+500 seeds per skill, bird `classic`, world `green_fields`, tier `normal`, a 20 000-tick (5.5 min)
+budget per run, every multiplier at 1 and no first-run bonus (so these are *later* runs).
+
+### 5.1 Coins per run, by skill
+
+| Skill | gates mean | coins p10 | p50 | p90 | mean | runs paying 0 | xp mean |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `novice` (reaction 12 ticks, error 24 px) | 4.7 | 0 | 31 | 64 | **33.2** | 20.6 % | 58.2 |
+| `average` (8 ticks, 12 px) | 84.1 | 34 | 269 | 950 | **357.4** | 1.6 % | 855.6 |
+| `expert` (2 ticks, 2 px) | 240.2 | 1014 | 1046 | 1067 | **1015.1** | 0 % | 2417.2 |
+| `perfect` (0 ticks, 0 px) | 241.6 | 1014 | 1043 | 1066 | **1017.4** | 0 % | 2430.5 |
+
+Run 1 adds the flat 25-coin first-run bonus before the (unit) multipliers, so a beginner's first run
+pays a mean of **58.2** coins — the plan's worked example, 20 + 25 + 20 + 10 = 75 for a 10-gate first
+run, sits inside that distribution.
+
+**The 20.6 % of novice runs that pay nothing** are the ones that die before the first pipe. With
+`BIRD_X = 105` and the first gate spawning at `x = 420`, the score line needs 372 px of scroll —
+tick ~186 at 2 px/tick — so the 180-tick participation gate lands almost exactly on "reached the
+first pipe". That is defensible and deliberate (it is what kills the instant-retry dive, §5.4), but
+it is worth knowing that one beginner run in five is worth zero before M4 prices anything against
+the mean. If it ever has to change, the lever is `PARTICIPATION_TICKS`, not the coin terms.
+
+### 5.2 The coin trail: how much of it is actually taken
+
+`COIN_SPAWN_RATE` is 0.5, so a gate gets one coin half the time (E2). What reaches the wallet:
+
+| Skill | coins spawned per run | collected | collection rate |
+| --- | --- | --- | --- |
+| `novice` | 3.9 | 2.5 | **65.6 %** |
+| `average` | 43.6 | 42.4 | **97.2 %** |
+| `expert` | 121.7 | 120.6 | **99.1 %** |
+| `perfect` | 122.3 | 121.2 | **99.1 %** |
+
+The trail sits on the gap centre, which is the optimal flight line, so for anyone who can fly a
+pickup is not a decision: it is a flat +0.5 coins per gate on top of `coinsPerGate`, ~11 % of a
+competent run's payout. That matches E2 as written and is not a defect, but M6's coin modifiers
+(`coin_rush_1` is `MUL 3`) will be multiplying a term that is already automatic. If pickups are ever
+meant to be a *choice*, E2 allows any layout through the gap and the trail can be offset off the
+flight line; the table above is the baseline that change would be measured against.
+
+**Geometry.** A coin rides its gate's safe band every tick, so the worst-case clearance is a
+constant: `gap / 2 − amplitude − RADIUS = gap / 2 − 51 − 8`. At the shipped `normal` gap of 128 that
+is **5.0 px**; at `hard` (`GAP_SIZE × 0.9`) it would be −1.4 px and at `nightmare` (`× 0.8`) −7.8 px
+if the coin stayed where it was spawned, which is why it does not. `PickupTest` ticks a trail
+through a whole 3.4 s oscillation at `GAP × 0.8` and asserts every coin stays inside the gap.
+
+### 5.3 Streaks
+
+A streak step is five consecutive clean gates (`economy.rewards.streak.step`) and pays 5 coins. A
+gate is clean when its column was never grazed — resolved once the column has left the inflated
+hitbox, so a graze *after* the score line still costs the gate it happened on (D26).
+
+| Skill | best streak mean | best streak max | steps per run | gates per step |
+| --- | --- | --- | --- | --- |
+| `novice` | 2.7 | 13 | 0.26 | 17.9 |
+| `average` | 13.3 | 44 | 8.63 | 9.7 |
+| `expert` | 28.1 | 56 | 30.77 | 7.8 |
+| `perfect` | 27.2 | 78 | 30.31 | 8.0 |
+
+"Gates per step" is `gates ÷ steps`: five is the floor, a run with no graze at all. An expert needs
+7.8, so grazes cost it about a third of the steps a flawless run would earn — which is what a bot
+flying 2 px from the optimal line should look like. The steps are **15 %** of that run's coins
+(30.8 × 5 = 154 of 1015).
+Before the streak was resolved after the graze window, the same expert kept a near-perfect streak:
+98 % of its near misses landed in the three ticks between the score line and the closing of the
+inflated hitbox and were silently forgiven.
+
+### 5.4 The instant-retry dive
+
+The dive is the loop the participation gate exists to kill: flap once, hit the ground, retry. 400 of
+them, applied through the real `ProgressionManager` against the shipped `economy.json`:
+
+| | coins | XP | level | over |
+| --- | --- | --- | --- | --- |
+| XP participation ungated (E32.a as written) | 2 725 | 6 000 | **21** | 5.3 min = **511 coins/min** |
+| XP participation gated (shipped) | **25** | 0 | 1 | 5.3 min = 4.7 coins/min, → 0 |
+| `average` bot actually playing | 18 562 | 32 950 | 37 | 73.8 min = **251 coins/min** |
+
+The 2 725 is the 25-coin first-run bonus plus the level rewards at 2, 5, 10, 15 and 20
+(50 + 150 + 500 + 800 + 1 200): the coin gate stopped the run rewards, and the XP walked around it
+through the level curve. Ungated, mashing space was twice as profitable as playing well and cleared
+`feature:seeded_runs` (level 5) and `tier:nightmare` (level 20) in about five minutes. Gating the XP
+participation is a deliberate amendment to E32.a's literal formula, recorded in the CHANGELOG and in
+`RunRewardCalculator`'s Javadoc; the 25 coins the shipped column shows are the first run's
+unconditional bonus, which no amount of retrying pays twice.
+
+## 6. What is not yet measured here
+
+Upgrades and bird stat spreads (M4), abilities (M5), modifiers and synergies (M6), the other four
+worlds (M7), and the runs-to-unlock table that `BalancingSim --meta` prints (M9, E25) all extend
+this document as they land. The rule stays the same: a row is added only once a test or a tool
+measures it — §5's numbers are `BalancingSim` output, not estimates, and the shape of the
+distributions matters as much as the means (an expert's coins are almost a constant because the bot
+reaches the tick budget; a novice's are not).

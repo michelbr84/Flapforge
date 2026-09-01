@@ -118,7 +118,7 @@ class AudioWiringTest {
         toasts = new ToastLayer();
         context = new GameContext(LaunchOptions.DEFAULTS, (Clock) clock, () -> 0L, new Threads(),
                 input, viewport, screens, presenter, null, loop, limiter, store, events, audio,
-                strings, toasts, null);
+                strings, toasts, null, null, null, null);
         events.subscribe(GameEvent.class, published::add);
     }
 

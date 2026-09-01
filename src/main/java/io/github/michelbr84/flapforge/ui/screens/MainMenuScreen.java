@@ -18,7 +18,9 @@ import io.github.michelbr84.flapforge.ui.FocusRing;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
+import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.ui.component.Button;
+import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
 import io.github.michelbr84.flapforge.ui.component.Panel;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import java.awt.Graphics2D;
@@ -39,6 +41,11 @@ import java.util.Objects;
  *
  * <p>The shared {@link ToastLayer} is drawn here, so a message raised at boot (a settings file
  * that had to be reset) is still readable on the first screen the player sees.
+ *
+ * <p>M3 adds the Statistics entry and, when the session has a profile, a {@link CurrencyDisplay}
+ * of the wallet in the top-right corner. It is refreshed on every entry, so the coins a run just
+ * paid roll up in front of the player on the screen they land on rather than appearing as a
+ * silently different number.
  */
 public final class MainMenuScreen implements Screen {
 
@@ -55,8 +62,9 @@ public final class MainMenuScreen implements Screen {
     private static final int PANEL_X = 70;
     private static final int PANEL_Y = 316;
     private static final int PANEL_W = Playfield.WIDTH - 2 * PANEL_X;
-    private static final int BUTTON_H = 52;
-    private static final int BUTTON_GAP = 16;
+    private static final int BUTTON_H = 46;
+    private static final int BUTTON_GAP = 12;
+    private static final int WALLET_W = 130;
     private static final int FOOTER_BASELINE = Playfield.HEIGHT - 14;
     private static final int BUILD_BASELINE = Playfield.HEIGHT - 28;
 
@@ -69,8 +77,10 @@ public final class MainMenuScreen implements Screen {
     private final FocusRing ring = new FocusRing();
     private final Panel panel = new Panel();
     private final Button play;
+    private final Button statistics;
     private final Button settings;
     private final Button quit;
+    private final CurrencyDisplay wallet = new CurrencyDisplay();
     private final Strings strings;
     private String shownLanguage;
     private String versionLine;
@@ -122,13 +132,29 @@ public final class MainMenuScreen implements Screen {
                 ? context.strings() : Strings.active();
         this.particles = new ParticleSystem();
         play = panel.add(new Button("", this::startGame));
+        statistics = panel.add(new Button("", this::openStatistics));
         settings = panel.add(new Button("", this::openSettings));
         quit = panel.add(new Button("", screens::requestClose));
         panel.setBounds(PANEL_X, PANEL_Y, PANEL_W,
-                Panel.columnHeight(3, BUTTON_H, BUTTON_GAP, Panel.DEFAULT_PADDING));
+                Panel.columnHeight(4, BUTTON_H, BUTTON_GAP, Panel.DEFAULT_PADDING));
         panel.layoutColumn(BUTTON_H, BUTTON_GAP);
         panel.registerFocusables(ring);
+        wallet.setBounds(Playfield.WIDTH - WALLET_W - 14.0, 14, WALLET_W, 26);
+        wallet.setAlign(Align.RIGHT);
+        wallet.setVisible(context != null && context.profile() != null);
+        wallet.setAmountNow(walletBalance());
         refreshTexts();
+    }
+
+    /**
+     * The coins of the session's profile.
+     *
+     * @return the balance, 0 when the session has no profile
+     */
+    private long walletBalance() {
+        PlayerProfile p = context == null ? null : context.profile();
+        Long coins = p == null ? null : p.wallet.get(PlayerProfile.CURRENCY_COINS);
+        return coins == null ? 0 : coins;
     }
 
     private void startGame() {
@@ -138,6 +164,11 @@ public final class MainMenuScreen implements Screen {
 
     private void openSettings() {
         screens.push(context != null ? new SettingsScreen(context) : new SettingsScreen(screens));
+    }
+
+    private void openStatistics() {
+        screens.push(context != null ? new StatisticsScreen(context)
+                : new StatisticsScreen(screens));
     }
 
     /**
@@ -150,12 +181,30 @@ public final class MainMenuScreen implements Screen {
     }
 
     /**
+     * The Statistics button.
+     *
+     * @return the button
+     */
+    public Button statisticsButton() {
+        return statistics;
+    }
+
+    /**
      * The Settings button.
      *
      * @return the button
      */
     public Button settingsButton() {
         return settings;
+    }
+
+    /**
+     * The wallet readout (hidden when the session has no profile).
+     *
+     * @return the display
+     */
+    public CurrencyDisplay walletDisplay() {
+        return wallet;
     }
 
     /**
@@ -188,7 +237,9 @@ public final class MainMenuScreen implements Screen {
     /** Re-reads every visible label from the string table (a language switch). */
     public void refreshTexts() {
         play.setText(strings.get(StringKey.MENU_PLAY));
+        statistics.setText(strings.get(StringKey.MENU_STATISTICS));
         settings.setText(strings.get(StringKey.MENU_SETTINGS));
+        wallet.setFormat(strings.get(StringKey.HUD_COINS));
         quit.setText(strings.get(StringKey.MENU_QUIT));
         versionLine = strings.format(StringKey.FOOTER_VERSION, Flapforge.version());
         buildLine = strings.format(StringKey.FOOTER_BUILD, System.getProperty("java.version",
@@ -202,6 +253,10 @@ public final class MainMenuScreen implements Screen {
         ring.focus(play);
         screens.setLetterboxRgb(PALETTE.letterbox());
         particles.setReduceFlashing(ParticleSystem.defaultReduceFlashing());
+        // Rolling up rather than jumping: the coins a finished run paid are credited while the
+        // game screen is still up, so this is the first frame the player can see them on.
+        wallet.setVisible(context != null && context.profile() != null);
+        wallet.setAmount(walletBalance());
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
         }
@@ -213,6 +268,7 @@ public final class MainMenuScreen implements Screen {
         prevBob = bob;
         bob = bobAt(ticks);
         toasts.tick();
+        wallet.tick();
         particles.update(1.0 / Playfield.TICK_RATE);
         UiNode activated = ring.handle(input);
         if (activated != null) {
@@ -254,6 +310,9 @@ public final class MainMenuScreen implements Screen {
                 TAGLINE_BASELINE);
 
         panel.render(g);
+        if (wallet.isVisible()) {
+            wallet.render(g);
+        }
         particles.render(g);
 
         g.setFont(Fonts.regular(12));

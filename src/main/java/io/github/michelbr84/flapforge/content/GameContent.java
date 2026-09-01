@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.CurveDef;
 import io.github.michelbr84.flapforge.content.defs.DifficultyDef;
+import io.github.michelbr84.flapforge.content.defs.EconomyDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.TierGeneratorDef;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
@@ -17,8 +18,8 @@ import java.util.Objects;
 
 /**
  * Every registry the game reads its rules from (D10). M1 holds birds, difficulty curves and
- * tiers; later milestones add abilities, upgrades, modifiers, worlds, patterns, challenges and
- * achievements to the same object.
+ * tiers, M3 adds the economy; later milestones add abilities, upgrades, modifiers, worlds,
+ * patterns, challenges and achievements to the same object.
  *
  * <p>Build it with {@link #load()} (the files shipped on the classpath) or
  * {@link #fromJson(Map)} (a fixture, a test or a tool). Both paths bind strictly and validate,
@@ -30,20 +31,24 @@ public final class GameContent {
     public static final String BIRDS = "birds";
     /** Base name of the difficulty file. */
     public static final String DIFFICULTY = "difficulty";
+    /** Base name of the economy file. */
+    public static final String ECONOMY = "economy";
 
     private final Registry<BirdDef> birds;
     private final Registry<CurveDef> curves;
     private final Registry<TierDef> tiers;
+    private final EconomyDef economy;
     private final double speedRampPerTick;
     private final TierGeneratorDef tierGenerator;
     private final Map<String, BirdProfile> birdProfiles = new LinkedHashMap<>();
     private final Map<String, CurveSpec> curveSpecs = new LinkedHashMap<>();
     private final Map<String, TierSpec> tierSpecs = new LinkedHashMap<>();
 
-    private GameContent(List<BirdDef> birdDefs, DifficultyDef difficulty) {
+    private GameContent(List<BirdDef> birdDefs, DifficultyDef difficulty, EconomyDef economy) {
         this.birds = new Registry<>("bird", birdDefs, BirdDef::id);
         this.curves = new Registry<>("curve", difficulty.curveDefs(), CurveDef::id);
         this.tiers = new Registry<>("tier", difficulty.tiers(), TierDef::id);
+        this.economy = economy;
         this.speedRampPerTick = difficulty.speedRampPerTick();
         this.tierGenerator = difficulty.tierGenerator();
         for (BirdDef def : birds) {
@@ -66,7 +71,7 @@ public final class GameContent {
      *     is missing a display string
      */
     public static GameContent load() {
-        GameContent content = fromJson(ContentLoader.loadAll(ContentLoader.M1_FILES));
+        GameContent content = fromJson(ContentLoader.loadAll(ContentLoader.FILES));
         ContentValidator.validateStrings(content);
         return content;
     }
@@ -74,7 +79,8 @@ public final class GameContent {
     /**
      * Binds and validates already-parsed content (fixtures, tests and tools).
      *
-     * @param files the parsed trees keyed by base name ({@code birds}, {@code difficulty})
+     * @param files the parsed trees keyed by base name ({@code birds}, {@code difficulty},
+     *     {@code economy})
      * @return the content
      * @throws ContentException when a file is missing, does not bind or breaks a rule
      */
@@ -83,10 +89,11 @@ public final class GameContent {
         List<String> errors = new ArrayList<>();
         List<BirdDef> birdDefs = bindBirds(files, errors);
         DifficultyDef difficulty = bindDifficulty(files, errors);
+        EconomyDef economy = bindEconomy(files, errors);
         if (!errors.isEmpty()) {
             throw new ContentException("Content failed to bind", errors);
         }
-        GameContent content = new GameContent(birdDefs, difficulty);
+        GameContent content = new GameContent(birdDefs, difficulty, economy);
         ContentValidator.validate(content);
         return content;
     }
@@ -118,6 +125,19 @@ public final class GameContent {
         return def == null ? new DifficultyDef(Map.of(), 0, List.of(), null) : def;
     }
 
+    private static EconomyDef bindEconomy(Map<String, JsonElement> files, List<String> errors) {
+        JsonElement root = files.get(ECONOMY);
+        String file = ContentLoader.fileOf(ECONOMY);
+        if (root == null) {
+            errors.add(file + "#: missing content file");
+            return null;
+        }
+        StrictBinder binder = new StrictBinder(file);
+        EconomyDef def = binder.bind(EconomyDef.class, root);
+        errors.addAll(binder.errors());
+        return def;
+    }
+
     /**
      * The bird registry, in file order.
      *
@@ -143,6 +163,15 @@ public final class GameContent {
      */
     public Registry<TierDef> tiers() {
         return tiers;
+    }
+
+    /**
+     * The whole of {@code economy.json} (§4): rewards, XP, features, daily and prestige.
+     *
+     * @return the economy
+     */
+    public EconomyDef economy() {
+        return economy;
     }
 
     /**

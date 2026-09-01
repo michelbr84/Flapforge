@@ -15,7 +15,9 @@ import java.util.Objects;
  * <p>Obstacles are plain-allocated (no pool) and keep {@code prevX} plus a per-kind previous
  * state so the renderer can interpolate and {@code CollisionSystem} can sub-step along the tick.
  * Flags: {@code scoring} says the column awards a gate when cleared (D7), {@code scored} that it
- * already did, {@code dirty} that the bird grazed it (near miss; streak hook, D26).
+ * already did, {@code dirty} that the bird grazed it (near miss; streak hook, D26) and
+ * {@code streakResolved} that the streak has already counted it — which happens later than the
+ * score, because the graze window outlives the score line (see {@code Simulation.tick}).
  */
 public abstract class Obstacle {
 
@@ -27,6 +29,7 @@ public abstract class Obstacle {
     private boolean scored;
     private boolean dirty;
     private boolean nearMissReported;
+    private boolean streakResolved;
 
     /**
      * Creates an obstacle.
@@ -141,7 +144,7 @@ public abstract class Obstacle {
     public long hashState(long hash) {
         long h = MathUtil.fold(hash, kind.ordinal());
         h = MathUtil.fold(h, Double.doubleToLongBits(x));
-        h = MathUtil.fold(h, (scored ? 1 : 0) | (dirty ? 2 : 0));
+        h = MathUtil.fold(h, (scored ? 1 : 0) | (dirty ? 2 : 0) | (streakResolved ? 4 : 0));
         return hashGeometry(h);
     }
 
@@ -248,6 +251,22 @@ public abstract class Obstacle {
     /** Records that the near-miss fact for this obstacle was emitted. */
     public void markNearMissReported() {
         nearMissReported = true;
+    }
+
+    /**
+     * Tells whether the streak has already counted this column (D26). The streak is resolved one
+     * step after the score, once the column has left the inflated hitbox for good, so a graze in
+     * that trailing window still costs the gate it happened on.
+     *
+     * @return {@code true} once the column reached the streak
+     */
+    public boolean isStreakResolved() {
+        return streakResolved;
+    }
+
+    /** Marks the column as counted by the streak. */
+    public void markStreakResolved() {
+        streakResolved = true;
     }
 
     @Override

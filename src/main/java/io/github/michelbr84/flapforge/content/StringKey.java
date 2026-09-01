@@ -39,6 +39,8 @@ public enum StringKey {
 
     /** Main menu: start a run. */
     MENU_PLAY("menu.play"),
+    /** Main menu: open the statistics screen. */
+    MENU_STATISTICS("menu.statistics"),
     /** Main menu: open the settings screen. */
     MENU_SETTINGS("menu.settings"),
     /** Main menu: leave the game. */
@@ -154,6 +156,8 @@ public enum StringKey {
     HUD_SEED("hud.seed"),
     /** HUD: the clean-gate streak, {@code {0}} is the length. */
     HUD_STREAK("hud.streak"),
+    /** HUD and wallet: a coin amount, {@code {0}} is the number. */
+    HUD_COINS("hud.coins"),
 
     /** Pause overlay title. */
     PAUSE_TITLE("pause.title"),
@@ -176,6 +180,139 @@ public enum StringKey {
     STAT_TIME_ALIVE("stat.time_alive"),
     /** Result value: seconds and ticks survived, {@code {0}} seconds and {@code {1}} ticks. */
     STAT_TIME_ALIVE_VALUE("stat.time_alive.value"),
+    /** Result row: coins earned by the run. */
+    STAT_COINS("stat.coins"),
+    /** Result row: experience earned by the run. */
+    STAT_XP("stat.xp"),
+    /** Result row: the longest clean-gate streak of the run. */
+    STAT_STREAK_BEST("stat.streak_best"),
+    /** Game-over line after a level-up, {@code {0}} is the new level. */
+    GAMEOVER_LEVEL_UP("gameover.level_up"),
+
+    /** Run summary title. */
+    SUMMARY_TITLE("summary.title"),
+    /** Run summary section: what the run itself did. */
+    SUMMARY_SECTION_RUN("summary.section.run"),
+    /** Run summary section: the coin breakdown. */
+    SUMMARY_SECTION_COINS("summary.section.coins"),
+    /** Run summary section: experience and level. */
+    SUMMARY_SECTION_XP("summary.section.xp"),
+    /** Run summary section: how the run was set up. */
+    SUMMARY_SECTION_INFO("summary.section.info"),
+    /** Run summary button: play again with a new seed. */
+    SUMMARY_RETRY("summary.retry"),
+    /** Run summary button: back to the main menu. */
+    SUMMARY_MENU("summary.menu"),
+    /** Marker appended to a row the run set a personal best in. */
+    SUMMARY_BEST("summary.best"),
+    /** Run summary row: the seed and the mode, {@code {0}} seed and {@code {1}} mode. */
+    SUMMARY_SEED("summary.seed"),
+    /** Run summary row: the level reached, {@code {0}} is the level. */
+    SUMMARY_LEVEL("summary.level"),
+    /** Run summary value: progress inside a level, {@code {0}} of {@code {1}} XP. */
+    SUMMARY_LEVEL_PROGRESS("summary.level_progress"),
+    /** Run summary value: the level cap has been reached. */
+    SUMMARY_LEVEL_MAX("summary.level_max"),
+
+    /** Run mode: a normal run. */
+    MODE_STANDARD("mode.standard"),
+    /** Run mode: a run with a chosen seed. */
+    MODE_SEEDED("mode.seeded"),
+    /** Run mode: the daily challenge. */
+    MODE_DAILY("mode.daily"),
+    /** Run mode: a challenge. */
+    MODE_CHALLENGE("mode.challenge"),
+
+    /** Reward row: the coins any run that got going pays. */
+    REWARD_PARTICIPATION("reward.participation"),
+    /** Reward row: the bonus a profile's first run pays. */
+    REWARD_FIRST_RUN("reward.first_run"),
+    /** Reward row: the coins the gates paid. */
+    REWARD_GATES("reward.gates"),
+    /** Reward row: the coins the points paid. */
+    REWARD_POINTS("reward.points"),
+    /** Reward row: the coins the streak steps paid. */
+    REWARD_STREAK("reward.streak"),
+    /** Reward row: the coins the bosses paid. */
+    REWARD_BOSS("reward.boss"),
+    /** Reward row: the coins the challenge paid. */
+    REWARD_CHALLENGE("reward.challenge"),
+    /** Reward row: the sum of the terms before any multiplier. */
+    REWARD_BASE("reward.base"),
+    /** Reward row: the {@code COIN_MULT} stat the run was played with. */
+    REWARD_COIN_MULT("reward.coin_mult"),
+    /** Reward row: the tier's reward multiplier. */
+    REWARD_TIER_MULT("reward.tier_mult"),
+    /** Reward row: the daily multiplier. */
+    REWARD_DAILY_MULT("reward.daily_mult"),
+    /** Reward row: the coins picked up in the world. */
+    REWARD_COLLECTED("reward.collected"),
+    /** Reward row: what the run paid in total. */
+    REWARD_TOTAL("reward.total"),
+    /** Reward value: a multiplier, {@code {0}} is the factor. */
+    REWARD_MULTIPLIER_VALUE("reward.multiplier_value"),
+
+    /** Statistics screen title. */
+    STATS_TITLE("stats.title"),
+    /** Statistics group: how much has been flown. */
+    STATS_GROUP_FLIGHTS("stats.group.flights"),
+    /** Statistics group: how far the flights got. */
+    STATS_GROUP_DISTANCE("stats.group.distance"),
+    /** Statistics group: coins and experience. */
+    STATS_GROUP_ECONOMY("stats.group.economy"),
+    /** Statistics group: clean-gate streaks and what breaks them. */
+    STATS_GROUP_STREAKS("stats.group.streaks"),
+    /** Statistics group: deaths per collision cause. */
+    STATS_GROUP_DEATHS("stats.group.deaths"),
+    /** Statistics row: runs finished. */
+    STATS_RUNS("stats.runs"),
+    /** Statistics row: time spent flying. */
+    STATS_PLAYTIME("stats.playtime"),
+    /** Statistics value: a duration, {@code {0}} hours and {@code {1}} minutes. */
+    STATS_PLAYTIME_VALUE("stats.playtime.value"),
+    /** Statistics row: daily runs played. */
+    STATS_DAILIES("stats.dailies"),
+    /** Statistics row: challenges completed. */
+    STATS_CHALLENGES("stats.challenges"),
+    /** Statistics row: most gates in one run. */
+    STATS_BEST_GATES("stats.best_gates"),
+    /** Statistics row: gates passed across every run. */
+    STATS_TOTAL_GATES("stats.total_gates"),
+    /** Statistics row: most points in one run. */
+    STATS_BEST_POINTS("stats.best_points"),
+    /** Statistics row: points scored across every run. */
+    STATS_TOTAL_POINTS("stats.total_points"),
+    /** Statistics row: coins credited from every source. */
+    STATS_COINS_EARNED("stats.coins_earned"),
+    /** Statistics row: coins spent. */
+    STATS_COINS_SPENT("stats.coins_spent"),
+    /** Statistics row: coins picked up in runs. */
+    STATS_COINS_COLLECTED("stats.coins_collected"),
+    /** Statistics row: experience earned. */
+    STATS_XP_EARNED("stats.xp_earned"),
+    /** Statistics row: the current level. */
+    STATS_LEVEL("stats.level"),
+    /** Statistics row: hits absorbed by a shield. */
+    STATS_SHIELD_ABSORBS("stats.shield_absorbs"),
+    /** Statistics row: revives consumed. */
+    STATS_REVIVES("stats.revives"),
+    /** Statistics: the run history list. */
+    STATS_HISTORY("stats.history"),
+    /** Statistics: one history entry, {@code {0}} index, {@code {1}} gates, {@code {2}} coins. */
+    STATS_HISTORY_ENTRY("stats.history.entry"),
+    /** Statistics: shown instead of the history when no run has been finished yet. */
+    STATS_HISTORY_EMPTY("stats.history.empty"),
+    /** Statistics: shown instead of a group whose counters are all zero. */
+    STATS_NONE("stats.none"),
+
+    /** Death cause: flew into an obstacle. */
+    DEATH_OBSTACLE("death.obstacle"),
+    /** Death cause: hit the ground. */
+    DEATH_GROUND("death.ground"),
+    /** Death cause: hit the ceiling. */
+    DEATH_CEILING("death.ceiling"),
+    /** Death cause: the run ended without one. */
+    DEATH_UNKNOWN("death.unknown"),
 
     /** Footer: the global keys. */
     FOOTER_KEYS("footer.keys"),
@@ -199,7 +336,17 @@ public enum StringKey {
     /** Toast: audio was unmuted. */
     TOAST_UNMUTED("toast.unmuted"),
     /** Toast: a file could not be written, {@code {0}} is the reason. */
-    TOAST_SAVE_FAILED("toast.save_failed");
+    TOAST_SAVE_FAILED("toast.save_failed"),
+    /** Toast: the save was unusable and the backup was loaded, {@code {0}} is the file name. */
+    TOAST_SAVE_RESTORED("toast.save_restored"),
+    /** Toast: save and backup were both unusable, {@code {0}} is the quarantined file name. */
+    TOAST_SAVE_RESET("toast.save_reset"),
+    /** Toast: the save is newer than this build, so nothing is written this session. */
+    TOAST_SAVE_READ_ONLY("toast.save_read_only"),
+    /** Toast: the save file could not be opened, {@code {0}} is the file name. */
+    TOAST_SAVE_UNREADABLE("toast.save_unreadable"),
+    /** Toast: the player reached a new level, {@code {0}} is the level. */
+    TOAST_LEVEL_UP("toast.level_up");
 
     private static final Map<String, StringKey> BY_KEY;
 

@@ -5,10 +5,17 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.core.RandomProvider;
+import io.github.michelbr84.flapforge.core.geom.Aabb;
 import io.github.michelbr84.flapforge.gameplay.bird.Bird;
+import io.github.michelbr84.flapforge.gameplay.pickup.Coin;
+import io.github.michelbr84.flapforge.gameplay.pickup.PickupLayer;
 import io.github.michelbr84.flapforge.render.BackgroundRenderer;
 import io.github.michelbr84.flapforge.render.BirdRenderer;
 import io.github.michelbr84.flapforge.render.CloudLayer;
+import io.github.michelbr84.flapforge.render.HudRenderer;
+import io.github.michelbr84.flapforge.render.ParticleSystem;
+import io.github.michelbr84.flapforge.render.PickupRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
@@ -18,6 +25,10 @@ import org.junit.jupiter.api.Test;
  * cloud spawn/motion rules, the wing animation cadence and pose selection, and the ground scroll
  * and its freeze on death. Every constant here is quoted in that document, so the two cannot drift
  * apart silently.
+ *
+ * <p>M3 adds the same kind of row for the coins: the spin is a pure function of the tick, a
+ * pickup produces exactly one flourish, and the HUD lights its streak flame at the economy's
+ * reward step.
  */
 class RenderLayerTest {
 
@@ -175,6 +186,65 @@ class RenderLayerTest {
 
         background.reset();
         assertEquals(0.0, background.distance(), 0.0, "a new run restarts the strip");
+    }
+
+    @Test
+    void theCoinSpinIsAPureFunctionOfTheTick() {
+        int turn = ProceduralArt.COIN_SPIN_TICKS;
+        assertEquals(1.0, ProceduralArt.coinSpin(0), 1e-9, "face on at the start of a turn");
+        assertEquals(0.0, ProceduralArt.coinSpin(turn / 4), 1e-9, "edge on a quarter later");
+        assertEquals(-1.0, ProceduralArt.coinSpin(turn / 2), 1e-9, "the other face at half");
+        assertEquals(ProceduralArt.coinSpin(3), ProceduralArt.coinSpin(3L + 10 * turn), 0.0,
+                "the phase wraps on the turn");
+        assertEquals(ProceduralArt.coinSpin(turn - 1), ProceduralArt.coinSpin(-1), 0.0,
+                "a negative phase wraps too, it does not index out of the table");
+        assertEquals(turn, PickupRenderer.SPIN_TICKS);
+    }
+
+    @Test
+    void aCollectedCoinProducesExactlyOneFlourish() {
+        PickupLayer layer = new PickupLayer(new RandomProvider(7));
+        Coin coin = new Coin(120, 300);
+        layer.add(coin);
+        ParticleSystem particles = new ParticleSystem(new Random(3));
+        PickupRenderer renderer = new PickupRenderer();
+
+        renderer.tick(layer, particles);
+        assertEquals(0, renderer.flourishes(), "an untouched coin is not a pickup");
+        assertTrue(particles.isEmpty());
+
+        // Collection goes through the layer, which is what counts the pickup; the renderer reads
+        // that counter, so a coin marked collected behind the layer's back is not a pickup.
+        assertEquals(1, layer.collect(new Aabb(110, 290, 20, 20)).size());
+        assertTrue(coin.isCollected());
+        renderer.tick(layer, particles);
+        assertEquals(1, renderer.flourishes(), "the pickup is announced once");
+        assertTrue(particles.count() > 0, "the flourish reached the pool");
+
+        // The layer only drops a collected coin on its next update, so the corpse is still in the
+        // list on the following tick; it must not be counted again.
+        int emitted = particles.count();
+        renderer.tick(layer, particles);
+        assertEquals(1, renderer.flourishes(), "the same coin cannot fire twice");
+        assertTrue(particles.count() <= emitted, "and nothing new was emitted");
+
+        renderer.reset();
+        assertEquals(0, renderer.flourishes());
+        assertEquals(0, renderer.ticks(), "a new run restarts the spin");
+    }
+
+    @Test
+    void theHudLightsTheStreakFlameAtTheEconomyStep() {
+        HudRenderer hud = new HudRenderer("hint");
+        assertFalse(hud.isStreakHot(9), "no step configured, no flame");
+        hud.setStreakStep(5);
+        assertEquals(5, hud.streakStep());
+        assertFalse(hud.isStreakHot(0));
+        assertFalse(hud.isStreakHot(4), "one gate short of a reward step");
+        assertTrue(hud.isStreakHot(5), "the step itself pays, so it burns");
+        assertTrue(hud.isStreakHot(12), "and it stays lit above it");
+        hud.setStreakStep(0);
+        assertFalse(hud.isStreakHot(100), "a disabled step never lights the flame");
     }
 
     @Test

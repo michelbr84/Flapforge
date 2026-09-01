@@ -218,7 +218,15 @@ manager ticks only the top screen, so anything that must keep moving under an
 overlay is driven by that overlay (the game-over screen ticks the renderer's
 cloud drift). M2 replaced the M0 `ui.UiText` placeholder with
 `content.Strings`/`StringKey` and added the boot splash, the real settings
-screen and the `Slider`/`Toggle`/`ListView`/`Toast` components.
+screen and the `Slider`/`Toggle`/`ListView`/`Toast` components. M3 added the
+`ProgressBar` and `CurrencyDisplay` components, `RunSummaryScreen` (opened with
+`Enter` from the game-over strip: every term of the reward formula on its own
+row, the level bar the XP moved, the seed with its mode, Retry / Menu) and
+`StatisticsScreen` (reachable from the menu: the lifetime counters grouped, and
+`statistics.runHistory` paged newest first in a `ListView`). Both keep their
+rows in a content space scrolled under a clip, the way the settings screen
+does, and neither writes anything: they read the profile the run was already
+written into (D14, D29).
 
 Three keys belong to no screen and are handled by the manager: `F11`
 (fullscreen), `F3` (the debug overlay) and `M` (mute). All three change a
@@ -255,9 +263,10 @@ player was in the middle of editing. Writing is a separate step
 subscribes to `SettingsChanged` so a hotkey pressed while it is open re-syncs its
 working copy instead of being overwritten by the pending flush.
 
-The write itself runs on `Threads.saveExecutor()` (one daemon thread, queue
-depth 1, latest submission wins), so its outcome is **not** readable when
-`save()` returns. Each finished write is queued inside the store and drained by
+The write itself runs on `Threads.saveExecutor()` (one daemon thread that runs
+every task it is given; `SaveManager` does the "latest state wins" coalescing
+itself, because a task the executor discards never reports and its bookkeeping
+leaks), so its outcome is **not** readable when `save()` returns. Each finished write is queued inside the store and drained by
 `GameContext.drainSaveResults()` on the loop thread, which turns a failure into
 a `SaveFailed` event and a warning toast — the write that actually failed, once
 (D15). `AtomicFiles` does tmp + fsync + `ATOMIC_MOVE`, three immediate retries,
@@ -355,6 +364,50 @@ uses but a table lacks.
   every shipped string, and the font caches are lock-free arrays with
   acquire/release access because the boot warm-up fills them from another thread
   while the loop draws the splash.
+
+## Run economy and the progression write path `[M3]`
+
+One finished run travels through five objects, in one direction, and no step
+knows the next one's package:
+
+```
+Run.result()  ──►  RunRewardCalculator.compute(result, EconomyDef, RewardContext)
+                              │                         ▲
+                              ▼                         │ first run? first clears?
+                        RewardSummary          ProgressionManager.rewardContext(profile, …)
+                              │
+                              ▼
+   ProgressionManager.apply(profile, result, ProgressionRules, RewardMultipliers)
+     rewards → wallet → xp/level (+ level rewards) → statistics → challenge →
+     daily → achievements → unlocks → dirty                       (D14, fixed order)
+                              │
+                              ▼
+                     ProgressionOutcome  ──►  GameScreen  ──►  GameEvent + toasts + save
+```
+
+- **The formula is pure and lives in `gameplay.run`.** It reads the run and
+  `economy.json` and nothing else; the two things it cannot know — whether this
+  is the profile's first run, and which bosses it cleared for the first time —
+  arrive in a `RewardContext` the progression layer fills in *before* any step
+  has written to the profile. That ordering is why `REWARDS` is the first step.
+- **`ProgressionRules.fromEconomy(EconomyDef)` is the only adapter.** It turns
+  the currencies, `xp.curve` and `xp.levelRewards` into a `PlayerLevel`, and
+  points its `RewardSource` at the calculator. A test builds one from three
+  literals instead, which is what keeps the write order testable without the
+  content pipeline.
+- **`progression` never imports `event`** (`ArchitectureTest` enforces it).
+  `ProgressionOutcome` carries facts — coins, levels crossed, unlock ids — and
+  `GameScreen` maps them to `CurrencyChanged`, `XpGained`, `LevelUp`,
+  `AchievementUnlocked`, `UnlockGranted` and the toasts that go with them.
+- **`apply` runs exactly once per run** (D29): on the tick that reaches
+  `FINISHED`, before the game-over overlay is pushed, and immediately followed
+  by a save. A second call with the same `RunResult` returns the first outcome
+  instead of paying twice. The overlay only *shows* the outcome, so the instant
+  retry cannot lose a reward.
+- **Coins and the streak are simulation state**, not progression state:
+  `PickupLayer` spawns a coin trail per scoring gate from the `coins` random
+  stream (E2), `StreakTracker` counts clean gates (D26), and both fold into
+  `Simulation.stateHash()` — which is why adding them changed the golden run.
 
 ## Simulation and meta layers (overview, `[M1+]`)
 
