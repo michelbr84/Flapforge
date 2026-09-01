@@ -1,0 +1,38 @@
+{
+  "curves": {
+    "classic": [
+      { "stat": "MOVING_CHANCE", "op": "FLAT_ADD", "base": 0.05, "perGate": 0.05, "min": 0, "max": 1.0 }
+    ],
+    "standard": [
+      { "stat": "MOVING_CHANCE", "op": "FLAT_ADD", "base": 0.05, "perGate": 0.05, "min": 0, "max": 1.0 },
+      { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "base": 1.0, "perGate": 0.004, "min": 1.0, "max": 1.5 },
+      { "stat": "GAP_SIZE", "op": "MULTIPLY", "base": 1.0, "perGate": -0.002, "min": 0.8, "max": 1.0 }
+    ]
+  },
+  "speedRampPerTick": 0.0005,
+  "tiers": [
+    { "id": "normal", "default": true, "effects": [], "flags": [], "rewardMult": 1.0,
+      "unlock": { "type": "default" } },
+    { "id": "hard",
+      "effects": [
+        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.15 },
+        { "stat": "GAP_SIZE", "op": "MULTIPLY", "value": 0.9 }
+      ],
+      "flags": [], "rewardMult": 1.5,
+      "unlock": { "type": "any_of", "conditions": [
+        { "type": "best_gates", "value": 40 },
+        { "type": "total_gates", "value": 400 }
+      ] } },
+    { "id": "nightmare",
+      "effects": [
+        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.3 },
+        { "stat": "GAP_SIZE", "op": "MULTIPLY", "value": 0.8 }
+      ],
+      "flags": ["ALL_OBSTACLES_MOVE", "LETHAL_CEILING"], "rewardMult": 2.5,
+      "unlock": { "type": "any_of", "conditions": [
+        { "type": "challenge", "id": "boss_corridor_1" },
+        { "type": "level", "value": 20 }
+      ] } }
+  ],
+  "tierGenerator": null
+}

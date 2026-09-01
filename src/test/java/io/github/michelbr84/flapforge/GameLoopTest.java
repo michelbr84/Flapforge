@@ -244,6 +244,46 @@ class GameLoopTest {
     }
 
     @Test
+    void aScreenCanAskTheLoopToDropItsBankedTime() {
+        warmUp();
+        // A pause let 40 ms pile up; without the reset the resume frame would run two catch-up
+        // ticks (D2). The screen asks for the reset while it is ticked, mid-frame.
+        clock.advance(40 * MS);
+        loop.frame();
+        assertEquals(2, loop.lastTicks());
+        assertTrue(loop.accumulatorNs() > 0, "a remainder is banked");
+
+        screens.requestAccumulatorReset();
+        clock.advance(5 * MS);
+        loop.frame();
+        assertEquals(0, loop.lastTicks(), "no tick ran in the resume frame");
+        assertEquals(0, loop.accumulatorNs(), "the banked time was dropped");
+        assertEquals(0.0, loop.lastAlpha(), 0.0);
+        assertFalse(screens.consumeAccumulatorReset(), "the request is consumed once");
+
+        clock.advance(Playfield.TICK_NS);
+        loop.frame();
+        assertEquals(1, loop.lastTicks(), "the loop keeps stepping normally afterwards");
+    }
+
+    @Test
+    void aFullscreenRequestOpensAHandshakeWindow() {
+        warmUp();
+        assertFalse(screens.isFullscreenHandshake());
+        input.offer(new RawInput.KeyDown(Keys.F11, 1));
+        clock.advance(Playfield.TICK_NS);
+        loop.frame();
+        assertTrue(screens.isFullscreenHandshake(), "F11 opens the window a focus loss is"
+                + " attributed to");
+        for (int i = 0; i < ScreenManager.FULLSCREEN_GRACE_TICKS; i++) {
+            clock.advance(Playfield.TICK_NS);
+            loop.frame();
+        }
+        assertFalse(screens.isFullscreenHandshake(), "the window closes after "
+                + ScreenManager.FULLSCREEN_GRACE_TICKS + " ticks");
+    }
+
+    @Test
     void nullPresenterRendersIntoAnImageWhenGivenARenderer() {
         NullPresenter drawing = new NullPresenter(screens, screens.viewport(), Playfield.WIDTH,
                 Playfield.HEIGHT);

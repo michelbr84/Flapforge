@@ -62,13 +62,11 @@ jobs:
           if-no-files-found: error
 
       - name: Headless determinism run
-        # M0 accepts `--headless-run N` and prints a summary line
-        # (`headless-run frames=N ticks=N presents=N seed=S`); the state hash
-        # (`hash=<hex>`, last stdout line) arrives with the simulation in M1.
-        # Until then the determinism job finds no hash and is allowed to fail.
-        # TODO(M1): remove continue-on-error here and in the determinism job
-        # together with the M1 hash so a broken headless run fails the build.
-        continue-on-error: true
+        # `--headless-run N` prints the summary line
+        # (`headless-run frames=N ticks=N presents=N seed=S`) followed by the
+        # state hash line `hash=<16 hex> ticks=<n> gates=<g> points=<p>` (M1).
+        # Only the hash token is compared across platforms; a failure here is a
+        # real failure since M1.
         shell: bash
         run: |
           jar=$(ls build/libs/flapforge-*-all.jar | head -n 1)
@@ -94,28 +92,26 @@ jobs:
           path: hashes
 
       - name: Assert every OS/JDK produced the same hash
-        # Same caveat as above: until M1 prints `hash=<hex>` there is nothing
-        # to compare (a summary line would trivially agree), so the job may
-        # not fail the workflow yet. TODO(M1): remove continue-on-error.
-        continue-on-error: true
+        # The simulation is seeded and integer/double exact, so every OS and JDK
+        # must produce the same `hash=` token for the same seed (D12, E12).
         shell: bash
         run: |
           shopt -s nullglob
           files=(hashes/*/hash.txt)
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "::warning::No determinism outputs found (expected until --headless-run lands in M1)"
+            echo "::error::No determinism outputs found"
             exit 1
           fi
           for f in "${files[@]}"; do
             echo "== $f"
             cat "$f"
-            if ! grep -qE '^hash=[0-9a-f]+$' "$f"; then
-              echo "::error::$f has no 'hash=<hex>' line (printed by --headless-run from M1)"
+            if ! grep -qE '^hash=[0-9a-f]{16} ' "$f"; then
+              echo "::error::$f has no 'hash=<16 hex>' line (printed by --headless-run)"
               exit 1
             fi
           done
-          # Only the explicit hash line is compared, never the summary line.
-          distinct=$(for f in "${files[@]}"; do grep -E '^hash=[0-9a-f]+$' "$f" | tail -n 1; done | sort -u | wc -l)
+          # Only the hash token is compared, never the summary line or the counters.
+          distinct=$(for f in "${files[@]}"; do grep -oE '^hash=[0-9a-f]{16}' "$f" | tail -n 1; done | sort -u | wc -l)
           if [ "$distinct" -ne 1 ]; then
             echo "::error::Determinism hashes differ across platforms/JDKs"
             exit 1

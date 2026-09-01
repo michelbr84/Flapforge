@@ -17,6 +17,8 @@ import io.github.michelbr84.flapforge.app.LaunchOptions;
 import io.github.michelbr84.flapforge.app.SystemClock;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.geom.Vec2;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
+import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.InputQueue;
@@ -24,12 +26,17 @@ import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
+import io.github.michelbr84.flapforge.render.HudRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
-import io.github.michelbr84.flapforge.ui.screens.GameStubScreen;
+import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
+import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
+import io.github.michelbr84.flapforge.ui.screens.GameScreen;
+import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
+import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
 import java.awt.AWTError;
@@ -75,6 +82,28 @@ import org.junit.jupiter.api.Test;
 class SmokeWindowTest {
 
     private static final Path OUT_DIR = Path.of("build", "smoke");
+    /** Height the smoke flight keeps the bird around: clear of the ceiling and of the ground. */
+    private static final int HOLD_Y = 300;
+    /**
+     * How often a Robot <em>click</em> is repeated when the desktop swallowed it (a window sitting
+     * over the point receives the press instead). A retry only happens when the expectation is
+     * still unmet after 90 frames, i.e. the click had no effect at all, so it cannot activate a
+     * button twice. Key taps are never retried — see {@link Driver#tap}.
+     */
+    private static final int DELIVERY_ATTEMPTS = 3;
+
+    /**
+     * How long a Robot event may take to come back through the toolkit. The rig drives the loop
+     * as fast as it can, so a frame budget is not a time budget: 90 uncapped frames can elapse in
+     * well under a millisecond while X still has the event in flight on a loaded machine.
+     */
+    private static final long DELIVERY_TIMEOUT_MS = 2_000L;
+    /**
+     * Flaps the scripted flight performs before the frame is captured. One flap per ~27 ticks
+     * holds the bird around {@link #HOLD_Y}, so five of them are ~110 ticks — comfortably short of
+     * the ~146 ticks the first gate needs to reach the bird.
+     */
+    private static final int FLIGHT_FLAPS = 5;
     private static final int GRACE = ScreenManager.TRANSITION_GRACE_TICKS + 5;
 
     /** Overlay recording the frames it sees, pushed on top of the menu for input checks. */
@@ -129,6 +158,9 @@ class SmokeWindowTest {
             });
             bridge.attach(window);
             assertTrue(bridge.isAttached());
+            // This runs on a live desktop: without always-on-top another window can cover the
+            // point a Robot click targets, and X delivers the press to whatever is topmost there.
+            GameWindow.onEdt(() -> window.frame().setAlwaysOnTop(true));
         }
 
         void start(Screen root) {
@@ -146,6 +178,25 @@ class SmokeWindowTest {
         boolean until(BooleanSupplier done, int maxFrames) {
             for (int i = 0; i < maxFrames && !done.getAsBoolean(); i++) {
                 loop.frame();
+            }
+            return done.getAsBoolean();
+        }
+
+        /**
+         * Drives frames until {@code done} holds or the deadline passes, yielding between frames
+         * so the toolkit thread can actually deliver what the {@link Robot} posted. Used wherever
+         * the test waits for something that has to travel through X.
+         */
+        boolean untilDeadline(BooleanSupplier done, long timeoutMs) {
+            long end = System.nanoTime() + timeoutMs * 1_000_000L;
+            while (!done.getAsBoolean() && System.nanoTime() < end) {
+                loop.frame();
+                try {
+                    Thread.sleep(1);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
             return done.getAsBoolean();
         }
@@ -185,25 +236,44 @@ class SmokeWindowTest {
 
         void tap(int keyCode, BooleanSupplier expected) {
             String text = KeyEvent.getKeyText(keyCode);
-            assertTrue(rig.window.canvas().isFocusOwner(), "canvas lost keyboard focus before " + text);
+            // Reclaim focus first: on a live desktop another window can take it between two steps,
+            // and the key press then goes there instead. A no-op while we still own it; when focus
+            // cannot be reclaimed at all the run is aborted, never passed. waitForIdle() lets a
+            // just-granted focus change settle before the press. Keys are never retried: the tests
+            // below assert that one tap produces exactly one edge, and a second press would defeat
+            // that -- so the wait below is a real-time deadline, never a frame count.
+            focusCanvasOrAbort(rig);
+            robot.waitForIdle();
             robot.keyPress(keyCode);
             robot.keyRelease(keyCode);
-            rig.until(expected, 90);
+            rig.untilDeadline(expected, DELIVERY_TIMEOUT_MS);
             assertTrue(expected.getAsBoolean(),
                     "Robot key " + text + " was not delivered through the toolkit");
         }
 
         void click(UiNode node, BooleanSupplier expected) {
-            Vec2 w = rig.viewport.toWindow(node.centerX(), node.centerY());
-            int wx = (int) Math.round(w.x());
-            int wy = (int) Math.round(w.y());
-            Canvas canvas = rig.window.canvas();
-            assertTrue(canvas.isShowing(), "canvas showing");
-            Point origin = canvas.getLocationOnScreen();
-            robot.mouseMove(origin.x + wx, origin.y + wy);
-            robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
-            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
-            rig.until(expected, 90);
+            int wx = 0;
+            int wy = 0;
+            for (int attempt = 0; attempt < DELIVERY_ATTEMPTS; attempt++) {
+                // Raise the window first: on a busy desktop another window can sit over the point
+                // we are about to click, and X delivers the press to whatever is topmost there.
+                focusCanvasOrAbort(rig);
+                Vec2 w = rig.viewport.toWindow(node.centerX(), node.centerY());
+                wx = (int) Math.round(w.x());
+                wy = (int) Math.round(w.y());
+                Canvas canvas = rig.window.canvas();
+                assertTrue(canvas.isShowing(), "canvas showing");
+                Point origin = canvas.getLocationOnScreen();
+                robot.mouseMove(origin.x + wx, origin.y + wy);
+                robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+                robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+                rig.untilDeadline(expected, DELIVERY_TIMEOUT_MS);
+                if (expected.getAsBoolean()) {
+                    return;
+                }
+                System.out.println("[smoke] click at " + wx + "," + wy
+                        + " was not delivered, retrying");
+            }
             assertTrue(expected.getAsBoolean(), "Robot click at " + wx + "," + wy
                     + " was not delivered through the toolkit");
         }
@@ -213,7 +283,7 @@ class SmokeWindowTest {
          * more frames and returns how many times the fullscreen state changed.
          */
         int holdFullscreenKey(long holdMs) {
-            assertTrue(rig.window.canvas().isFocusOwner(), "canvas lost keyboard focus before F11");
+            focusCanvasOrAbort(rig);
             int transitions = 0;
             boolean last = rig.window.isFullscreen();
             robot.keyPress(KeyEvent.VK_F11);
@@ -362,9 +432,9 @@ class SmokeWindowTest {
             assertSame(menu.settingsButton(), menu.focusRing().focused(), "Down moves to Settings");
             driver.tap(KeyEvent.VK_UP, () -> menu.focusRing().focused() == menu.playButton());
             assertSame(menu.playButton(), menu.focusRing().focused(), "Up moves focus back");
-            driver.tap(KeyEvent.VK_ENTER, () -> rig.screens.top() instanceof GameStubScreen);
+            driver.tap(KeyEvent.VK_ENTER, () -> rig.screens.top() instanceof GameScreen);
             rig.frames(20);
-            assertTrue(saveShot("game-stub", rig) >= 2, "game stub is uniform");
+            assertTrue(saveShot("game", rig) >= 2, "game screen is uniform");
             driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
             rig.frames(GRACE);
 
@@ -382,6 +452,72 @@ class SmokeWindowTest {
             assertTrue(rig.overlay.fps() > 0, "overlay measured fps");
             assertTrue(rig.overlay.tps() > 0, "overlay measured tps");
             assertTrue(saveShot("debug-overlay", rig) >= 2, "overlay frame is uniform");
+
+            rig.requestCloseAndVerify();
+        }
+    }
+
+    @Test
+    void aRunPlayedWithTheRobotCapturesEveryPhase() throws Exception {
+        requireDisplay();
+        try (Rig rig = new Rig("Flapforge smoke test (game)", false)) {
+            MainMenuScreen menu = new MainMenuScreen(rig.screens,
+                    new ClassicRunFactory(RunMode.SEEDED), SeedSequence.of(42));
+            rig.start(menu);
+            rig.frames(30);
+            focusCanvasOrAbort(rig);
+            Driver driver = new Driver(rig);
+
+            // Menu -> game. The run waits for the first flap: capture READY past the first blink.
+            driver.tap(KeyEvent.VK_ENTER, () -> rig.screens.top() instanceof GameScreen);
+            GameScreen game = (GameScreen) rig.screens.top();
+            assertEquals(42L, game.seed(), "--seed reached the first run");
+            assertEquals(RunPhase.READY, game.run().phase());
+            rig.frames(HudRenderer.BLINK_HALF_TICKS + 10);
+            assertTrue(game.renderer().hud().promptVisible(), "the READY hint is blinking");
+            assertTrue(saveShot("ready", rig) >= 2, "READY frame is uniform");
+
+            // A real Space tap through the toolkit starts the run.
+            driver.tap(KeyEvent.VK_SPACE, () -> game.run().phase() == RunPhase.FLYING);
+            assertEquals(1, game.run().simulation().flaps(), "the Robot tap reached the run");
+
+            // Then hold altitude with queued flaps. Robot taps cannot set the cadence (each one
+            // waits for its own effect, so the interval varies), and a bird flapped too often
+            // climbs into the ceiling gate at y <= 32 where flaps are refused by design. Flapping
+            // on the bird's own height keeps it in the middle of the screen and away from both
+            // the ceiling and the ground; the first gate only reaches it after ~146 ticks.
+            holdAltitude(rig, game, FLIGHT_FLAPS, 600);
+            assertEquals(RunPhase.FLYING, game.run().phase(), "the bird survived the flight");
+            assertEquals(FLIGHT_FLAPS, game.run().simulation().flaps(),
+                    "the flight flapped until the target count");
+            assertFalse(game.run().simulation().obstacles().isEmpty(), "a gate is on screen");
+            assertTrue(game.renderer().background().distance() > 0, "the ground scrolled");
+            assertTrue(saveShot("flying", rig) >= 2, "FLYING frame is uniform");
+
+            // A queued focus loss pauses; an explicit key resumes.
+            rig.input.offer(new RawInput.FocusLost(RawInput.FocusLost.UNKNOWN_WHEN));
+            rig.until(() -> rig.screens.top() instanceof PauseOverlay, 30);
+            assertTrue(rig.screens.top() instanceof PauseOverlay, "focus loss paused the run");
+            rig.frames(20);
+            assertTrue(saveShot("paused", rig) >= 2, "PAUSE frame is uniform");
+            int frozenTick = game.run().tick();
+            rig.frames(20);
+            assertEquals(frozenTick, game.run().tick(), "the run is frozen while paused");
+            focusCanvasOrAbort(rig);
+            driver.tap(KeyEvent.VK_SPACE, () -> rig.screens.top() == game);
+
+            // Scripted death: no more flaps, so the bird falls to the ground line.
+            diveToGameOver(rig, 900);
+            assertTrue(rig.screens.top() instanceof GameOverOverlay, "the dive ended the run");
+            assertEquals(RunPhase.FINISHED, game.run().phase());
+            rig.frames(HudRenderer.BLINK_HALF_TICKS + 10);
+            assertTrue(saveShot("gameover", rig) >= 2, "GAME OVER frame is uniform");
+
+            // Instant retry with a new seed (D29).
+            focusCanvasOrAbort(rig);
+            driver.tap(KeyEvent.VK_SPACE, () -> rig.screens.top() == game);
+            assertEquals(43L, game.seed(), "the retry used the next seed");
+            assertEquals(RunPhase.READY, game.run().phase());
 
             rig.requestCloseAndVerify();
         }
@@ -416,6 +552,56 @@ class SmokeWindowTest {
                 app.context().loop().stop();
                 app.awaitShutdown(4_000L);
             }
+        }
+    }
+
+    /**
+     * Flies the bird until it has flapped {@code minFlaps} times, queueing a Space tap whenever it
+     * has sunk below {@value #HOLD_Y}. Self-correcting: the bird oscillates around that height and
+     * can reach neither the ceiling flap gate (where flaps are refused by design) nor the ground.
+     * Driven by the flap count rather than by a frame count, because a paced frame may run zero or
+     * several ticks and the desktop may pause the run in between.
+     */
+    private static void holdAltitude(Rig rig, GameScreen game, int minFlaps, int maxFrames) {
+        long stamp = 1;
+        for (int i = 0; i < maxFrames && game.run().simulation().flaps() < minFlaps; i++) {
+            if (rig.screens.top() instanceof PauseOverlay) {
+                // The desktop stole the window's focus and the run paused — which is exactly the
+                // behaviour this test checks deliberately further down. Resume and keep flying;
+                // the world is frozen meanwhile, so no obstacle creeps up on the bird.
+                System.out.println("[smoke] focus was stolen mid-flight; resuming the run");
+                focusCanvasOrAbort(rig);
+                rig.input.offer(new RawInput.KeyDown(Keys.SPACE, stamp++));
+                rig.input.offer(new RawInput.KeyUp(Keys.SPACE, stamp++));
+                rig.loop.frame();
+                continue;
+            }
+            if (game.run().phase() == RunPhase.FLYING
+                    && game.run().simulation().bird().y() > HOLD_Y) {
+                rig.input.offer(new RawInput.KeyDown(Keys.SPACE, stamp++));
+                rig.input.offer(new RawInput.KeyUp(Keys.SPACE, stamp++));
+            }
+            rig.loop.frame();
+        }
+    }
+
+    /**
+     * Runs frames without any flap until the game-over overlay appears, resuming the run if the
+     * desktop steals the window's focus on the way down (which pauses it, freezing the fall).
+     *
+     * @param rig the window and loop
+     * @param maxFrames the frame budget
+     */
+    private static void diveToGameOver(Rig rig, int maxFrames) {
+        long stamp = 1;
+        for (int i = 0; i < maxFrames && !(rig.screens.top() instanceof GameOverOverlay); i++) {
+            if (rig.screens.top() instanceof PauseOverlay) {
+                System.out.println("[smoke] focus was stolen mid-dive; resuming the run");
+                focusCanvasOrAbort(rig);
+                rig.input.offer(new RawInput.KeyDown(Keys.SPACE, stamp++));
+                rig.input.offer(new RawInput.KeyUp(Keys.SPACE, stamp++));
+            }
+            rig.loop.frame();
         }
     }
 

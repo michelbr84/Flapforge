@@ -15,6 +15,10 @@ import java.util.Objects;
  * {@link Clock}, {@link InputQueue}, {@link ScreenManager}, {@link FramePresenter} and
  * {@link FrameLimiter}; it never touches the window toolkit so tests, the smoke test and
  * {@code --headless-run} can drive {@link #frame()} directly.
+ *
+ * <p>After the tick loop the frame honours {@link ScreenManager#consumeAccumulatorReset()}: a
+ * screen that resumed from a pause asks for the banked time to be dropped, so the first frame
+ * back never replays it as a burst of ticks (D2).
  */
 public final class GameLoop {
 
@@ -119,6 +123,11 @@ public final class GameLoop {
             ticks++;
         }
         if (ticks == MAX_TICKS_PER_FRAME) {
+            accumulatorNs = 0;
+        }
+        if (screens.consumeAccumulatorReset()) {
+            // A screen resumed from a pause: drop the time the loop banked while it was stopped
+            // so the player does not get a burst of catch-up ticks (D2).
             accumulatorNs = 0;
         }
         tickCount += ticks;

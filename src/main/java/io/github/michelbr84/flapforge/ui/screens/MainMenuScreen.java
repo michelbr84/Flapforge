@@ -19,9 +19,10 @@ import io.github.michelbr84.flapforge.ui.component.Panel;
 import java.awt.Graphics2D;
 
 /**
- * Minimal main menu (D17, M0): the Green Fields backdrop, a bird perched on an anvil above the
- * procedurally drawn title, and a panel with Play, Settings and Quit. Play pushes
- * {@link GameStubScreen}, Settings pushes {@link SettingsScreen}, Quit asks the
+ * Minimal main menu (D17, M0/M1): the Green Fields backdrop, a bird perched on an anvil above the
+ * procedurally drawn title, and a panel with Play, Settings and Quit. Play pushes a
+ * {@link GameScreen} built from the injected {@link SeededRunSource} and {@link SeedSequence} (so
+ * {@code --seed N} reaches the first run), Settings pushes {@link SettingsScreen}, Quit asks the
  * {@link ScreenManager} to close (the same path as the window button). Arrows/Tab, Enter/Space,
  * hover and click all work through the {@link FocusRing}; {@code Esc} moves focus to Quit. M2
  * completes this screen — it is not a throwaway.
@@ -46,6 +47,8 @@ public final class MainMenuScreen implements Screen {
     private static final int FOOTER_BASELINE = Playfield.HEIGHT - 14;
 
     private final ScreenManager screens;
+    private final SeededRunSource runFactory;
+    private final SeedSequence seeds;
     private final FocusRing ring = new FocusRing();
     private final Panel panel = new Panel();
     private final Button play;
@@ -57,13 +60,26 @@ public final class MainMenuScreen implements Screen {
     private double bob;
 
     /**
-     * Creates the menu.
+     * Creates the menu with classic runs and clock-derived seeds.
      *
      * @param screens the manager used to push screens and request quitting
      */
     public MainMenuScreen(ScreenManager screens) {
+        this(screens, new ClassicRunFactory(), SeedSequence.random());
+    }
+
+    /**
+     * Creates the menu.
+     *
+     * @param screens the manager used to push screens and request quitting
+     * @param runFactory builds the run the game screen plays
+     * @param seeds the seed source ({@code --seed N} makes it explicit)
+     */
+    public MainMenuScreen(ScreenManager screens, SeededRunSource runFactory, SeedSequence seeds) {
         this.screens = screens;
-        play = panel.add(new Button(UiText.PLAY, () -> screens.push(new GameStubScreen(screens))));
+        this.runFactory = runFactory;
+        this.seeds = seeds;
+        play = panel.add(new Button(UiText.PLAY, this::startGame));
         settings = panel.add(new Button(UiText.SETTINGS,
                 () -> screens.push(new SettingsScreen(screens))));
         quit = panel.add(new Button(UiText.QUIT, screens::requestClose));
@@ -72,6 +88,10 @@ public final class MainMenuScreen implements Screen {
         panel.layoutColumn(BUTTON_H, BUTTON_GAP);
         panel.registerFocusables(ring);
         versionLine = UiText.VERSION_PREFIX + Flapforge.version();
+    }
+
+    private void startGame() {
+        screens.push(new GameScreen(screens, runFactory, seeds));
     }
 
     /**

@@ -45,7 +45,7 @@ public final class Playfield {
     public static final int AUTO_FLAP_PERIOD_TICKS = 24;
     /** Inflation of the bird hitbox used to detect near misses. */
     public static final int NEAR_MISS_INFLATE_PX = 6;
-    /** Clouds scroll at the ground speed divided by this factor. */
+    /** Clouds scroll at the ground speed multiplied by this factor (upstream GAME_SPEED x 2). */
     public static final int CLOUD_SPEED_FACTOR = 2;
     /** Maximum number of clouds alive at once. */
     public static final int CLOUD_MAX = 7;

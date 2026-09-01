@@ -40,6 +40,15 @@ public final class ScreenManager implements FrameRenderer {
 
     /** Ticks after a transition during which {@code CONFIRM} presses are ignored. */
     public static final int TRANSITION_GRACE_TICKS = 9;
+    /**
+     * Ticks after a fullscreen request during which a focus loss is attributed to the handshake.
+     *
+     * <p>Entering or leaving borderless fullscreen disposes the frame, re-creates it undecorated
+     * (or decorated) and shows it again, so the toolkit delivers a {@code FocusLost} the player
+     * never asked for, a few ticks after the toggle. {@link #isFullscreenHandshake()} is true for
+     * this window so a running game does not pause on it (D2).
+     */
+    public static final int FULLSCREEN_GRACE_TICKS = 45;
 
     private final Viewport viewport;
     private final List<Screen> stack = new ArrayList<>();
@@ -50,6 +59,8 @@ public final class ScreenManager implements FrameRenderer {
     private boolean iconified;
     private boolean debugOverlay;
     private boolean closeRequested;
+    private boolean accumulatorResetRequested;
+    private int fullscreenGraceTicks;
     private int graceTicks;
     private boolean stripEdgesNextTick;
     private long tickCount;
@@ -239,12 +250,46 @@ public final class ScreenManager implements FrameRenderer {
     }
 
     /**
+     * Asks the game loop to discard the time in its accumulator before the next frame.
+     *
+     * <p>Used when a run resumes from a pause: the loop may have been starved while the window
+     * was unfocused or minimised, and without the reset the first frame back would run a burst of
+     * catch-up ticks and kill the player (D2). The flag is consumed once, by
+     * {@link #consumeAccumulatorReset()}.
+     */
+    public void requestAccumulatorReset() {
+        accumulatorResetRequested = true;
+    }
+
+    /**
+     * Reads and clears the accumulator-reset request. The game loop calls it once per frame.
+     *
+     * @return {@code true} when a reset was requested since the last call
+     */
+    public boolean consumeAccumulatorReset() {
+        boolean requested = accumulatorResetRequested;
+        accumulatorResetRequested = false;
+        return requested;
+    }
+
+    /**
+     * Whether a fullscreen handshake is still settling.
+     *
+     * @return {@code true} for {@value #FULLSCREEN_GRACE_TICKS} ticks after a fullscreen request
+     * @see #FULLSCREEN_GRACE_TICKS
+     */
+    public boolean isFullscreenHandshake() {
+        return fullscreenGraceTicks > 0;
+    }
+
+    /**
      * Requests a fullscreen state change through the presenter.
      *
      * @param fullscreen the desired state
      */
     public void setFullscreen(boolean fullscreen) {
         this.fullscreen = fullscreen;
+        fullscreenGraceTicks = FULLSCREEN_GRACE_TICKS;
         if (presenter != null) {
             presenter.setFullscreen(fullscreen);
         }
@@ -326,6 +371,9 @@ public final class ScreenManager implements FrameRenderer {
      */
     public void tick(InputFrame frame) {
         tickCount++;
+        if (fullscreenGraceTicks > 0) {
+            fullscreenGraceTicks--;
+        }
         applyPending();
         handleSystemEvents(frame);
 

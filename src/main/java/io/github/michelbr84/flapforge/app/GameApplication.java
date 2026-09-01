@@ -1,8 +1,17 @@
 package io.github.michelbr84.flapforge.app;
 
 import io.github.michelbr84.flapforge.Flapforge;
+import io.github.michelbr84.flapforge.content.ContentException;
+import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.content.RunFactory;
+import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.TimeSource;
+import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
+import io.github.michelbr84.flapforge.gameplay.harness.HeadlessRunner;
+import io.github.michelbr84.flapforge.gameplay.run.Run;
+import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.input.InputQueue;
 import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
@@ -10,18 +19,26 @@ import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
+import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
+import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import java.awt.AWTError;
 import java.awt.DisplayMode;
 import java.awt.GraphicsEnvironment;
 import java.awt.HeadlessException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
  * Wires threads, clocks, window, presenter, input bridge, screen manager and loop, and owns
  * the clean shutdown sequence (D4).
+ *
+ * <p>Both launches load {@link GameContent} once, before anything else, and hand it to the
+ * screens as a {@link ContentRunFactory}: every run the player plays is built from the shipped
+ * {@code data/*.json} (D10, D11). Content that fails to bind or validate prints every error and
+ * aborts the launch — a broken data file must never reach a window.
  *
  * <p>Windowed launch: the window is built on the event-dispatch thread, the loop runs on the
  * non-daemon {@code flapforge-loop} thread and the main thread returns. Without a display the
@@ -33,12 +50,18 @@ import java.util.Objects;
  * hosts the application in a long-lived JVM cancels it with {@link #awaitShutdown(long)}.
  *
  * <p>Headless launch ({@code --headless-run N}): the loop is driven for N frames with a stepping
- * clock (one tick per frame) and a {@link NullPresenter}; a summary line is printed.
+ * clock (one tick per frame) and a {@link NullPresenter}; a summary line is printed, followed by
+ * the determinism line {@code hash=<16 hex> ticks=<n> gates=<g> points=<p>} produced by
+ * {@link #simulationHashLine(GameContent, long, int)} — the artefact CI compares across
+ * operating systems and JDKs (D12, E12).
  */
 public final class GameApplication {
 
     /** Delay before the watchdog forces the JVM to exit after a clean shutdown began. */
     public static final long WATCHDOG_MS = 5_000L;
+
+    /** Seed of a headless run started without {@code --seed} (the CI reference seed, D12). */
+    public static final long DEFAULT_HEADLESS_SEED = 42L;
 
     private final LaunchOptions options;
     private GameContext context;
@@ -119,6 +142,10 @@ public final class GameApplication {
     }
 
     private void runHeadless() {
+        GameContent content = loadContent();
+        if (content == null) {
+            return;
+        }
         int frames = Math.max(1, options.headlessRun());
         Threads threads = new Threads();
         SteppingClock clock = new SteppingClock();
@@ -130,7 +157,8 @@ public final class GameApplication {
         screens.setPresenter(presenter);
         GameLoop loop = new GameLoop(clock, input, screens, presenter, FrameLimiter.uncapped(clock));
         screens.setCloseHandler(loop::stop);
-        screens.push(new MainMenuScreen(screens));
+        SeedSequence seeds = SeedSequence.from(options.seed());
+        screens.push(new MainMenuScreen(screens, runFactory(content, seeds), seeds));
         screens.applyPending();
         context = new GameContext(options, clock, timeSource, threads, input, viewport, screens,
                 presenter, null, loop);
@@ -140,13 +168,74 @@ public final class GameApplication {
             clock.step(Playfield.TICK_NS);
             loop.frame();
         }
+        long seed = options.seed() == null ? DEFAULT_HEADLESS_SEED : options.seed();
         System.out.println("headless-run frames=" + loop.frameCount() + " ticks=" + loop.tickCount()
-                + " presents=" + presenter.presentCount() + " seed="
-                + (options.seed() == null ? "random" : options.seed()));
+                + " presents=" + presenter.presentCount() + " seed=" + seed);
+        System.out.println(simulationHashLine(content, seed, frames));
         threads.shutdown(2_000L);
     }
 
+    /**
+     * Loads the shipped content, printing every binding and validation error before giving up.
+     *
+     * @return the content, or {@code null} when it failed to load (the launch must abort)
+     */
+    private static GameContent loadContent() {
+        try {
+            return GameContent.load();
+        } catch (ContentException e) {
+            System.err.println(e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * The factory both launches play through: the shipped content, in the mode the seed implies.
+     *
+     * @param content the loaded content
+     * @param seeds the seed source
+     * @return the factory
+     */
+    private static ContentRunFactory runFactory(GameContent content, SeedSequence seeds) {
+        return new ContentRunFactory(content,
+                seeds.isExplicit() ? RunMode.SEEDED : RunMode.STANDARD);
+    }
+
+    /**
+     * Runs the shipped content headlessly with the deterministic pilot and renders the CI line
+     * (D12, E12): {@code hash=<16 hex> ticks=<n> gates=<g> points=<p>}.
+     *
+     * <p>The line is what the build workflow compares across ubuntu/windows/macos and JDK 17/21
+     * — it must depend only on the seed, the shipped {@code data/*.json} and the simulation, so
+     * nothing here touches the window, the clock or the frame loop. The golden fixture is a
+     * different guarantee (frozen content, asserted in {@code GoldenRunTest}); this one moves
+     * with the shipped balance on purpose.
+     *
+     * @param content the loaded content
+     * @param seed the run seed
+     * @param maxTicks the tick budget
+     * @return the line to print
+     */
+    static String simulationHashLine(GameContent content, long seed, int maxTicks) {
+        Run run = new RunFactory(content).newRun(RunConfig.classic(seed));
+        HeadlessRunner.Outcome outcome =
+                HeadlessRunner.run(run, new BotPilot(BotPilot.Preset.PERFECT, seed), maxTicks, true);
+        long hash = MathUtil.fnv1a64("flapforge-headless");
+        for (Long tickHash : outcome.hashes()) {
+            hash = MathUtil.fold(hash, tickHash);
+        }
+        double points = outcome.result().stats().points();
+        String pointsText = points == Math.rint(points) && !Double.isInfinite(points)
+                ? Long.toString((long) points) : Double.toString(points);
+        return String.format(Locale.ROOT, "hash=%016x ticks=%d gates=%d points=%s", hash,
+                outcome.ticks(), outcome.result().gatesPassed(), pointsText);
+    }
+
     private void runWindowed() {
+        GameContent content = loadContent();
+        if (content == null) {
+            return;
+        }
         Threads threads = new Threads();
         Clock clock = new SystemClock();
         TimeSource timeSource = new SystemTimeSource();
@@ -175,7 +264,9 @@ public final class GameApplication {
         GameLoop loop = new GameLoop(clock, input, screens, presenter, limiter);
         overlay.setSource(new DebugSource(screens, loop));
         screens.setCloseHandler(loop::stop);
-        screens.push(new MainMenuScreen(screens));
+        // --seed N reaches the first run and every instant retry after it (N, N+1, N+2 ...).
+        SeedSequence seeds = SeedSequence.from(options.seed());
+        screens.push(new MainMenuScreen(screens, runFactory(content, seeds), seeds));
         screens.applyPending();
         context = new GameContext(options, clock, timeSource, threads, input, viewport, screens,
                 presenter, window, loop);

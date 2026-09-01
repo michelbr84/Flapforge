@@ -21,7 +21,7 @@ import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
-import io.github.michelbr84.flapforge.ui.screens.GameStubScreen;
+import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
 import java.awt.Graphics2D;
@@ -120,14 +120,14 @@ class MenuNavigationTest {
     }
 
     @Test
-    void keyboardMovesFocusOpensTheStubAndEscapesBack() {
+    void keyboardMovesFocusOpensTheGameAndEscapesBack() {
         assertSame(menu.playButton(), menu.focusRing().focused(), "Play focused on entry");
         tap(Keys.DOWN);
         assertSame(menu.settingsButton(), menu.focusRing().focused(), "Down moves to Settings");
         tap(Keys.UP);
         assertSame(menu.playButton(), menu.focusRing().focused(), "Up moves back to Play");
         tap(Keys.ENTER);
-        assertTrue(screens.top() instanceof GameStubScreen, "Enter on Play pushes the stub");
+        assertTrue(screens.top() instanceof GameScreen, "Enter on Play pushes the game");
         ticks(GRACE);
         tap(Keys.ESCAPE);
         assertSame(menu, screens.top(), "Esc pops back to the menu");

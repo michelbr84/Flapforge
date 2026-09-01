@@ -1,0 +1,25 @@
+[
+  {
+    "id": "classic",
+    "archetype": "BALANCED",
+    "passiveSlots": 2,
+    "baseStats": { "GRAVITY": 1800, "FLAP_VELOCITY": 405, "MAX_FALL_SPEED": 1500 },
+    "hitbox": { "w": 33, "h": 31, "ox": -17, "oy": -12 },
+    "effects": [],
+    "rampEffects": [],
+    "synergyEffects": [],
+    "passiveAbilities": [],
+    "palettes": [
+      { "id": "default", "body": "#F5C542", "wing": "#E09A2B", "eye": "#222222", "accent": "#FFF3C4",
+        "unlock": { "type": "default" } },
+      { "id": "ember", "body": "#E0533A", "wing": "#8C2B1A", "eye": "#222222", "accent": "#FFB48A",
+        "unlock": { "type": "challenge", "id": "no_shield_1" } },
+      { "id": "voidglass", "body": "#3B2E5A", "wing": "#241A38", "eye": "#E8E0FF", "accent": "#9B7BE8",
+        "unlock": { "type": "world_cleared", "id": "void" } },
+      { "id": "prestige", "body": "#FFD966", "wing": "#C9A227", "eye": "#222222", "accent": "#FFF6D5",
+        "unlock": { "type": "prestige", "value": 1 } }
+    ],
+    "shape": "balanced",
+    "unlock": { "type": "default" }
+  }
+]

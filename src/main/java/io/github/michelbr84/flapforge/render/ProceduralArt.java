@@ -10,6 +10,7 @@ import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.Stroke;
 import java.awt.geom.Ellipse2D;
+import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
@@ -30,6 +31,51 @@ import java.util.concurrent.ConcurrentHashMap;
  * Callers pass a context already in logical coordinates (D3) unless stated otherwise.
  */
 public final class ProceduralArt {
+
+    /** Pose of a drawn bird (§5 cosmetic row: upstream has an "up" and a "dead" sprite). */
+    public enum BirdPose {
+        /** Level flight; the wing animates with the phase. */
+        NORMAL,
+        /** Rising ({@code vy < 0}): nose up, wing held at the top of its stroke. */
+        UP,
+        /** Dead: nose down, wing folded, eye closed. */
+        DEAD
+    }
+
+    /**
+     * A colour derived from a {@link WorldPalette}. Values are resolved and cached per palette so
+     * per-frame lookups allocate nothing.
+     */
+    public enum Tone {
+        /** Sky colour at the top of the playfield. */
+        SKY_TOP,
+        /** Sky colour just above the ground. */
+        SKY_BOTTOM,
+        /** Ground strip fill. */
+        GROUND,
+        /** Darker line along the top of the ground strip. */
+        GROUND_EDGE,
+        /** Distant hill band. */
+        HILL_FAR,
+        /** Near hill band. */
+        HILL_NEAR,
+        /** Cloud fill (translucent). */
+        CLOUD,
+        /** Obstacle body. */
+        PIPE,
+        /** Obstacle outline and shading. */
+        PIPE_EDGE,
+        /** Obstacle highlight stripe. */
+        PIPE_LIGHT,
+        /** Highlight colour (bird body, title, focus ring). */
+        ACCENT,
+        /** Darker accent (bird wing and tail). */
+        ACCENT_DARK,
+        /** Bird belly. */
+        BELLY,
+        /** Letterbox tone, also used for outlines. */
+        LETTERBOX
+    }
 
     /** Visual state of a button. */
     public enum ButtonState {
@@ -104,6 +150,13 @@ public final class ProceduralArt {
             0.04, 0.18);
     private static final double WING_PIVOT_X = -0.12;
     private static final double WING_PIVOT_Y = -0.02;
+    private static final double BIRD_TILT_UP = -0.28;
+    private static final double BIRD_TILT_DEAD = 0.62;
+    private static final double WING_PHASE_UP = 0.5;
+    private static final double WING_PHASE_DEAD = 0.0;
+    private static final Stroke EYE_CROSS = new BasicStroke(0.05f);
+    private static final Shape EYE_CROSS_A = new Line2D.Double(0.14, -0.26, 0.34, -0.06);
+    private static final Shape EYE_CROSS_B = new Line2D.Double(0.34, -0.26, 0.14, -0.06);
 
     /* Unit-space anvil; 1 unit = width, origin at the top-left of the face, height 0.5. */
     private static final Shape ANVIL = polygon(0.00, 0.04, 0.20, 0.00, 1.00, 0.00, 0.96, 0.20,
@@ -121,11 +174,15 @@ public final class ProceduralArt {
         final Color hillFar;
         final Color hillNear;
         final Color cloud;
+        final Color pipe;
+        final Color pipeEdge;
+        final Color pipeLight;
         final Color accent;
         final Color accentDark;
         final Color belly;
         final Color letterbox;
         final Paint sky;
+        final Color[] tones = new Color[Tone.values().length];
 
         Resolved(WorldPalette p) {
             skyTop = new Color(p.skyTop());
@@ -136,11 +193,28 @@ public final class ProceduralArt {
             hillNear = new Color(WorldPalette.lighten(p.pipe(), 0.18));
             int fog = p.fog();
             cloud = new Color((fog >> 16) & 0xFF, (fog >> 8) & 0xFF, fog & 0xFF, 0xD9);
+            pipe = new Color(p.pipe());
+            pipeEdge = new Color(WorldPalette.darken(p.pipe(), 0.42));
+            pipeLight = new Color(WorldPalette.lighten(p.pipe(), 0.35));
             accent = new Color(p.accent());
             accentDark = new Color(WorldPalette.mix(p.accent(), 0xC0501A, 0.55));
             belly = new Color(WorldPalette.lighten(p.accent(), 0.45));
             letterbox = new Color(p.letterbox());
             sky = new GradientPaint(0f, 0f, skyTop, 0f, (float) Playfield.GROUND_Y, skyBottom);
+            tones[Tone.SKY_TOP.ordinal()] = skyTop;
+            tones[Tone.SKY_BOTTOM.ordinal()] = skyBottom;
+            tones[Tone.GROUND.ordinal()] = ground;
+            tones[Tone.GROUND_EDGE.ordinal()] = groundEdge;
+            tones[Tone.HILL_FAR.ordinal()] = hillFar;
+            tones[Tone.HILL_NEAR.ordinal()] = hillNear;
+            tones[Tone.CLOUD.ordinal()] = cloud;
+            tones[Tone.PIPE.ordinal()] = pipe;
+            tones[Tone.PIPE_EDGE.ordinal()] = pipeEdge;
+            tones[Tone.PIPE_LIGHT.ordinal()] = pipeLight;
+            tones[Tone.ACCENT.ordinal()] = accent;
+            tones[Tone.ACCENT_DARK.ordinal()] = accentDark;
+            tones[Tone.BELLY.ordinal()] = belly;
+            tones[Tone.LETTERBOX.ordinal()] = letterbox;
         }
     }
 
@@ -193,11 +267,42 @@ public final class ProceduralArt {
     }
 
     private static void cloud(Graphics2D g, int cx, int cy, double s) {
-        int w = (int) (48 * s);
-        int h = (int) (33 * s);
-        g.fillOval(cx - w / 2, cy - h / 2, w, h);
-        g.fillOval(cx - w / 2 - w / 3, cy - h / 3, (int) (w * 0.7), (int) (h * 0.7));
-        g.fillOval(cx + w / 6, cy - h / 3, (int) (w * 0.65), (int) (h * 0.7));
+        drawCloud(g, new Ellipse2D.Double(), cx - 24 * s, cy - 16.5 * s, 48 * s, 33 * s, 0);
+    }
+
+    /**
+     * Draws one cloud (a cluster of ellipses) into a box, in the context's current colour.
+     *
+     * <p>Two silhouettes reproduce upstream's two cloud images: variant 0 is the wide 48x33 puff,
+     * variant 1 the rounder 40x32 one. The caller owns the scratch ellipse the puffs are filled
+     * through, so a per-frame call allocates nothing.
+     *
+     * @param g the context
+     * @param scratch a reusable ellipse owned by the caller (its state is overwritten)
+     * @param x the left edge of the box
+     * @param y the top edge of the box
+     * @param w the box width
+     * @param h the box height
+     * @param variant the silhouette, {@code 0} or {@code 1} (other values wrap)
+     */
+    public static void drawCloud(Graphics2D g, Ellipse2D.Double scratch, double x, double y,
+            double w, double h, int variant) {
+        if (Math.floorMod(variant, 2) == 0) {
+            puff(g, scratch, x, y + h * 0.30, w * 0.52, h * 0.70);
+            puff(g, scratch, x + w * 0.24, y, w * 0.54, h * 0.82);
+            puff(g, scratch, x + w * 0.52, y + h * 0.24, w * 0.48, h * 0.76);
+            puff(g, scratch, x + w * 0.08, y + h * 0.52, w * 0.84, h * 0.48);
+        } else {
+            puff(g, scratch, x + w * 0.06, y + h * 0.26, w * 0.56, h * 0.74);
+            puff(g, scratch, x + w * 0.30, y, w * 0.62, h * 0.72);
+            puff(g, scratch, x + w * 0.40, y + h * 0.34, w * 0.58, h * 0.66);
+        }
+    }
+
+    private static void puff(Graphics2D g, Ellipse2D.Double scratch, double x, double y, double w,
+            double h) {
+        scratch.setFrame(x, y, w, h);
+        g.fill(scratch);
     }
 
     /**
@@ -299,26 +404,62 @@ public final class ProceduralArt {
      */
     public static void drawBird(Graphics2D g, double cx, double cy, double size, double wingPhase,
             WorldPalette palette) {
+        drawBird(g, cx, cy, size, wingPhase, palette, BirdPose.NORMAL);
+    }
+
+    /**
+     * Draws a stylised bird facing right in one of the three upstream poses.
+     *
+     * @param g the context
+     * @param cx the body centre x
+     * @param cy the body centre y
+     * @param size the body width (the body is {@code 0.76 * size} tall)
+     * @param wingPhase animation phase in {@code [0, 1)}: wing down at 0, up at 0.5 (ignored
+     *     outside {@link BirdPose#NORMAL})
+     * @param palette the palette providing the body (accent) colour
+     * @param pose the pose
+     */
+    public static void drawBird(Graphics2D g, double cx, double cy, double size, double wingPhase,
+            WorldPalette palette, BirdPose pose) {
         Resolved r = resolve(palette);
+        double tilt = pose == BirdPose.UP ? BIRD_TILT_UP
+                : (pose == BirdPose.DEAD ? BIRD_TILT_DEAD : 0);
+        double phase = pose == BirdPose.UP ? WING_PHASE_UP
+                : (pose == BirdPose.DEAD ? WING_PHASE_DEAD : wingPhase);
         g.translate(cx, cy);
         g.scale(size, size);
+        if (tilt != 0) {
+            g.rotate(tilt);
+        }
         g.setColor(r.accentDark);
         g.fill(BIRD_TAIL);
         g.setColor(r.accent);
         g.fill(BIRD_BODY);
         g.setColor(r.belly);
         g.fill(BIRD_BELLY);
-        double angle = wingAngle(wingPhase);
+        double angle = wingAngle(phase);
         g.rotate(angle, WING_PIVOT_X, WING_PIVOT_Y);
         g.setColor(r.accentDark);
         g.fill(BIRD_WING);
         g.rotate(-angle, WING_PIVOT_X, WING_PIVOT_Y);
-        g.setColor(EYE_WHITE);
-        g.fill(BIRD_EYE);
-        g.setColor(EYE_PUPIL);
-        g.fill(BIRD_PUPIL);
+        if (pose == BirdPose.DEAD) {
+            Stroke old = g.getStroke();
+            g.setStroke(EYE_CROSS);
+            g.setColor(EYE_PUPIL);
+            g.draw(EYE_CROSS_A);
+            g.draw(EYE_CROSS_B);
+            g.setStroke(old);
+        } else {
+            g.setColor(EYE_WHITE);
+            g.fill(BIRD_EYE);
+            g.setColor(EYE_PUPIL);
+            g.fill(BIRD_PUPIL);
+        }
         g.setColor(BEAK);
         g.fill(BIRD_BEAK);
+        if (tilt != 0) {
+            g.rotate(-tilt);
+        }
         g.scale(1 / size, 1 / size);
         g.translate(-cx, -cy);
     }
@@ -423,6 +564,28 @@ public final class ProceduralArt {
             out.add(icon(size));
         }
         return out;
+    }
+
+    /**
+     * A palette-derived colour, resolved once per palette and cached (D18: no per-frame
+     * allocation).
+     *
+     * @param palette the palette
+     * @param tone which colour
+     * @return the toolkit colour
+     */
+    public static Color color(WorldPalette palette, Tone tone) {
+        return resolve(palette).tones[tone.ordinal()];
+    }
+
+    /**
+     * The cached vertical sky gradient of a palette, spanning {@code [0, GROUND_Y]}.
+     *
+     * @param palette the palette
+     * @return the paint
+     */
+    public static Paint skyPaint(WorldPalette palette) {
+        return resolve(palette).sky;
     }
 
     /**

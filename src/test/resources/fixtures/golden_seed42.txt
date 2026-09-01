@@ -1,0 +1,93 @@
+# Flapforge golden run — frozen content fixture, do not edit by hand
+# Re-record with: ./gradlew test -Pflapforge.updateGolden=true
+seed=42
+pilot=perfect
+maxTicks=3000
+hashEvery=50
+ticks=3000
+finished=false
+tick=50 hash=be25078a3a769460
+tick=100 hash=9f8bc88433748e98
+tick=150 hash=9cddf8e61c73a63f
+tick=200 hash=5a70482ea8bb1855
+tick=250 hash=cf0bb6460559a14a
+tick=300 hash=927445677d844af1
+tick=350 hash=e0946677b6a04e21
+tick=400 hash=7533d43f6e1c9aef
+tick=450 hash=8c972b07aa19a102
+tick=500 hash=89d99dcdfcf1fcbd
+tick=550 hash=b8dcee37fcfc4d60
+tick=600 hash=a26b5744b9856f80
+tick=650 hash=7775d88b9a9a2687
+tick=700 hash=7209387d8f45cac2
+tick=750 hash=118e85fd2a04e601
+tick=800 hash=36e5cee2a55c4203
+tick=850 hash=759b50a84cde06ca
+tick=900 hash=810e810b12545d3d
+tick=950 hash=ae2994aa11664d71
+tick=1000 hash=616805d0a7561073
+tick=1050 hash=eb577b3f385ee8a4
+tick=1100 hash=ea6c209ac913b852
+tick=1150 hash=8708879ac8eee613
+tick=1200 hash=a6a5e38cd90d9496
+tick=1250 hash=e7ace1bcded22194
+tick=1300 hash=d1db7797e6dd7f0f
+tick=1350 hash=641333c350d1f7e6
+tick=1400 hash=ef5c4441020d6ead
+tick=1450 hash=6930fe029fc1ed24
+tick=1500 hash=927f911bfd91b15a
+tick=1550 hash=6b0763e51c9dc14c
+tick=1600 hash=767490f6862dc572
+tick=1650 hash=25fc59154c4a3b22
+tick=1700 hash=f67149d83a32be42
+tick=1750 hash=082fb197dcfcf6eb
+tick=1800 hash=010e02029ce8584d
+tick=1850 hash=94a5ae4351445189
+tick=1900 hash=b5e4410ca2096434
+tick=1950 hash=2051ee143550211b
+tick=2000 hash=ad82f4a981e1c8a9
+tick=2050 hash=e819de846e1b2fa3
+tick=2100 hash=065f3aa32cf3e64e
+tick=2150 hash=40b0e0fd05091fd1
+tick=2200 hash=a1e4bf9ecf13180b
+tick=2250 hash=8def9d3126a09489
+tick=2300 hash=5cea3fac3b3e5dc8
+tick=2350 hash=7c99d00c5e924d49
+tick=2400 hash=b3722a1e4df60241
+tick=2450 hash=1f2920919b0e9378
+tick=2500 hash=1331da6745aa69fc
+tick=2550 hash=af719ded227b20f1
+tick=2600 hash=bd655b73caaeef20
+tick=2650 hash=8cfba418cade9bfd
+tick=2700 hash=acfa8f5d433ecc3a
+tick=2750 hash=3b7f20f755c62623
+tick=2800 hash=70715d5e32731a35
+tick=2850 hash=7f7489cf188149b4
+tick=2900 hash=49f63d1d9da9b283
+tick=2950 hash=0fb36bada728104f
+tick=3000 hash=f258f8f597a3fda0
+finalHash=f258f8f597a3fda0
+stats.gatesPassed=36
+stats.points=36.0
+stats.coinsCollected=0
+stats.streak=0
+stats.streakBest=0
+stats.streakSteps=0
+stats.ticksAlive=3000
+stats.deathCause=null
+stats.shieldAbsorbs=0
+stats.revives=0
+stats.nearMisses=3
+stats.phasesReached=0
+stats.objectiveMet=false
+stats.abilitiesUsed={}
+stats.modifiersTaken=[]
+stats.synergiesActivated=[]
+stats.bossesCleared=[]
+counter.gates=36
+counter.points=36
+counter.ticks=3000
+counter.flaps=217
+counter.flapsRefused=0
+counter.nearMisses=3
+counter.obstaclesSpawned=39

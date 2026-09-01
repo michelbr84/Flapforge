@@ -69,7 +69,7 @@ for attribution; those versions were never Flapforge releases.
   report), `dependabot.yml`, `docs/` (index, architecture and development
   drafts), `scripts/` build and run wrappers.
 
-### Changed
+### Changed — M0
 
 - `README.md`: badges, Controls, Getting Started, Running the Game,
   Technology, Project Structure and Assets sections rewritten for the new
@@ -77,7 +77,7 @@ for attribution; those versions were never Flapforge releases.
 - `CHANGELOG.md`: inherited entries relabelled as upstream history with links
   pointing at the upstream repository.
 
-### Removed
+### Removed — M0
 
 - The inherited upstream implementation: `src/main/java/com/kingyu/...`,
   `FlappyBird.jar` and the `resources/` tree (`img`, `wav`, `readme_img`,
@@ -85,6 +85,98 @@ for attribution; those versions were never Flapforge releases.
   build or release (see `THIRD_PARTY_NOTICES.md`).
 - `STRUCTURE.md` (the pre-rewrite layout proposal), superseded by the
   reconciliation table in `docs/ARCHITECTURE.md`.
+
+### Added — M1: classic core (upstream feel, procedural Green Fields)
+
+- Pure simulation under `gameplay`: `Simulation` + `SimContext`/`SimInput`/
+  `TickReport` (immutable per-tick facts), `bird/{Bird,BirdPhysics,HitboxSpec}`,
+  `obstacle/{Obstacle,ObstacleKind,PipeGate,Oscillator,ObstacleLayer,
+  ObstacleSpawner,SpawnTable,SpawnDecision}`,
+  `collision/{CollisionSystem,CollisionReport,CollisionCause}` with
+  displacement sub-stepping, the commutative stat pipeline
+  `stats/{StatId,StatOp,StatModifier,StatSheet,StatBreakdown,EffectStack,Layer,
+  RuleFlag,RuleSet}`, `difficulty/{DifficultyCurve,DifficultyState}`, the run
+  state machine `run/{RunConfig,RunMode,RunPhase,RunStats,Run,RunInput,
+  RunResult,RunSetup}`, the seam records `spec/*` and the deterministic harness
+  `harness/{Pilot,BotPilot,HeadlessRunner}`.
+- Upstream parity: flap 405 px/s, gravity 1800 px/s², scroll 120 px/s, gap 128,
+  gate interval 160, `top ∈ [80, 400]`, floating gates, the moving-chance ramp
+  `0.05 + 0.05 × gates`, the spawn cursor (`last.x + 40 < 420`) and upstream's
+  dedicated first-pair branch (always a static standard gate). The one
+  intentional deviation is the ground rule (death at `y ≥ 581.5` instead of the
+  buried-bird window); every number and its measurement is recorded in
+  `docs/BALANCING.md`.
+- Content pipeline (`content`): `ContentLoader`, `StrictBinder` (unknown key =
+  error with a JSON pointer), `GameContent`, `Registry`, `RunFactory`,
+  `ContentValidator` (ids, enums, the classic table at gate 0 and gate 25),
+  `ContentException`/`UnknownIdException` and the `defs/*` records, plus the
+  shipped `data/birds.json` (Forgewing and its four palettes) and
+  `data/difficulty.json` (curves `classic`/`standard`, tiers
+  `normal`/`hard`/`nightmare`). Both launches load and validate the content
+  before opening a window; a broken data file aborts the launch.
+- Rendering (`render`): `BackgroundRenderer` (sky, two parallax hill bands, the
+  253 px ground band), `CloudLayer`, `BirdRenderer` (8-frame wing cycle, pose
+  from the velocity sign), `ObstacleRenderer` and `GameRenderer`, all
+  procedural and interpolated with the frame alpha; `HudRenderer` with the
+  blinking READY hint and the outlined score.
+- Screens (`ui.screens`): `GameScreen`, `PauseOverlay`, `GameOverOverlay`, the
+  `SeededRunSource` seam with `ClassicRunFactory`/`ContentRunFactory`, and
+  `SeedSequence`. Play opens a run; the first flap starts it; `Esc`, a focus
+  loss or an iconify pauses it (and the resume drops the banked loop time);
+  game over offers an instant retry with the next seed (`--seed N` walks
+  `N, N+1, N+2 …`).
+- `--headless-run N` now prints the determinism line
+  `hash=<16 hex> ticks=<n> gates=<g> points=<p>` from the shipped content, the
+  artefact the cross-OS CI job compares.
+- Tools: `src/tools` `BalancingSim` (`./gradlew balancing -PtoolArgs="..."`)
+  with its `tools/balancing` wrappers.
+- Tests: `ClassicReference` (literal transliteration of the upstream integer
+  loop), `ClassicFeelTest` (air trajectory to 0.0 px), `GroundRuleTest`,
+  `BirdPhysicsTest`, `HitboxTest`, `CollisionSystemTest`, `PipeGateLayoutTest`,
+  `ObstacleSpawnerTest`, `StatSheetTest`, `DifficultyCurveTest`,
+  `RunLifecycleTest`, `RunInputTest`, `DeterminismTest`, `GoldenRunTest`
+  (frozen fixture), `PerfBudgetTest` (`@perf`), `ContentIntegrityTest`,
+  `ContentValidatorTest`, `StrictBinderTest`, `ContentWiringTest`,
+  `RandomProviderTest`, `GameScreenTest`, `RenderLayerTest`, plus the fixtures
+  `golden_seed42.txt` and `content_frozen/*.json`.
+- `docs/BALANCING.md`: the full physics conversion table (air, ground rule,
+  cosmetic rows, difficulty), every "measured" entry produced by a test.
+
+### Changed — M1
+
+- `RandomProvider` runs the composed stream seed through the SplitMix64
+  finaliser before handing it to `java.util.Random`. Without it, consecutive
+  seeds — which is what instant retry and the balancing sweeps produce — share
+  an almost linear first draw (measured over seeds 42–2041: the first `spawn`
+  draw never left `[0.31, 0.50)`), biasing the opening of every run.
+- `CloudLayer` derives its speed from the run's resolved
+  `SCROLL_SPEED × TIME_SCALE` instead of the hard-coded 240 px/s, so the sky
+  cannot desynchronise from the ground on the faster tiers or under Slow Time;
+  the dead drift stays an absolute 30 px/s, as upstream's was.
+- The clouds keep drifting under the game-over overlay and survive an instant
+  retry, matching upstream (`resetGame()` reset the bird and the pipes, never
+  `GameForeground`).
+- `RuleSet` is backed by a flag bit mask, so its `hashCode` (and that of every
+  record carrying it) is a specified value instead of `EnumSet`'s sum of
+  identity hashes; `StatModifier`, `CurveEntry`, `RampEffect`, `BirdProfile`
+  and `WorldSpec` hash their enums by ordinal for the same reason.
+- `ScreenManager` gained the fullscreen handshake window (a focus loss caused
+  by an `F11` toggle must not pause a run) and the accumulator-reset request
+  the game loop honours after a pause.
+- The `GameScreen` run seam is `SeededRunSource` (was `RunFactory`, which
+  collided with `content.RunFactory`).
+- `build.yml`: the cross-platform determinism job now matches the real
+  `hash=<16 hex> ticks=… gates=… points=…` line (the old pattern required the
+  hash to be the whole line and never matched) and no longer runs with
+  `continue-on-error`, so a divergence between operating systems or JDKs fails
+  the workflow — the M1 TODO both steps carried.
+
+### Removed — M1
+
+- `ui/screens/GameStubScreen` and the `UiText` strings that went with it: the
+  real `GameScreen` replaces the M0 placeholder.
+- `gameplay/harness/ScriptedPilot` moved to `src/test/.../support` — a replay
+  helper has no production caller, and Appendix A §3 puts it there.
 
 ---
 

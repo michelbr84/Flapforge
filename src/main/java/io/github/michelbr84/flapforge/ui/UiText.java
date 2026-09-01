@@ -18,10 +18,27 @@ public final class UiText {
     public static final String QUIT = "Quit";
     /** Return to the previous screen. */
     public static final String BACK = "Back";
-    /** Message on the M0 game placeholder. */
-    public static final String GAME_STUB_MESSAGE = "M1 will put the game here";
-    /** Hint on the M0 game placeholder. */
-    public static final String GAME_STUB_HINT = "Esc or Back returns to the menu";
+    /** Blinking hint shown while a run waits for its first flap. */
+    public static final String READY_HINT = "Press Space / click to flap";
+    /** Title of the pause overlay. */
+    public static final String PAUSED = "Paused";
+    /** How to leave the pause overlay and keep playing. */
+    public static final String PAUSE_RESUME_HINT = "Space or click to resume";
+    /** How to leave the pause overlay and abandon the run. */
+    public static final String PAUSE_QUIT_HINT = "Esc quits to the menu";
+    /** Title of the game-over overlay. */
+    public static final String GAME_OVER = "Game over";
+    /** Blinking prompt of the game-over overlay (D29). */
+    public static final String GAME_OVER_PROMPT =
+            "Space: retry   Enter: summary (M3)   Esc: menu";
+    /** Game-over row: scoring columns cleared. */
+    public static final String GATES = "Gates";
+    /** Game-over row: points scored. */
+    public static final String POINTS = "Points";
+    /** Game-over row: how long the bird stayed alive. */
+    public static final String TIME_ALIVE = "Time alive";
+    /** Prefix of the HUD seed line, shown while the run is seeded. */
+    public static final String SEED_PREFIX = "seed ";
     /** Message on the M0 settings placeholder. */
     public static final String SETTINGS_STUB_MESSAGE = "Settings arrive in M2";
     /** Footer hint listing the global keys. */

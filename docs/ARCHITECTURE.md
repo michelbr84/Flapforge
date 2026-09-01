@@ -81,6 +81,23 @@ thread; a direct executor in tests), and `core.RandomProvider` (seeded, named
 streams). The rejected alternative — exempting `persistence`/`progression`
 from the bans — would let wall-clock time creep into save fixtures and tests.
 
+`core.RandomProvider` derives each named stream as
+`new Random(mix64(seed ^ fnv1a64(name)))`. The SplitMix64 finaliser is load
+bearing: `java.util.Random` only scrambles its seed with
+`(s ^ 0x5DEECE66D) & mask`, so for consecutive seeds — which is exactly what
+instant retry (`N, N+1, N+2 …`) and `BalancingSim` produce — the *first* draw
+of a stream is nearly linear in the seed and covers a narrow band. Mixing
+first restores a uniform first draw without touching reproducibility.
+
+**One documented exception to E32.c** ("production never imports `harness`"):
+`app.GameApplication` imports `gameplay.harness.{BotPilot, HeadlessRunner}` to
+produce the `--headless-run` determinism line
+(`hash=… ticks=… gates=… points=…`) that the cross-OS CI job compares, which
+Appendix A §6 requires from the shipped binary — so the bot harness ships in
+the jar. Nothing in the simulation, the screens or the renderers depends on it,
+and the replay-only `ScriptedPilot` lives in `test/support` (§3) rather than in
+the harness package.
+
 ## Loop, presenter and input `[M0]`
 
 ### Game loop (D1)
@@ -193,11 +210,14 @@ mute M, debug F3, fullscreen F11); mouse buttons are fixed.
 `ui.Screen { onEnter, onExit, tick(InputFrame), render(Graphics2D, alpha),
 isOverlay() }` on a `ScreenManager` stack with overlays; one `FocusRing` per
 screen handles keyboard (arrows/Tab, Enter/Space, Esc) and mouse (hover,
-click) focus. M0 ships a minimal `MainMenuScreen` (Play → placeholder
-`GameStubScreen`, deleted when `GameScreen` lands in M1; Settings stub; Quit)
-and the `Button`/`Label`/`Panel` components; later milestones add the
-remaining screens on the same stack. UI strings live in `ui.UiText` only
-until `content.Strings`/`StringKey` replace it in M2.
+click) focus. M0 shipped a minimal `MainMenuScreen` (Play → a placeholder;
+Settings stub; Quit) and the `Button`/`Label`/`Panel` components; M1 replaced
+the placeholder with `GameScreen` + `PauseOverlay` + `GameOverOverlay`, and
+later milestones add the remaining screens on the same stack. The screen
+manager ticks only the top screen, so anything that must keep moving under an
+overlay is driven by that overlay (the game-over screen ticks the renderer's
+cloud drift). UI strings live in `ui.UiText` only until
+`content.Strings`/`StringKey` replace it in M2.
 
 ## Simulation and meta layers (overview, `[M1+]`)
 
@@ -286,7 +306,7 @@ Flapforge/
     │   ├── audio/      AudioBackend SoftwareMixer NullAudio Voice SoundBank ToneSynth AudioManager [M2]  MusicSequencer [M8]
     │   └── ui/         Screen ScreenManager UiNode FocusRing [M0]
     │       ├── component/  Button Label Panel [M0]  Slider Toggle ListView Toast [M2]  ProgressBar CurrencyDisplay [M3]  Tooltip CardGrid TabBar [M4]
-    │       └── screens/    MainMenuScreen (minimal) SettingsScreen (stub) [M0]  GameScreen PauseOverlay GameOverOverlay [M1]  BootScreen [M2; MainMenu/Settings completed]
+    │       └── screens/    MainMenuScreen (minimal) SettingsScreen (stub) [M0]  GameScreen PauseOverlay GameOverOverlay SeededRunSource ClassicRunFactory ContentRunFactory SeedSequence [M1]  BootScreen [M2; MainMenu/Settings completed]
     │                       RunSummaryScreen StatisticsScreen [M3]  BirdSelectionScreen UpgradeTreeScreen ShopScreen [M4]  ModifierChoiceOverlay [M6]
     │                       RuleShiftBanner [M7]  ChallengesScreen AchievementsScreen BossBanner [M8]
     ├── main/resources/

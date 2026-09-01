@@ -25,3 +25,6 @@ bin/
 # OS clutter
 .DS_Store
 Thumbs.db
+
+# Ephemeral git worktrees created by tooling
+.claude/worktrees/
