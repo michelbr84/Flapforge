@@ -6,6 +6,7 @@ import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import java.awt.Graphics2D;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -205,6 +206,26 @@ public final class GameRenderer {
      */
     public void setShieldLabel(String shieldLabel) {
         hud.setShieldLabel(shieldLabel);
+    }
+
+    /**
+     * Replaces the HUD's build strip: the drafted modifiers and the active set bonuses (M6, D27),
+     * already translated by the screen.
+     *
+     * @param modifiers one label per taken modifier, in take order
+     * @param synergies one label per active synergy, in content order
+     */
+    public void setBuild(List<String> modifiers, List<String> synergies) {
+        hud.setBuild(modifiers, synergies);
+    }
+
+    /**
+     * Replaces the HUD's streak-bonus readout (D26, E32.a), already translated by the screen.
+     *
+     * @param text the line, empty to draw none
+     */
+    public void setStreakBonusText(String text) {
+        hud.setStreakBonusText(text);
     }
 
     /**

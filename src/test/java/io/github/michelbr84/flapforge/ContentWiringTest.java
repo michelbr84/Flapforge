@@ -13,6 +13,7 @@ import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
+import io.github.michelbr84.flapforge.modifier.ModifierCatalog;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProfileSchema;
@@ -49,7 +50,8 @@ class ContentWiringTest {
         assertEquals(RunConfig.DEFAULT_BIRD, config.birdId());
         assertEquals(RunConfig.DEFAULT_WORLD, config.worldId());
         assertEquals(RunConfig.DEFAULT_TIER, config.tierId());
-        assertEquals(RunSetup.CLASSIC, run.setup(), "M1 content resolves to the classic seam");
+        assertEquals(RunSetup.CLASSIC, run.setup().withModifiers(ModifierCatalog.EMPTY),
+                "M1 content resolves to the classic seam, plus the M6 draft catalogue");
         assertFalse(run.isFinished());
     }
 

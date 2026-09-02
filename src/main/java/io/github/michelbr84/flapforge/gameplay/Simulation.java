@@ -1,6 +1,7 @@
 package io.github.michelbr84.flapforge.gameplay;
 
 import io.github.michelbr84.flapforge.ability.AbilityHost;
+import io.github.michelbr84.flapforge.ability.AbilityInstance;
 import io.github.michelbr84.flapforge.ability.AbilityManager;
 import io.github.michelbr84.flapforge.ability.BehaviorRegistry;
 import io.github.michelbr84.flapforge.core.MathUtil;
@@ -20,6 +21,8 @@ import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleSpawner;
 import io.github.michelbr84.flapforge.gameplay.obstacle.SpawnTable;
 import io.github.michelbr84.flapforge.gameplay.pickup.Coin;
 import io.github.michelbr84.flapforge.gameplay.pickup.PickupLayer;
+import io.github.michelbr84.flapforge.gameplay.run.DraftWorld;
+import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.ReviveSystem;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
@@ -66,7 +69,15 @@ import java.util.Objects;
  * <p>Hold-to-flap (D2): while {@link SimInput#autoFlapHeld()} is set a synthetic flap is issued
  * whenever {@link Playfield#AUTO_FLAP_PERIOD_TICKS} ticks passed since the last flap.
  */
-public final class Simulation implements AbilityHost {
+public final class Simulation implements AbilityHost, DraftWorld {
+
+    /**
+     * Slack in pixels on the breather's clearance (D11, M6): with the window exactly the width of
+     * the bird's clearance it could fall between two ticks of the scroll, so the deferral asks for
+     * a little more than the geometry needs. Small enough that the shipped 160 px interval still
+     * asks for less than {@code BREATHER_INTERVALS} and the 1.5 D11 writes down is what happens.
+     */
+    private static final double DRAFT_CLEARANCE_MARGIN = 20;
 
     private static final long HASH_SEED = MathUtil.fnv1a64("flapforge-sim");
     private static final String RAMP_SOURCE_PREFIX = "ramp:";
@@ -75,7 +86,7 @@ public final class Simulation implements AbilityHost {
     private final RandomProvider rng;
     private final EffectStack stack = new EffectStack();
     private final StatSheet stats;
-    private final RuleSet rules;
+    private RuleSet rules;
     private final BirdProfile birdProfile;
     private final Bird bird;
     private final BirdPhysics physics;
@@ -88,6 +99,7 @@ public final class Simulation implements AbilityHost {
     private final AbilityManager abilities;
     private final ShieldSystem shield;
     private final ReviveSystem revive;
+    private final ModifierDirector modifiers;
     private int invulnerableTicks;
     private boolean ghost;
     private Obstacle ghostAgainst;
@@ -108,6 +120,18 @@ public final class Simulation implements AbilityHost {
      * @param setup the resolved bird, world and tier
      */
     public Simulation(RunConfig config, RunSetup setup) {
+        this(config, setup, null);
+    }
+
+    /**
+     * Builds the model with an injected spawn table, the one seam a test needs to make the world
+     * predictable (E17: {@code FixedSpawnTable} drives {@code ModifierDirectorTest}).
+     *
+     * @param config the run configuration
+     * @param setup the resolved bird, world and tier
+     * @param spawnTable the table to spawn from, or {@code null} for the world's own
+     */
+    public Simulation(RunConfig config, RunSetup setup, SpawnTable spawnTable) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(setup, "setup");
         this.rng = new RandomProvider(config.seed());
@@ -121,7 +145,8 @@ public final class Simulation implements AbilityHost {
                 setup.tier().effects(), setup.world().effects(), setup.speedRampPerTick(), rules);
         this.bird = new Bird(birdProfile.hitbox(), Playfield.BIRD_START_Y);
         this.physics = new BirdPhysics(stats);
-        this.spawner = new ObstacleSpawner(obstacles, new SpawnTable(setup.world().spawnWeights()),
+        this.spawner = new ObstacleSpawner(obstacles,
+                spawnTable == null ? new SpawnTable(setup.world().spawnWeights()) : spawnTable,
                 rng);
         this.pickups = new PickupLayer(rng);
         this.streaks = new StreakTracker(setup.streakStep());
@@ -133,6 +158,11 @@ public final class Simulation implements AbilityHost {
         this.shield = new ShieldSystem((int) stats.resolve(StatId.SHIELD_CHARGES));
         this.revive = new ReviveSystem((int) stats.resolve(StatId.REVIVES));
         abilities.equip();
+        // After the loadout, before the ramp: the forced modifiers of a challenge or a daily are
+        // taken inside this constructor (D11), so they are already in the MODIFIERS layer when
+        // the difficulty and the ramp resolve their first values.
+        this.modifiers = new ModifierDirector(setup.modifiers(), config.allowOffers(),
+                config.forcedModifiers(), stack, this, rng.stream(RandomProvider.OFFERS));
         refreshRamp();
         difficulty.refresh(0, 0);
     }
@@ -214,6 +244,7 @@ public final class Simulation implements AbilityHost {
         double hitboxScale = stats.resolve(StatId.HITBOX_SCALE);
         CollisionReport report = collision.test(bird, obstacles, Playfield.NEAR_MISS_INFLATE_PX,
                 hitboxScale, rules);
+        boolean collided = report.lethalHit();
         if (report.lethalHit()) {
             if (!absorbLethalHit(report, ctx, facts)) {
                 bird.setState(Bird.State.DYING);
@@ -281,6 +312,10 @@ public final class Simulation implements AbilityHost {
         if (gateChanged || difficulty.needsTickRefresh()) {
             difficulty.refresh(gatesPassed, tick);
         }
+        // Last, after the collision test and after the spawner: a draft may only open on a tick
+        // that nothing hit (D11), and the breather it starts has to reach the spawner before the
+        // spawner's next cursor decision, not after it.
+        modifiers.afterTick(gatesPassed, collided, facts);
         return new TickReport(tick, facts);
     }
 
@@ -533,6 +568,12 @@ public final class Simulation implements AbilityHost {
         h = streaks.hashState(h);
         h = obstacles.hashState(h);
         h = pickups.hashState(h);
+        if (modifiers.isActive()) {
+            // Only a run that can draft, or that already took something, folds the draft state:
+            // a run without it hashes exactly what it hashed before the roguelite layer existed
+            // (D12), which is what keeps the published --headless-run hash comparable.
+            h = modifiers.hashState(h);
+        }
         if (!hasRunSystems()) {
             return h;
         }
@@ -560,6 +601,96 @@ public final class Simulation implements AbilityHost {
      */
     public AbilityManager abilities() {
         return abilities;
+    }
+
+    /**
+     * The mid-run draft (D11, D27): the schedule, the offer on the table, the cards taken and the
+     * active synergies.
+     *
+     * @return the director
+     */
+    public ModifierDirector modifiers() {
+        return modifiers;
+    }
+
+    @Override
+    public boolean isDraftPathClear() {
+        double left = bird.hitbox(stats.resolve(StatId.HITBOX_SCALE)).x();
+        for (Obstacle o : obstacles.obstacles()) {
+            if (o.x() + o.width() < left) {
+                // Fully behind the bird: it can never be what the freeze traps the player in.
+                continue;
+            }
+            if (o.x() >= Playfield.WIDTH) {
+                // Still off the right edge: the breather's gap is what the player is looking at.
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public void deferSpawn(double intervals) {
+        spawner.deferNextSpawn(intervals);
+    }
+
+    @Override
+    public double clearanceIntervals() {
+        double interval = stats.resolve(StatId.GATE_INTERVAL);
+        if (interval <= 0) {
+            return 0;
+        }
+        // The window {@link #isDraftPathClear()} opens is the widened spacing minus the distance
+        // the bird still has to the right edge plus one obstacle body: while the obstacle behind
+        // the bird has not cleared its hitbox, or the one ahead has already entered the playfield,
+        // the path is not clear. The margin is there so the window is a few ticks wide rather
+        // than a single frame the scroll can step over.
+        double left = bird.hitbox(stats.resolve(StatId.HITBOX_SCALE)).x();
+        double span = Playfield.WIDTH - left + Playfield.PIPE_BODY_W + DRAFT_CLEARANCE_MARGIN;
+        return Math.max(0, span / interval - 1);
+    }
+
+    @Override
+    public boolean abilityCooldownMatters() {
+        List<AbilityInstance> instances = abilities.instances();
+        for (int i = 0; i < instances.size(); i++) {
+            if (instances.get(i).levelDef().cooldownTicks() > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean abilityDurationMatters() {
+        List<AbilityInstance> instances = abilities.instances();
+        for (int i = 0; i < instances.size(); i++) {
+            if (instances.get(i).levelDef().durationTicks() > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void addRules(RuleSet extra) {
+        RuleSet merged = rules.union(extra);
+        if (merged == rules) {
+            return;
+        }
+        rules = merged;
+        stats.setRules(merged);
+    }
+
+    @Override
+    public void refreshDefensiveCharges() {
+        // A card drafted mid-run may raise SHIELD_CHARGES or REVIVES, and both systems snapshot
+        // the stat when the run starts (the limit M5 wrote down in their Javadoc). Re-resolving
+        // here is the half of E12 the pool does not cover: the pool decides whether the card is
+        // worth showing, this decides that taking it actually hands the charge over.
+        shield.raiseTo((int) stats.resolve(StatId.SHIELD_CHARGES));
+        revive.raiseTo((int) stats.resolve(StatId.REVIVES));
     }
 
     @Override

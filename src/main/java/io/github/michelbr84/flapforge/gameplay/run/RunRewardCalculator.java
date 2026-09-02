@@ -24,11 +24,12 @@ import java.util.Objects;
  *              + xp.perGate × gates + xp.bossBonus × bosses) × XP_MULT)
  * </pre>
  *
- * <p>Two groups of terms have no data behind them yet and are pinned to 0 with a hook, not
- * silently dropped: the modifier streak bonuses ({@code modifiers.json}, M6) and the first-clear
- * boss / first-completion challenge rewards ({@code worlds.json} M7, {@code challenges.json} M8).
- * They are folded into {@link RewardSummary#streakCoins()}, {@link RewardSummary#bossCoins()} and
- * {@link RewardSummary#challengeCoins()} so the breakdown keeps its shape when they land.
+ * <p>The modifier streak bonuses landed in M6 and are read from
+ * {@link RunStats#modifierStreakCoins()}. One group of terms still has no data behind it and is
+ * pinned to 0 with a hook rather than silently dropped: the first-clear boss and first-completion
+ * challenge rewards ({@code worlds.json} M7, {@code challenges.json} M8). They are folded into
+ * {@link RewardSummary#bossCoins()} and {@link RewardSummary#challengeCoins()} so the breakdown
+ * keeps its shape when they land.
  *
  * <p>Participation is gated (E32.a) so an instant-retry dive that passes no gate and lasts less
  * than {@value #PARTICIPATION_TICKS} ticks earns nothing; the first-run bonus is not gated, so a
@@ -71,7 +72,6 @@ public final class RunRewardCalculator {
         long firstRunBonus = ctx.firstRun() ? rewards.firstRunBonus() : 0;
         long gateCoins = rewards.coinsPerGate() * gates;
         long pointCoins = rewards.coinsPerPoint() * points;
-        // TODO(M6): + Σ modifier.streakBonus.coins over stats.modifiersTaken().
         long streakCoins = (rewards.streak().coins() + modifierStreakBonus(stats)) * steps;
         // TODO(M7): + Σ world.boss.reward.coins over ctx.firstBossClears().
         long bossCoins = rewards.bossBonus() * bosses + firstBossClearCoins(ctx);
@@ -100,14 +100,18 @@ public final class RunRewardCalculator {
     }
 
     /**
-     * The modifier streak bonus, per step (E32.a). Modifiers land in M6; until then no taken
-     * modifier can carry a {@code streakBonus}, so the term is 0.
+     * The modifier streak bonus, per step (E32.a).
+     *
+     * <p>M6 fills the term the milestone before left at zero. The sum is accumulated by
+     * {@code ModifierDirector} as the cards are taken — one entry per stack, so two stacks of a
+     * bonus pay twice — and travels in the stats, which keeps the calculator a pure function of
+     * the result rather than something that has to look modifier ids up in content.
      *
      * @param stats the run stats (the taken modifiers live here)
      * @return the extra coins one streak step pays
      */
     private static long modifierStreakBonus(RunStats stats) {
-        return 0;
+        return stats.modifierStreakCoins();
     }
 
     /**

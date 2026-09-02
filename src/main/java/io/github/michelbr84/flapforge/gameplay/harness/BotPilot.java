@@ -40,6 +40,10 @@ import java.util.Random;
  * stream, applied to its band and corridor alike). The pilot never sets {@code autoFlapHeld}
  * (D2); in {@code READY} it flaps once to start.
  *
+ * <p>Drafts (D11, M6): a breather is flown like any other stretch of sky, and an open draft is
+ * answered by taking the first card ({@link #FIRST_CARD}). That is the baseline the balancing
+ * report is written against — and without it a headless run would sit frozen on the offer.
+ *
  * <p>Abilities (D21): when an active ability is equipped and ready, the bot projects its own
  * flight ten ticks ahead with its own flap rule and activates the ability if that projection
  * still leaves the corridor or reaches the ground. A loadout of passives changes nothing here —
@@ -57,6 +61,8 @@ public final class BotPilot implements Pilot {
     public static final double SAFETY_MARGIN_PX = 8;
     /** Random stream name used by the bot. */
     public static final String STREAM = "bot";
+    /** The card index the bot takes in a draft (D21: always the first). */
+    public static final int FIRST_CARD = 0;
     /** How far ahead the bot looks before spending its active ability (D21). */
     public static final int ABILITY_LOOKAHEAD_TICKS = 10;
 
@@ -145,7 +151,15 @@ public final class BotPilot implements Pilot {
         if (run.phase() == RunPhase.READY) {
             return RunInput.FLAP;
         }
-        if (run.phase() != RunPhase.FLYING) {
+        if (run.phase() == RunPhase.CHOOSING_MODIFIER) {
+            // D21: the bot always takes the first card. It is the honest baseline for the
+            // balancing report — it measures what the pool offers, not what a clever player
+            // would do with it — and it is what stops a headless run from freezing on a draft.
+            return RunInput.choose(FIRST_CARD);
+        }
+        if (run.phase() != RunPhase.FLYING && run.phase() != RunPhase.BREATHER) {
+            // A breather is ordinary flight with the next obstacle pushed further out (D11), so
+            // the bot has to keep flying through it; the frozen phases need no input.
             return RunInput.NONE;
         }
         Simulation sim = run.simulation();

@@ -15,13 +15,22 @@ import io.github.michelbr84.flapforge.gameplay.harness.HeadlessRunner;
 import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
 import io.github.michelbr84.flapforge.gameplay.obstacle.PipeGate;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
+import io.github.michelbr84.flapforge.content.defs.ModifierDef;
+import io.github.michelbr84.flapforge.content.defs.StreakBonusDef;
+import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunInput;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
+import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.RunResult;
+import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
 import io.github.michelbr84.flapforge.gameplay.stats.Layer;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
+import io.github.michelbr84.flapforge.modifier.ModifierCatalog;
+import io.github.michelbr84.flapforge.modifier.ModifierTag;
+import io.github.michelbr84.flapforge.modifier.Rarity;
+import io.github.michelbr84.flapforge.support.FixedSpawnTable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +38,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class RunLifecycleTest {
+
+    /** A card that pays a streak bonus and nothing else, so the M6 term is easy to read. */
+    private static final ModifierDef BOUNTY = new ModifierDef("bounty", Rarity.RARE,
+            List.of(ModifierTag.ECONOMY), 1, List.of(), List.of(), List.of(), List.of(),
+            new StreakBonusDef(10), UnlockConditionDef.DEFAULT);
 
     @Test
     void readyWaitsForTheFirstFlap() {
@@ -259,6 +273,63 @@ class RunLifecycleTest {
         assertEquals(Map.of("dash", 1), result.stats().abilitiesUsed(),
                 "DYING and FINISHED ignore the edge");
         assertEquals("dash", result.config().activeAbilityId());
+    }
+
+    /**
+     * M6 (D11): the draft phases are part of the lifecycle, and the run comes back out of them
+     * exactly where it went in. The corridor is fixed so the only thing that can move the bird is
+     * the draft, and it moves it not at all.
+     */
+    @Test
+    void theDraftPhasesRunAndGiveTheRunBack() {
+        ModifierCatalog catalog = new ModifierCatalog(List.of(2), 1,
+                Map.of(Rarity.RARE, 1), List.of(BOUNTY), List.of());
+        Run run = new Run(RunConfig.builder(4).allowOffers(true).build(),
+                RunSetup.CLASSIC.withModifiers(catalog), new FixedSpawnTable());
+        List<RunPhase> phases = new ArrayList<>();
+        phases.add(run.phase());
+        for (int t = 0; t < 3000 && run.stats().modifiersTaken().isEmpty(); t++) {
+            TickReport report = run.tick(pilot(run));
+            for (TickFact fact : report.facts()) {
+                if (fact instanceof TickFact.PhaseChanged change) {
+                    phases.add(change.to());
+                }
+            }
+        }
+        assertEquals(List.of(RunPhase.READY, RunPhase.FLYING, RunPhase.BREATHER,
+                RunPhase.CHOOSING_MODIFIER, RunPhase.RESUME_HOLD), phases,
+                "READY → FLYING → BREATHER → CHOOSING_MODIFIER → RESUME_HOLD (D11)");
+        for (int t = 0; t < ModifierDirector.RESUME_HOLD_TICKS; t++) {
+            run.tick(RunInput.NONE);
+        }
+        assertEquals(RunPhase.FLYING, run.phase());
+        assertEquals(List.of("bounty"), run.stats().modifiersTaken());
+        assertEquals(10, run.stats().modifierStreakCoins(),
+                "E32.a: the streak term M3 left at zero is fed by the card the run took");
+        assertEquals(10, run.result().stats().modifierStreakCoins(), "and it reaches the result");
+    }
+
+    /** A forced modifier is taken before the first tick and is in the stats from tick zero. */
+    @Test
+    void aForcedModifierIsAlreadyTakenBeforeTheRunStarts() {
+        ModifierCatalog catalog = new ModifierCatalog(List.of(), 1, Map.of(Rarity.RARE, 1),
+                List.of(BOUNTY), List.of());
+        Run run = new Run(RunConfig.builder(4).forcedModifiers(List.of("bounty")).build(),
+                RunSetup.CLASSIC.withModifiers(catalog));
+        assertEquals(RunPhase.READY, run.phase());
+        assertEquals(List.of("bounty"), run.stats().modifiersTaken());
+        assertEquals(10, run.stats().modifierStreakCoins());
+    }
+
+    private static RunInput pilot(Run run) {
+        if (run.phase() == RunPhase.READY) {
+            return RunInput.FLAP;
+        }
+        if (run.phase() == RunPhase.CHOOSING_MODIFIER) {
+            return RunInput.choose(0);
+        }
+        return run.simulation().bird().y() > Playfield.BIRD_START_Y + 10
+                ? RunInput.FLAP : RunInput.NONE;
     }
 
     @Test

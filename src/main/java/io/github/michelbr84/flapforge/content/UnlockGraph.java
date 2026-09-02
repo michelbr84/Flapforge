@@ -8,6 +8,7 @@ import io.github.michelbr84.flapforge.content.defs.EconomyDef;
 import io.github.michelbr84.flapforge.content.defs.FeatureDef;
 import io.github.michelbr84.flapforge.content.defs.GrantDef;
 import io.github.michelbr84.flapforge.content.defs.LevelRewardDef;
+import io.github.michelbr84.flapforge.content.defs.ModifierDef;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.TreeDef;
@@ -292,6 +293,12 @@ public final class UnlockGraph {
             AbilityDef def = abilities.get(i);
             add(def.unlockableId(), ContentKind.ABILITY, def.unlock(),
                     "abilities.json#/abilities/" + i, true, false);
+        }
+        List<ModifierDef> modifiers = content.modifiers().all();
+        for (int i = 0; i < modifiers.size(); i++) {
+            ModifierDef def = modifiers.get(i);
+            add(def.unlockableId(), ContentKind.MODIFIER, def.unlock(),
+                    "modifiers.json#/modifiers/" + i, true, false);
         }
         List<TreeDef> trees = content.trees().all();
         for (int i = 0; i < trees.size(); i++) {

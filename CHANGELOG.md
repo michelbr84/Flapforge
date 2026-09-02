@@ -808,6 +808,133 @@ is fixed here, with a test that fails without the fix.
   and plays the shield cue, but it has no distinct animation. `docs/BALANCING.md`
   §7.5 records it for the M7 presentation pass.
 
+### Added — M6: roguelite drafts, modifiers, synergies
+
+- New pure package `modifier`: `Rarity`, `ModifierTag`, `ModifierCatalog` (the
+  run-scoped snapshot of the schedule, the offer width, the weights, the cards
+  the profile may be shown and the set bonuses), `ModifierPool` (weighted draw
+  without replacement from the `offers` stream), `ModifierOffer` (the cards on
+  the table as a value), `SynergyResolver` (E16's multiset match) and
+  `DraftContext` (what the pool has to know about the run to decide E12's
+  derived eligibility).
+- `gameplay.run.ModifierDirector` and the `DraftWorld` seam `Simulation`
+  implements: the breather at each scheduled gate, the freeze when the air ahead
+  of the bird is clear, the choice, the 45-tick resume hold with its 3-2-1 and
+  30 i-frames, the `MODIFIERS` and `MOD_SYNERGY` stat layers, the taken multiset
+  and the active set bonuses. `RunPhase` gains `BREATHER`,
+  `CHOOSING_MODIFIER` and `RESUME_HOLD` (D11); `RunInput.choice` carries the
+  answer, `RunInput.SKIP` takes nothing.
+- `data/modifiers.json`: the schedule `[10, 25, 45, 70, 100, 140]`, three cards
+  an offer, the rarity weights `60/28/10/2`, 17 modifiers over seven tags and
+  four synergies (`coin_engine`, `bulwark`, `needle_threader`, `daredevil`), with
+  `ModifierDef` / `SynergyDef` / `ModifiersDef` / `StreakBonusDef` and their
+  `en.json` / `pt_BR.json` names and descriptions.
+- `ui.screens.ModifierChoiceOverlay` (D17): up to three cards on the frozen
+  playfield with name, rarity, tags, the effects in words and in numbers, the
+  stack a repeat would be and the set bonus taking it would complete; keyboard
+  and pointer focus, Skip, and the resume countdown drawn as a digit inside a
+  draining ring. The overlay drives the frozen ticks — the simulation is stopped
+  by the director, not by the UI — and nothing pressed over the cards reaches the
+  run underneath.
+- HUD build strip (D27): one chip per taken modifier with its stack count, the
+  active set bonuses under them, and the streak line's "what one more step pays"
+  readout that M3 deferred (E32.a). A `SynergyActivated` fact raises a toast
+  (`toast.synergy`) beside the chip it adds.
+- `RunSummaryScreen` build section: every modifier with its stacks, every synergy,
+  the modifier half of the streak reward as its own signed row, and — for a run
+  that never had the feature — a line naming what the shop sells.
+  `StatisticsScreen` gains the lifetime `modifiersTaken` / `synergiesActivated`
+  totals.
+- Economy: `RunStats.modifiersTaken`, `synergiesActivated` and
+  `modifierStreakCoins` feed `RunRewardCalculator` (the `Σ modifier.streakBonus`
+  term of E32.a) and the progression pass's two map counters.
+- `feature:modifiers` is live: `RunLoadout.allowOffers` opens drafts for a profile
+  that owns it (run 7, or 150 coins in the shop) and `RunLoadout.availableModifiers`
+  keeps the three earned legendaries out of the pool until they are unlocked.
+  `GameContent.FEATURE_MILESTONES` no longer names a milestone for it.
+- Content validation of the roguelite contract: ascending schedule, positive
+  offer width, non-negative weights, a rarity that has a weight, `maxStacks ≥ 1`,
+  at least one tag, resolvable and non-reflexive `excludes`, a card that does
+  something, a streak bonus that declares `NO_COINS`, no mid-run `SPEED_RAMP` /
+  `ALL_OBSTACLES_MOVE` flag, no effect on a stat the spawn decision reads
+  (`MOVING_CHANCE`, E32.d), synergies that need two tags and are reachable by
+  some legal build (a warning), and `challenges.json.forcedModifiers` resolved
+  against `modifiers.json` — unknown id, more copies than `maxStacks`, a
+  mutually-excluding pair and a card the challenge's own flags forbid (E19).
+- Tests: `ModifierPoolTest`, `SynergyResolverTest`, `ModifierDirectorTest` (on
+  the `FixedSpawnTable` corridor, E17), `ModifierChoiceOverlayTest`,
+  `DeterminismTest.theSpawnDecisionSequenceSurvivesADifferentChoice` (E32.d),
+  the M6 cases of `GameScreenTest`, `RunSummaryScreenTest`, `HudRendererTest`,
+  `StatisticsScreenTest`, `ContentValidatorTest`, `ContentIntegrityTest`,
+  `NewPlayerJourneyTest` (`feature:modifiers` by run 7, E17) and a Robot-driven
+  draft in `SmokeWindowTest`.
+- `BalancingSim --drafts` reports how far runs get into the schedule, the rarity
+  mix taken and on the table and how often a build activates a set bonus;
+  `--modifier <id|all|build>` and `--modifier-stacks N` force cards and print the
+  per-card payout delta against the same seeds without them, which is what
+  produced `docs/BALANCING.md` §8.2.
+
+### Changed — M6
+
+- `ShieldSystem.raiseTo` / `ReviveSystem.raiseTo`: both systems snapshot their
+  stat at run start (the limit M5 wrote down), so the director re-resolves
+  `SHIELD_CHARGES` and `REVIVES` after every card and synergy — a drafted shield
+  is a shield the bird actually has.
+- `Esc`, a lost focus and an iconify pause the run in `BREATHER` as well as in
+  `FLYING`: the breather ticks the world while it waits for clear air, and D2
+  makes no exception for it. Measured over 300 average-preset drafting runs:
+  962 breathers, 241 ticks at the median, 4.03 s on the mean and 9.9 % of every
+  live tick those runs spent. The frozen draft phases pause nothing, because
+  nothing moves.
+- The draft is labelled with the gate it was scheduled for rather than the gate
+  the corridor happened to clear at: the spawner has two or three obstacles
+  queued when the breather starts, so the freeze lands about three gates later
+  and the overlay used to read "gate 13" for the entry §6 calls gate 10.
+- The coin breakdown of the run summary splits E32.a's single streak term in
+  two — the shipped `economy.rewards.streak.coins` on the streak row, the drafted
+  cards' share on the bonus row — so the column adds up to the Base row it is a
+  breakdown of. The wallet was always right; only the printed arithmetic
+  double-counted.
+- `RunFactory` builds the run's catalogue from the profile's modifiers **and**
+  the run's `forcedModifiers`: forced cards are a property of the run source
+  (a challenge, M9's daily), not of the profile, and only the offer pool depends
+  on ownership.
+- Balance, from the per-card sweep now recorded in `docs/BALANCING.md` §8.2
+  (200 seeds per cell, four skill presets, the default 20 000-tick budget):
+  `temp_shield` moves from RARE ×2 to EPIC ×1: as a RARE it beat every EPIC and
+  LEGENDARY in the game (+111.6 % payout over 120 average-preset seeds against
+  `second_wind`'s +108.1 %, for 2.8 times the draw weight) and it could be taken
+  twice. The SPEED axis loses most of its scroll penalty (`tailwind` ×1.08 →
+  ×1.02, `gold_rush` ×1.15 → ×1.05, `stormrider` ×1.25 → ×1.05) because
+  `SCROLL_SPEED` is a far steeper difficulty knob than any score payoff can pay
+  for: at ×1.25 `stormrider` cost a perfect pilot 93 % of its payout and 95 % of
+  its gates over a 120 000-tick budget, and `gold_rush` cost it 67 %.
+  `magnet_burst` gains `COIN_MULT +15 %` beside its radius, which on its own
+  measured +0.0 % at every skill preset — identical ticks, gates and coins to a
+  run without it — because E2 lays the coin trail on the line the bird already
+  flies. `phoenix` grants two revives instead of one, so its 30 %
+  coin tax buys something `second_wind` cannot have — it was otherwise the same
+  card as a free EPIC with a tax on top.
+
+### Deferred — M6
+
+- `glass_wings` (EPIC, `SCORE ×1.5`, `HITBOX +0.15`) measures net-negative at
+  every skill preset (−5.7 % novice, −6.5 % average, −16.9 % expert, −13.4 %
+  perfect): the hitbox term costs more than the score term pays. It is the plan's
+  own RISK card and no reviewer flagged it, so it ships as authored and
+  `docs/BALANCING.md` §8.4 records the numbers for M9's balance pass.
+- `light_frame` and `wide_gaps` are worth more to a perfect pilot than to an
+  average one (+3.3 % / +3.7 % against −14.1 % / +1.0 %). That is the
+  non-monotone bot §6.4 already documents rather than a property of the cards.
+- The 30 i-frames of a draft resume also cancel a ground hit, so a player who
+  dives the moment the run resumes gets a free altitude reset — six times a run
+  rather than once per spent charge. The behaviour is M5's (`absorbLethalHit`
+  treats the ground like any other lethal hit while invulnerable) and is
+  deliberate; `docs/BALANCING.md` §8.4 records it.
+- Bosses are M8, so E7's two guards (`DraftWorld.bossPending()` /
+  `bossActive()`) answer `false` and are exercised against the seam rather than
+  against a boss.
+
 ---
 
 ## Inherited upstream history (kingyuluk/FlappyBird)

@@ -9,9 +9,11 @@ import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
 import io.github.michelbr84.flapforge.gameplay.spec.WorldSpec;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Builds runs from content (D10, D11): it resolves the ids in a {@link RunConfig} against the
@@ -62,7 +64,29 @@ public final class RunFactory {
                 RuleSet.EMPTY, Map.of(ObstacleKind.PIPE_GATE, PIPE_GATE_WEIGHT));
         return new RunSetup(content.birdProfile(config.birdId()), world,
                 content.tierSpec(config.tierId()), content.speedRampPerTick(),
-                content.economy().rewards().streak().step(), loadout(config));
+                content.economy().rewards().streak().step(), loadout(config),
+                content.modifierCatalog(draftableModifiers(config)));
+    }
+
+    /**
+     * The modifier ids the run's catalogue is built from: what the profile owns, plus whatever the
+     * run source forces on it (D11).
+     *
+     * <p>Forced modifiers are a property of the run — a challenge, the daily — and not of the
+     * profile: only the <em>offer</em> pool depends on ownership. Without the union a challenge
+     * that forces {@code gold_rush} on a profile that has not unlocked it would resolve to nothing
+     * and the run would start without the card that defines it.
+     *
+     * @param config the configuration
+     * @return the ids, owned first, each once
+     */
+    private static List<String> draftableModifiers(RunConfig config) {
+        if (config.forcedModifiers().isEmpty()) {
+            return config.availableModifiers();
+        }
+        Set<String> ids = new LinkedHashSet<>(config.availableModifiers());
+        ids.addAll(config.forcedModifiers());
+        return List.copyOf(ids);
     }
 
     /**

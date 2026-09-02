@@ -537,15 +537,168 @@ bird, Green Fields, tier `normal`, nothing equipped — and reads no profile at 
 (`hasRunSystems()`). That is what keeps the number comparable across milestones that add systems
 around it.
 
-## 8. What is not yet measured here
+## 8. Modifiers and synergies (M6)
 
-Modifiers and synergies (M6), the other four worlds (M7), and the runs-to-unlock table that
-`BalancingSim --meta` prints (M9, E25) all extend this document as they land. Four M4 measurements
-and three M5 ones are recorded above as open questions for M9 rather than as settled balance:
+Every number below is `BalancingSim` output on the shipped content, `classic` bird,
+`green_fields`, tier `normal`, nothing equipped — with one exception, flagged where it appears:
+
+```
+./gradlew balancing -PtoolArgs="--seeds 300 --skill average --drafts --ticks 20000"
+./gradlew balancing -PtoolArgs="--seeds 200 --skill all --ticks 20000 --modifier all"
+./gradlew balancing -PtoolArgs="--seeds 200 --skill all --ticks 20000 --modifier stormrider,tailwind"
+```
+
+`--drafts` makes every modifier available, turns offers on and lets the bot answer them by taking
+the first card (D21). `--modifier` does the opposite: it *forces* a named card (or a comma-separated
+build) on every run of a cell and prints what it was worth against the same seeds without it, which
+is the only way to price one card at a time.
+
+### 8.1 The draft as a bot plays it
+
+300 seeds, average preset, 20 000-tick budget, one card taken per offer:
+
+| measurement | value |
+|---|---|
+| runs reaching offer 1 / 2 / 3 | 78.7 % / 68.7 % / 56.7 % |
+| runs reaching offer 4 / 5 / 6 | 46.0 % / 34.3 % / 24.7 % |
+| cards taken | 927 over 300 runs (3.09 per run) |
+| rarity of the cards taken | COMMON 62.0 %, RARE 26.9 %, EPIC 10.2 %, LEGENDARY 0.9 % |
+| rarity on the table (5000 sampled drafts, 3 cards each) | COMMON 57.8 %, RARE 29.9 %, EPIC 10.8 %, LEGENDARY 1.5 % |
+| runs activating at least one synergy | 95/300 (31.7 %) |
+| **of the runs that reached offer 3** | **92/170 (54.1 %)** |
+| time spent in a breather waiting for clear air | 962 breathers, p50 241 ticks, mean 4.03 s, 9.9 % of all live ticks |
+
+The synergy row is §6's M6 criterion — an average bot that reaches the third offer activates at
+least one set bonus in at least 20 % of those runs — and it clears it by a factor of two and a
+half. It is reported here in M6 and asserted by `MetaSimTest` in M9.
+
+The breather row is the one number here the tool does not print: it comes from driving the same
+300 runs through `Run.tick` and counting the phase of every tick. It matters because a breather is
+a *live* phase — the world ticks while the draft waits for clear air — so a tenth of a drafting run
+is time the player must still be able to pause (D2); `GameScreenTest` holds that down.
+
+Two things the table says that are worth keeping:
+
+- **The mix on the table follows `rarityWeights` (60/28/10/2) to within about two points.** The
+  "taken" column is the first draw of each draft, so it measures the same distribution from the
+  other side; the "pool" column includes the second and third cards, where drawing without
+  replacement pulls the mix slightly towards the rarer classes, and where E12's derived eligibility
+  removes the two ability-timing cards for a loadout that has no ability timers at all (§8.2).
+- **The bot takes 3.09 cards per run and a third of its runs build a synergy.** That is with the
+  worst possible drafting policy: the first card, every time. A player who reads the tags is the
+  reason the number is a floor and not a target.
+
+### 8.2 What one card is worth
+
+200 seeds per cell, 20 000-tick budget, four skill presets, each card forced on every run of its
+cell. `Δpayout` is against the same seeds with nothing forced; the baseline is
+34.3 / 339.0 / 1015.1 / 999.9 mean payout (novice / average / expert / perfect) at
+4.8 / 79.6 / 239.8 / 237.2 mean gates.
+
+| Card | rarity | novice | average | expert | perfect |
+| --- | --- | --- | --- | --- | --- |
+| `score_plus` | C | +1.4 % | +2.4 % | +2.4 % | +2.4 % |
+| `coin_drops` | C | +2.2 % | +3.5 % | +3.5 % | +3.5 % |
+| `tailwind` | C | −0.1 % | +10.4 % | −1.1 % | −1.0 % |
+| `slower_obstacles` | C | −0.5 % | +3.1 % | −6.5 % | −5.9 % |
+| `quick_hands` | C | +0.0 % | +0.0 % | +0.0 % | +0.0 % |
+| `light_frame` | R | +4.9 % | −14.1 % | +2.3 % | +3.3 % |
+| `streak_bounty` | R | +8.8 % | +23.8 % | +30.5 % | +29.8 % |
+| `magnet_burst` | R | +14.5 % | +13.2 % | +13.2 % | +13.2 % |
+| `wide_gaps` | R | −0.2 % | +1.0 % | +4.0 % | +3.7 % |
+| `temp_shield` | E | +83.9 % | +94.7 % | +3.3 % | +4.5 % |
+| `second_wind` | E | +80.7 % | +91.3 % | +3.3 % | +4.5 % |
+| `heavy_wallet` | E | +23.4 % | +12.1 % | +27.1 % | +27.9 % |
+| `glass_wings` | E | −5.7 % | −6.5 % | −16.9 % | −13.4 % |
+| `long_fuse` | E | +0.0 % | +0.0 % | +0.0 % | +0.0 % |
+| `gold_rush` | L | +97.7 % | +119.2 % | +79.8 % | +83.5 % |
+| `phoenix` | L | +88.4 % | +85.0 % | −24.0 % | −23.1 % |
+| `stormrider` | L | +12.1 % | +32.8 % | +8.9 % | +11.2 % |
+
+What the sweep changed in the shipped file, and why:
+
+- **`temp_shield` was a RARE worth more than every EPIC and LEGENDARY.** Over 120 average-preset
+  seeds on a 120 000-tick budget it measured +111.6 % against `second_wind`'s +108.1 % — one stack
+  of a RARE for one EPIC — and its `maxStacks` was 2. It is now EPIC with `maxStacks` 1, so the
+  draft no longer has one obviously correct answer whenever a DEFENSE card is on the table.
+- **The SPEED axis was a trap.** `SCROLL_SPEED` is a far steeper difficulty knob than any score
+  payoff can pay for: at the authored ×1.25, `stormrider` cost a perfect pilot 93 % of its payout
+  and 95 % of its gates over a 120 000-tick budget, and `gold_rush` at ×1.15 cost it 67 %. The
+  scroll terms are now ×1.02 (`tailwind`), ×1.05 (`gold_rush`) and ×1.05 (`stormrider`), which is
+  what the table above measures. The axis is positive at every preset at the 20 000-tick budget and
+  still costs a marathon runner something at 120 000, which is the risk it is supposed to be.
+- **`magnet_burst` did nothing.** `MAGNET_RADIUS +60` on a coin trail laid along the gap centre
+  (E2) measured +0.0 % at every skill preset — the same ticks, the same gates and the same coins as
+  a run without it — because the bird already flies through the coins; §5.2 measures the bot
+  collecting 97.5 % of them without any magnet. It keeps the radius, which a human player and M7's
+  off-path trails will feel, and gains `COIN_MULT +15 %` so a RARE slot buys something measurable.
+- **`phoenix` was `second_wind` with a 30 % coin tax.** Both granted `REVIVES +1` with
+  `maxStacks` 1; the LEGENDARY was strictly worse than the EPIC. It now grants two revives, which
+  is the `REVIVES` clamp, so the tax buys the longest run in the game: +85 % payout and +160 % gates
+  at the average preset, against `second_wind`'s +91 % payout and +96 % gates.
+- **`quick_hands` and `long_fuse` are exactly 0.0 % at every preset** for the E18 default loadout,
+  because `ABILITY_COOLDOWN_MULT` and `ABILITY_DURATION_MULT` are read by `AbilityInstance` alone
+  and `double_flap` declares neither at any level. They are not broken — with `slow_time` equipped
+  (`--ability slow_time --modifier quick_hands`, 200 average seeds) `quick_hands` is +2.6 % payout
+  and 74.5 → 76.6 gates — so E12's derived eligibility now keeps them off the table for a loadout
+  that has no use for them rather than showing a new drafter a blank card roughly one draw in
+  eight.
+
+### 8.3 What a set bonus is worth
+
+The four synergies, forced as their cheapest two-card build, same seeds and budget:
+
+| Synergy | build | novice | average | expert | perfect |
+| --- | --- | --- | --- | --- | --- |
+| `coin_engine` | `coin_drops` + `magnet_burst` | +40.1 % | +38.8 % | +38.8 % | +38.8 % |
+| `bulwark` | `temp_shield` + `second_wind` | +242.9 % | +175.9 % | +3.3 % | +4.5 % |
+| `needle_threader` | `light_frame` + `wide_gaps` | +9.8 % | +11.7 % | +4.9 % | +5.8 % |
+| `daredevil` | `stormrider` + `tailwind` | +20.8 % | +75.4 % | +26.9 % | +31.2 % |
+
+`bulwark`'s expert and perfect columns are the 20 000-tick budget, not the bonus: both builds reach
+it, so there is nothing left to buy. `daredevil` measured −48.9 % (average) and −81.3 % (perfect)
+on the same seeds with the authored scroll terms — the synergy the SPEED/RISK axis exists for cost
+four fifths of an expert's run — which is what made the axis worth measuring one card at a time in
+the first place.
+
+### 8.4 Two behaviours worth recording
+
+- **The resume grants 30 i-frames, and they cancel a ground hit like any other lethal hit.** A
+  player who dives the moment the countdown ends can buy an altitude reset roughly half a second
+  long, six times a run rather than once per spent shield charge. The rule is M5's (§7.5) applied to
+  the phase M6 added, and it is deliberate: the resume must never be the tick that kills. If it ever
+  reads as an exploit, the fix is a resume-specific counter that cancels obstacle hits only.
+- **`glass_wings` is net-negative at every preset** (−5.7 / −6.5 / −16.9 / −13.4 %): `HITBOX +0.15`
+  costs more than `SCORE ×1.5` pays, the same shape of problem the SPEED axis had. It ships as the
+  plan authored it and is recorded here for M9's balance pass. `light_frame` and `wide_gaps` are
+  worth more to a perfect pilot than to an average one, which is §6.4's non-monotone bot rather
+  than a property of the cards.
+
+### 8.5 The harness and the hash
+
+`BalancingSim` gained `--drafts` (the aggregate table of §8.1), `--modifier <id|all|build>` and
+`--modifier-stacks N` (the per-card table of §8.2) in M6. The forced path applies the same authored
+rules a draft would — `maxStacks`, `excludes`, `requiresFlagsAbsent` — so a cell can never measure a
+build the game would not let a player hold.
+
+The `--headless-run` hash is **unchanged through M6**, verified on JDK 17 and JDK 21:
+`--headless-run 3000 --seed 42` prints `hash=eaaa01685261a433 ticks=3000 gates=36 points=36`. It
+cannot move with a draft, for the same reason it could not move with a loadout: the published
+configuration carries `ModifierCatalog.EMPTY` and `allowOffers=false`, and `Simulation.stateHash`
+folds the draft state only when `ModifierDirector.isActive()` — a run that can draft, or that
+already took something.
+
+## 9. What is not yet measured here
+
+The other four worlds (M7) and the runs-to-unlock table that `BalancingSim --meta` prints (M9,
+E25) extend this document as they land. Four M4 measurements, three M5 ones and two M6 ones are
+recorded above as open questions for M9 rather than as settled balance:
 `glide_1` cannot bind (§6.3), the bot is not monotone in the stats the tree sells (§6.4), Jackdaw and
 Oracle do not pay for themselves (§6.5), the participation gate zeroes one novice run in five (§6.6),
 `coin_magnet` needs off-path coins to be worth anything (§7.3), `emergency_recovery` and `shield` are
-priced apart but measure the same (§7.4), and the ground save has no animation (§7.5). The rule stays
-the same: a row is added only once a test or a tool measures it — §5's and §7's numbers are
+priced apart but measure the same (§7.4), the ground save has no animation (§7.5), `glass_wings` is
+net-negative at every preset (§8.4) and a draft resume can be spent as a free altitude reset (§8.4).
+The rule stays
+the same: a row is added only once a test or a tool measures it — §5's, §7's and §8's numbers are
 `BalancingSim` output, not estimates, and the shape of the distributions matters as much as the means
 (an expert's coins are almost a constant because the bot reaches the tick budget; a novice's are not).

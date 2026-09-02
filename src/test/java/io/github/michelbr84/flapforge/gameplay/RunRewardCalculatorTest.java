@@ -212,4 +212,38 @@ class RunRewardCalculatorTest {
                 + summary.coinsCollected(), summary.coins());
         assertTrue(summary.coins() > summary.baseCoins());
     }
+
+    /**
+     * M6, E32.a: the {@code Σ modifier.streakBonus.coins × streakSteps} term the milestone before
+     * pinned to zero. {@code streak_bounty} pays 10 per step on top of the economy's 5, so four
+     * steps go from 20 coins to 60 — and a run that took no such card still pays exactly 20.
+     */
+    @Test
+    void modifierStreakBonusesAddToEveryStep() {
+        RunResult plain = result(RunMode.STANDARD, 20, 20, 1200, 4, 0);
+        assertEquals(20, RunRewardCalculator.compute(plain, ECONOMY, RewardContext.plain())
+                .streakCoins());
+
+        RunStats stats = plain.stats().copy();
+        stats.addModifierTaken("streak_bounty");
+        stats.setModifierStreakCoins(10);
+        RunResult drafted = new RunResult(plain.config(), stats, Map.of());
+        RewardSummary summary =
+                RunRewardCalculator.compute(drafted, ECONOMY, RewardContext.plain());
+        assertEquals(60, summary.streakCoins(), "4 steps × (5 + 10)");
+        assertEquals(40, summary.coins() - RunRewardCalculator
+                .compute(plain, ECONOMY, RewardContext.plain()).coins(),
+                "and the extra 40 coins are the only difference the card makes");
+    }
+
+    /** Two stacks of the same bonus pay twice, because the director sums them per stack. */
+    @Test
+    void stackedStreakBonusesPayPerStack() {
+        RunStats stats = result(RunMode.STANDARD, 20, 20, 1200, 4, 0).stats().copy();
+        stats.setModifierStreakCoins(20);
+        RunResult drafted = new RunResult(RunConfig.builder(1).build(), stats, Map.of());
+        assertEquals(100, RunRewardCalculator.compute(drafted, ECONOMY, RewardContext.plain())
+                .streakCoins(), "4 steps × (5 + 20)");
+    }
+
 }

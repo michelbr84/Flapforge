@@ -13,11 +13,11 @@ import io.github.michelbr84.flapforge.core.MathUtil;
  * level 2, how often a spent charge grows back. Both have defaults, which is exactly what a bare
  * stat-driven shield uses.
  *
- * <p><b>Known limit for M6.</b> {@code maxCharges} is the {@code SHIELD_CHARGES} the sheet
- * resolved at run start; nothing in M5 can change that stat mid-run, so the snapshot is exact
- * today. A drafted modifier that adds {@code SHIELD_CHARGES} mid-run (E12) would not be seen, so
- * the M6 director must either re-resolve the stat when it applies a card or keep those stats out
- * of the pool.
+ * <p><b>Mid-run charges (M6).</b> {@code maxCharges} starts as the {@code SHIELD_CHARGES} the
+ * sheet resolved at run start, and {@link #raiseTo(int)} moves it when a drafted card raises the
+ * stat (E12) — {@code Simulation.refreshDefensiveCharges} calls it every time the modifier
+ * director takes something. It only raises: nothing gives a spent charge back except the
+ * ability's own regeneration.
  */
 public final class ShieldSystem {
 
@@ -27,7 +27,7 @@ public final class ShieldSystem {
     /** The ability id the shield reports its regenerated charge under (HUD and audio cue). */
     public static final String ABILITY_ID = "shield";
 
-    private final int maxCharges;
+    private int maxCharges;
     private int charges;
     private int invulnTicks = DEFAULT_INVULN_TICKS;
     private int regenEveryGates;
@@ -42,6 +42,28 @@ public final class ShieldSystem {
     public ShieldSystem(int charges) {
         this.maxCharges = Math.max(0, charges);
         this.charges = maxCharges;
+    }
+
+    /**
+     * Raises the ceiling to a freshly resolved {@code SHIELD_CHARGES} and hands the difference over as
+     * usable charges (M6).
+     *
+     * <p>This is the answer to the limit M5 recorded above: the roguelite draft can add shield charges
+     * in the middle of a run, and a snapshot taken at run start would silently swallow the card.
+     * It only ever raises — a card cannot take a charge the player has already been given, and a
+     * spent charge stays spent.
+     *
+     * @param resolved the {@code SHIELD_CHARGES} the sheet resolves now
+     * @return {@code true} when the ceiling moved
+     */
+    public boolean raiseTo(int resolved) {
+        int target = Math.max(0, resolved);
+        if (target <= maxCharges) {
+            return false;
+        }
+        charges += target - maxCharges;
+        maxCharges = target;
+        return true;
     }
 
     /**

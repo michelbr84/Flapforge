@@ -1,5 +1,6 @@
 package io.github.michelbr84.flapforge.ui.screens;
 
+import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.MathUtil;
@@ -14,6 +15,7 @@ import io.github.michelbr84.flapforge.progression.PlayerLevel;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionOutcome;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
+import io.github.michelbr84.flapforge.progression.RunLoadout;
 import io.github.michelbr84.flapforge.progression.Statistics;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -30,8 +32,10 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Shape;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -51,6 +55,12 @@ import java.util.Objects;
  * without opening it and lose nothing. It also means the personal-best markers are read back from
  * the profile the run has already been written into: a row is marked when the run's number is
  * the lifetime best.
+ *
+ * <p>M6 adds the build section (D27): every modifier the run drafted with its stack count and
+ * every set bonus it activated, plus — in the coin breakdown — how much of the streak term the
+ * drafted cards themselves paid. A run played without {@code feature:modifiers} gets a line saying
+ * so instead, because the summary is where a player asks "could this run have gone differently",
+ * and a silent empty section is not an answer.
  *
  * <p>A session without a profile (a bare screen stack in a test, or a run played before the save
  * layer is wired) has no {@code outcome}: the coin and XP sections are simply not built, and the
@@ -170,7 +180,16 @@ public final class RunSummaryScreen implements Screen {
             row("firstRunBonus", StringKey.REWARD_FIRST_RUN, signed(rewards.firstRunBonus()));
             row("gateCoins", StringKey.REWARD_GATES, signed(rewards.gateCoins()));
             row("pointCoins", StringKey.REWARD_POINTS, signed(rewards.pointCoins()));
-            row("streakCoins", StringKey.REWARD_STREAK, signed(rewards.streakCoins()));
+            // The streak term is one number in the formula (E32.a): economy.rewards.streak.coins
+            // plus whatever the drafted cards pay, times the steps. The breakdown splits it in
+            // two so the column adds up to the Base row — the shipped half on the streak line,
+            // the half the player drafted on its own line below it.
+            long draftedStreak = stats.modifierStreakCoins() * (long) stats.streakSteps();
+            row("streakCoins", StringKey.REWARD_STREAK,
+                    signed(rewards.streakCoins() - draftedStreak));
+            if (stats.modifierStreakCoins() > 0) {
+                row("streakBonus", StringKey.REWARD_STREAK_BONUS, signed(draftedStreak));
+            }
             row("bossCoins", StringKey.REWARD_BOSS, signed(rewards.bossCoins()));
             row("challengeCoins", StringKey.REWARD_CHALLENGE, signed(rewards.challengeCoins()));
             row("base", StringKey.REWARD_BASE, Long.toString(rewards.baseCoins()));
@@ -189,9 +208,56 @@ public final class RunSummaryScreen implements Screen {
             }
         }
 
+        buildSection(stats);
+
         header(StringKey.SUMMARY_SECTION_INFO);
         line("seed", strings.format(StringKey.SUMMARY_SEED, result.config().seed(),
                 modeName(result.config().mode())));
+    }
+
+    /**
+     * The build the run ended with (M6, D27): every modifier taken with its stack count, then
+     * every set bonus it activated.
+     *
+     * <p>A run that drafted nothing gets one line instead, and it says <em>why</em>: a run played
+     * without {@code feature:modifiers} never saw a draft at all, and the summary is the place a
+     * player finds out that the shop sells the thing that would have changed it. A run that could
+     * draft and simply took nothing says so with the "nothing" line.
+     *
+     * @param stats the finished run's stats
+     */
+    private void buildSection(RunStats stats) {
+        List<String> taken = stats.modifiersTaken();
+        List<String> synergies = stats.synergiesActivated();
+        header(StringKey.SUMMARY_SECTION_BUILD);
+        // A challenge may turn the drafts off itself (D11), and telling that player to go and buy
+        // the feature would be a lie; only a run that could not draft at all gets the note.
+        boolean lockedOut = !result.config().allowOffers()
+                && result.config().mode() != RunMode.CHALLENGE;
+        if (lockedOut && taken.isEmpty()) {
+            line("modifiersLocked", strings.format(StringKey.SUMMARY_MODIFIERS_LOCKED,
+                    ProgressionText.name(strings, ContentKind.FEATURE,
+                            RunLoadout.MODIFIERS_FEATURE)));
+            return;
+        }
+        if (taken.isEmpty()) {
+            row("modifiersNone", StringKey.COMMON_NONE, "");
+            return;
+        }
+        Map<String, Integer> stacks = new LinkedHashMap<>();
+        for (int i = 0; i < taken.size(); i++) {
+            stacks.merge(taken.get(i), 1, Integer::sum);
+        }
+        for (Map.Entry<String, Integer> entry : stacks.entrySet()) {
+            line("modifier." + entry.getKey(),
+                    ProgressionText.name(strings, ContentKind.MODIFIER, entry.getKey()),
+                    strings.format(StringKey.SUMMARY_STACKS, entry.getValue()));
+        }
+        for (int i = 0; i < synergies.size(); i++) {
+            line("synergy." + synergies.get(i),
+                    ProgressionText.name(strings, ContentKind.SYNERGY, synergies.get(i)),
+                    strings.get(StringKey.SUMMARY_SYNERGY));
+        }
     }
 
     /**
@@ -229,7 +295,19 @@ public final class RunSummaryScreen implements Screen {
     }
 
     private void line(String id, String text) {
-        rows.add(new Row(id, text, "", false, false, contentHeight));
+        line(id, text, "");
+    }
+
+    /**
+     * A row whose label is not a {@link StringKey} but content-derived text — a modifier's name, a
+     * synergy's name — so the build section can list what the run actually drafted.
+     *
+     * @param id the stable row id
+     * @param text the already-translated label
+     * @param value the already-translated value, empty for a full-width line
+     */
+    private void line(String id, String text, String value) {
+        rows.add(new Row(id, text, value, false, false, contentHeight));
         contentHeight += ROW_H;
     }
 

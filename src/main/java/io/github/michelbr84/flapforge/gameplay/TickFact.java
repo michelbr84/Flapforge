@@ -3,6 +3,7 @@ package io.github.michelbr84.flapforge.gameplay;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
+import java.util.List;
 
 /**
  * Immutable facts a tick produced (D5). The whole family is declared here so later milestones
@@ -106,8 +107,50 @@ public sealed interface TickFact {
     record CoinCollected(int value) implements TickFact {
     }
 
-    /** A modifier offer opened (the simulation is frozen until a choice is made). */
-    record OfferOpened() implements TickFact {
+    /**
+     * A modifier draft opened; the simulation is frozen until a choice is made (D11, M6).
+     *
+     * <p>{@code gate} is the gate the run had actually passed when the air cleared, which is a
+     * few gates past the schedule entry — the spawner has obstacles queued when the breather
+     * starts. What the player is shown is the scheduled gate ({@code ModifierOffer.gate()}); this
+     * one is the telemetry number.
+     *
+     * @param offerIndex the position of the draft in {@code offerSchedule}, counting from 0
+     * @param gate the gate count the draft opened at
+     * @param cardIds the cards on the table, in draw order
+     */
+    record ModifierOffered(int offerIndex, int gate, List<String> cardIds)
+            implements TickFact {
+
+        /**
+         * Copies the card list, so a fact is a value.
+         *
+         * @param offerIndex the position in the schedule
+         * @param gate the gate the draft opened at
+         * @param cardIds the cards on the table
+         */
+        public ModifierOffered {
+            cardIds = List.copyOf(cardIds);
+        }
+    }
+
+    /**
+     * A card was taken (M6). Forced modifiers are taken before the first tick and produce no
+     * fact; {@code RunStats} reads them from the director instead.
+     *
+     * @param modifierId the card
+     * @param stacks how many stacks of it the run now holds
+     */
+    record ModifierChosen(String modifierId, int stacks) implements TickFact {
+    }
+
+    /**
+     * A draft was closed without taking anything: the player skipped it, or nothing on the table
+     * was eligible (E12, M6).
+     *
+     * @param offerIndex the position of the draft in {@code offerSchedule}
+     */
+    record ModifierSkipped(int offerIndex) implements TickFact {
     }
 
     /** A boss warning started. */

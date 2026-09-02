@@ -116,7 +116,6 @@ public final class ShopScreen implements Screen {
      */
     private static final Map<ContentKind, String> MILESTONES = Map.of(
             ContentKind.ABILITY, "M5",
-            ContentKind.MODIFIER, "M6",
             ContentKind.WORLD, "M7",
             ContentKind.CHALLENGE, "M8",
             ContentKind.ACHIEVEMENT, "M8");
@@ -542,8 +541,8 @@ public final class ShopScreen implements Screen {
             return null;
         }
         if (offer.kind() == ContentKind.FEATURE) {
-            // Features differ per id: the modifier draft lands in M6 and Seeded mode in M9, so
-            // the note has to come from the feature, not from the kind.
+            // Features differ per id: the modifier draft works from M6 and Seeded mode lands in
+            // M9, so the note has to come from the feature, not from the kind.
             return GameContent.featureMilestone(bareId);
         }
         return MILESTONES.get(offer.kind());

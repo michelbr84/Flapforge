@@ -523,6 +523,8 @@ public enum StringKey {
     TOAST_ABILITY_NO_CHARGE("toast.ability.no_charge"),
     /** Toast: this run's rules stripped the ability, {@code {0}} is the rule. */
     TOAST_ABILITY_BLOCKED("toast.ability.blocked"),
+    /** Toast: a build completed a set bonus, {@code {0}} is the synergy name (D27). */
+    TOAST_SYNERGY("toast.synergy"),
 
     /** Stat source: a bird effect that grows with every gate, {@code {0}} is the bird. */
     SOURCE_RAMP("source.ramp"),
@@ -621,7 +623,69 @@ public enum StringKey {
     /** Bird archetype: ability focused. */
     ARCHETYPE_MYSTIC("archetype.mystic"),
     /** Bird archetype: scales with owned upgrades. */
-    ARCHETYPE_FORGE("archetype.forge");
+    ARCHETYPE_FORGE("archetype.forge"),
+
+    /** Draft overlay: the title over the cards. */
+    DRAFT_TITLE("draft.title"),
+    /** Draft overlay: which draft this is, {@code {0}} of {@code {1}} at gate {@code {2}}. */
+    DRAFT_SUBTITLE("draft.subtitle"),
+    /** Draft overlay: the key hint under the cards. */
+    DRAFT_HINT("draft.hint"),
+    /** Draft overlay: take nothing. */
+    DRAFT_SKIP("draft.skip"),
+    /** Draft card: the stack it would be, {@code {0}} of {@code {1}}. */
+    DRAFT_STACKS("draft.stacks"),
+    /** Draft card: the set bonus taking it completes, {@code {0}}. */
+    DRAFT_SYNERGY("draft.synergy"),
+    /** Draft overlay: the line under the resume countdown when nothing was taken. */
+    DRAFT_RESUME("draft.resume"),
+
+    /** Rarity of a run modifier: common. */
+    RARITY_COMMON("rarity.common"),
+    /** Rarity of a run modifier: rare. */
+    RARITY_RARE("rarity.rare"),
+    /** Rarity of a run modifier: epic. */
+    RARITY_EPIC("rarity.epic"),
+    /** Rarity of a run modifier: legendary. */
+    RARITY_LEGENDARY("rarity.legendary"),
+
+    /** Modifier tag: coins and everything that pays. */
+    MODIFIER_TAG_ECONOMY("modifier.tag.economy"),
+    /** Modifier tag: scroll speed and the score that comes with it. */
+    MODIFIER_TAG_SPEED("modifier.tag.speed"),
+    /** Modifier tag: shields and revives. */
+    MODIFIER_TAG_DEFENSE("modifier.tag.defense"),
+    /** Modifier tag: hitbox, gaps and clean gates. */
+    MODIFIER_TAG_PRECISION("modifier.tag.precision"),
+    /** Modifier tag: ability timings and slower obstacles. */
+    MODIFIER_TAG_TEMPO("modifier.tag.tempo"),
+    /** Modifier tag: power bought with danger. */
+    MODIFIER_TAG_RISK("modifier.tag.risk"),
+    /** Modifier tag: power bought with greed. */
+    MODIFIER_TAG_GREED("modifier.tag.greed"),
+
+    /** HUD: one taken modifier, {@code {0}} its name and {@code {1}} its stacks. */
+    HUD_MODIFIER_STACK("hud.modifier.stack"),
+    /** HUD: the coins one clean-gate streak step pays, {@code {0}}. */
+    HUD_STREAK_BONUS("hud.streak_bonus"),
+
+    /** Run summary: the section listing the build the run ended with. */
+    SUMMARY_SECTION_BUILD("summary.section.build"),
+    /** Run summary: how many stacks of a modifier were taken, {@code {0}}. */
+    SUMMARY_STACKS("summary.stacks"),
+    /** Run summary: the badge of an activated set bonus. */
+    SUMMARY_SYNERGY("summary.synergy"),
+    /** Run summary: drafts did not open because {@code {0}} is not unlocked. */
+    SUMMARY_MODIFIERS_LOCKED("summary.modifiers_locked"),
+    /** Coin breakdown: the extra streak coins the taken modifiers paid. */
+    REWARD_STREAK_BONUS("reward.streak_bonus"),
+
+    /** Statistics: the lifetime group about drafted builds. */
+    STATS_GROUP_BUILDS("stats.group.builds"),
+    /** Statistics: modifiers taken across every run. */
+    STATS_MODIFIERS_TAKEN("stats.modifiers_taken"),
+    /** Statistics: synergies activated across every run. */
+    STATS_SYNERGIES_ACTIVATED("stats.synergies_activated");
 
     private static final Map<String, StringKey> BY_KEY;
 

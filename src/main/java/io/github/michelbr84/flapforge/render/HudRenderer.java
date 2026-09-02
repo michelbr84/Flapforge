@@ -10,9 +10,13 @@ import io.github.michelbr84.flapforge.render.TextPainter.Align;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Shape;
 import java.awt.Stroke;
 import java.awt.geom.Arc2D;
 import java.awt.geom.Ellipse2D;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * The in-run HUD (plan section 5 cosmetic rows, D18).
@@ -42,10 +46,19 @@ import java.awt.geom.Ellipse2D;
  * ({@link #flashAbilityRefused()}). The first two are derived from the counters the simulation
  * keeps, not from a fact the screen forwards, so a replayed run flashes on exactly the same ticks.
  *
+ * <p>M6 adds the build (D27) under the shield row: one compact chip per taken modifier — with its
+ * stack count once it has been taken twice — and the active set bonuses under them in their own
+ * colour, so what the drafts have turned the run into is readable without pausing. A run that
+ * drafts nothing draws nothing, which is what keeps the classic HUD exactly as M1 left it. The
+ * streak line gains the indicator M3 deferred: what one more clean-gate step is worth
+ * ({@code economy.rewards.streak.coins} plus the taken cards' own bonuses, E32.a), which only
+ * became worth showing once a modifier could change it mid-run.
+ *
  * <p>The renderer never reads the string table (D18): the screen hands it the already-translated
  * patterns through {@link #setStreakLabel(String)}, {@link #setCoinLabel(String)},
- * {@link #setAbilityName(String)}, {@link #setAbilityStateLabels(String, String)} and
- * {@link #setShieldLabel(String)}, and this class only substitutes the number. Every string is
+ * {@link #setAbilityName(String)}, {@link #setAbilityStateLabels(String, String)},
+ * {@link #setShieldLabel(String)}, {@link #setBuild(java.util.List, java.util.List)} and
+ * {@link #setStreakBonusText(String)}, and this class only substitutes the number. Every string is
  * rebuilt only when its number changes, and every shape, polygon and colour ramp is owned by the
  * renderer, so a steady frame allocates nothing.
  */
@@ -105,6 +118,23 @@ public final class HudRenderer {
     /** Period of the refusal blink, in ticks. */
     public static final int REFUSAL_BLINK_TICKS = 8;
 
+    /** Baseline of the first chip of the build strip (M6). */
+    public static final int BUILD_TOP_Y = SHIELD_ROW_CY + 22;
+    /** Left edge of the build strip. */
+    public static final int BUILD_X = 14;
+    /** Height of one chip of the build strip. */
+    public static final int BUILD_CHIP_H = 14;
+    /** Vertical distance between two chips. */
+    public static final int BUILD_ROW_STEP = 16;
+    /** Widest chip the build strip draws. */
+    public static final int BUILD_CHIP_MAX_W = 118;
+    /** Point size of a chip label. */
+    public static final int BUILD_CHIP_SIZE = 10;
+    /** Most chips the build strip shows before it stops (a 640 px column, D17). */
+    public static final int BUILD_MAX_ROWS = 12;
+    /** Baseline of the streak-bonus line, under the streak. */
+    public static final int STREAK_BONUS_BASELINE_Y = STREAK_BASELINE_Y + 15;
+
     private static final Color SEED_COLOR = new Color(0x1C, 0x3A, 0x3E, 0xB0);
     private static final Color FLAME_CORE = new Color(0xFF, 0xE1, 0x8A);
     private static final Color FLAME_EDGE = new Color(0xFF, 0x8C, 0x2B);
@@ -121,6 +151,10 @@ public final class HudRenderer {
     private static final Color SHIELD_FILL = new Color(0x7E, 0xC8, 0xF0);
     private static final Color SHIELD_EMPTY = new Color(0x24, 0x38, 0x3A, 0xB0);
     private static final Color DURATION_BACK = new Color(0x10, 0x1C, 0x1E, 0xA0);
+    private static final Color CHIP_BACK = new Color(0x10, 0x1C, 0x1E, 0xB4);
+    private static final Color CHIP_BORDER = new Color(0x4A, 0x6A, 0x6C, 0xC0);
+    private static final Color SYNERGY_CHIP_BACK = new Color(0x3A, 0x2E, 0x0C, 0xC8);
+    private static final Color SYNERGY_TEXT = new Color(0xF5, 0xC5, 0x42);
     private static final Stroke RING_STROKE = new BasicStroke(4f, BasicStroke.CAP_BUTT,
             BasicStroke.JOIN_ROUND);
     private static final Stroke FLASH_STROKE = new BasicStroke(2f);
@@ -137,6 +171,8 @@ public final class HudRenderer {
     private final int[] glyphY = new int[4];
     private final int[] shieldX = new int[5];
     private final int[] shieldY = new int[5];
+    private final List<String> buildChips = new ArrayList<>();
+    private final List<String> synergyChips = new ArrayList<>();
     private String readyHint;
     private String streakLabel = "";
     private String coinLabel = "";
@@ -157,6 +193,7 @@ public final class HudRenderer {
     private String cooldownText = "";
     private int shieldShownCount = -1;
     private String shieldText = "";
+    private String streakBonusText = "";
     private int shieldCharges = -1;
     private int shieldFlashIndex;
     private int shieldFlashTicks;
@@ -321,6 +358,68 @@ public final class HudRenderer {
     }
 
     /**
+     * Sets the build the run has drafted so far (M6, D27), already translated by the screen (D18):
+     * one label per taken modifier — the name with its stack count when it was taken more than
+     * once — and one per active set bonus.
+     *
+     * <p>Handed in as finished strings rather than derived here for the reason every other HUD
+     * label is: the renderer must not read the string table, and a frame must allocate nothing.
+     * The screen rebuilds these lists only when the taken set actually changes, which during a
+     * run is at most once per draft.
+     *
+     * @param modifiers one label per taken modifier, in take order
+     * @param synergies one label per active synergy, in content order
+     */
+    public void setBuild(List<String> modifiers, List<String> synergies) {
+        buildChips.clear();
+        synergyChips.clear();
+        if (modifiers != null) {
+            buildChips.addAll(modifiers);
+        }
+        if (synergies != null) {
+            synergyChips.addAll(synergies);
+        }
+    }
+
+    /**
+     * The modifier labels the build strip draws.
+     *
+     * @return an unmodifiable view, in take order
+     */
+    public List<String> buildChips() {
+        return Collections.unmodifiableList(buildChips);
+    }
+
+    /**
+     * The synergy labels the build strip draws.
+     *
+     * @return an unmodifiable view, in content order
+     */
+    public List<String> synergyChips() {
+        return Collections.unmodifiableList(synergyChips);
+    }
+
+    /**
+     * Sets the streak-bonus readout (D26, E32.a): what one more clean-gate streak step is worth,
+     * already translated and substituted by the screen (D18). It is the indicator M3 left for
+     * later, because before the drafts existed the number never changed within a run.
+     *
+     * @param text the line, or {@code null}/empty to draw none
+     */
+    public void setStreakBonusText(String text) {
+        this.streakBonusText = text == null ? "" : text;
+    }
+
+    /**
+     * The streak-bonus readout as it is drawn.
+     *
+     * @return the text, empty when the run pays no streak bonus
+     */
+    public String streakBonusText() {
+        return streakBonusText;
+    }
+
+    /**
      * Flashes the ability badge in the refusal colour: the player pressed the ability key and
      * nothing happened (on cooldown, out of charges, or stripped by the run's rules, D9).
      */
@@ -423,6 +522,9 @@ public final class HudRenderer {
         abilityActivations = 0;
         abilityFlashTicks = 0;
         refusedTicks = 0;
+        streakBonusText = "";
+        buildChips.clear();
+        synergyChips.clear();
     }
 
     /**
@@ -471,6 +573,15 @@ public final class HudRenderer {
                 double left = Playfield.WIDTH / 2.0 - TextPainter.width(g, streakText) / 2.0;
                 drawFlame(g, left - FLAME_GAP, STREAK_BASELINE_Y - 5.0);
             }
+            if (!streakBonusText.isEmpty()) {
+                // What the next step pays, under the streak it is counting towards: the flame says
+                // "a step is close", this says what the step is worth (D26, E32.a).
+                g.setFont(Fonts.bold(11));
+                TextPainter.drawOutlined(g, streakBonusText, Playfield.WIDTH / 2.0,
+                        STREAK_BONUS_BASELINE_Y, Align.CENTER,
+                        isStreakHot(streak) ? FLAME_CORE : ProceduralArt.TEXT_MUTED,
+                        ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
+            }
         }
 
         int coins = run.stats().coinsCollected();
@@ -489,6 +600,7 @@ public final class HudRenderer {
 
         renderAbility(g, run, palette);
         renderShield(g, run, palette);
+        renderBuild(g);
 
         if (run.phase() == RunPhase.READY && promptVisible()) {
             g.setFont(Fonts.bold(16));
@@ -655,6 +767,65 @@ public final class HudRenderer {
                 SHIELD_ROW_X + max * (double) SHIELD_ICON_STEP + 4, SHIELD_ROW_CY + 4.0,
                 Align.LEFT, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
+    }
+
+    /**
+     * Draws the build the run has drafted (M6, D27): the taken modifiers as compact chips down the
+     * left column, with the active set bonuses under them in the synergy colour.
+     *
+     * <p>It sits below the shield row, so a run that drafts nothing draws nothing at all and the
+     * classic HUD is unchanged. The labels are the finished strings the screen handed over, so a
+     * frame here allocates nothing either: only the chip width is measured.
+     *
+     * @param g the context
+     */
+    private void renderBuild(Graphics2D g) {
+        if (buildChips.isEmpty() && synergyChips.isEmpty()) {
+            return;
+        }
+        double y = BUILD_TOP_Y;
+        int rows = 0;
+        g.setFont(Fonts.bold(BUILD_CHIP_SIZE));
+        for (int i = 0; i < buildChips.size() && rows < BUILD_MAX_ROWS; i++, rows++) {
+            drawChip(g, buildChips.get(i), y, CHIP_BACK, ProceduralArt.TEXT_LIGHT);
+            y += BUILD_ROW_STEP;
+        }
+        for (int i = 0; i < synergyChips.size() && rows < BUILD_MAX_ROWS; i++, rows++) {
+            drawChip(g, synergyChips.get(i), y, SYNERGY_CHIP_BACK, SYNERGY_TEXT);
+            y += BUILD_ROW_STEP;
+        }
+    }
+
+    /**
+     * One chip of the build strip: a rounded plate sized to its label, clipped to
+     * {@value #BUILD_CHIP_MAX_W} so a long translation cannot reach into the playfield.
+     *
+     * @param g the context, already carrying the chip font
+     * @param label the finished label
+     * @param top the top edge of the chip
+     * @param back the plate colour
+     * @param ink the text colour
+     */
+    private void drawChip(Graphics2D g, String label, double top, Color back, Color ink) {
+        int wanted = TextPainter.width(g, label) + 12;
+        int width = Math.min(BUILD_CHIP_MAX_W, wanted);
+        int x = BUILD_X;
+        int y = (int) Math.round(top);
+        g.setColor(back);
+        g.fillRoundRect(x, y, width, BUILD_CHIP_H, 6, 6);
+        g.setColor(CHIP_BORDER);
+        g.drawRoundRect(x, y, width, BUILD_CHIP_H, 6, 6);
+        g.setColor(ink);
+        if (wanted <= width) {
+            // The common case: the chip was sized to its label, so nothing has to be clipped —
+            // and no clip is taken, because reading the old one allocates a rectangle per chip.
+            TextPainter.draw(g, label, x + 6.0, y + BUILD_CHIP_H - 4.0);
+            return;
+        }
+        Shape clip = g.getClip();
+        g.clipRect(x, y, width - 2, BUILD_CHIP_H);
+        TextPainter.draw(g, label, x + 6.0, y + BUILD_CHIP_H - 4.0);
+        g.setClip(clip);
     }
 
     /**

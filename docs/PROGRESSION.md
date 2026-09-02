@@ -246,6 +246,7 @@ purchase visible in the game:
 | `UPGRADES` | every owned node's `effectsPerLevel` — `FLAT_ADD`/`PERCENT_ADD` scale linearly with the level, `MULTIPLY` compounds as `value^level` |
 | `ABILITY` | the equipped passives' `effects` for the whole run, plus the active's while its duration runs (M5) |
 | `WORLD`, `DIFFICULTY`, `TIER` | the world, its curve and the tier of the run |
+| `MODIFIERS`, `MOD_SYNERGY` | the cards drafted mid-run and the set bonuses they complete (M6, §5.1) |
 
 Buying `feather_1` at level 1 therefore resolves `GRAVITY` to `1800 × (1 − 0.03) = 1746`, and
 `StatSheet.breakdown(stat)` names each contribution by source (`bird:forge`,
@@ -255,6 +256,46 @@ reads its sheet, so the screen and the bird can never disagree.
 
 A synergy is resolved once because it is a property of the build the run started with: buying a
 node mid-session changes the next run, never the one in progress.
+
+### 5.1 The draft (M6)
+
+Two fields of `RunConfig` decide whether a run drafts, and both come from `RunLoadout`:
+
+- **`allowOffers`** — `profile.isUnlocked("feature:modifiers")` **and**
+  `content.playable(FEATURE, "modifiers")`. The first half is the gate a player passes: the
+  feature is earned at 7 runs or bought for 150 coins, and it is on a cumulative path like every
+  other non-cosmetic unlockable, so a player who never gets past gate 3 still reaches it. The
+  second half was a milestone gate rather than a rule of the game — the pool, the director and
+  the two stat layers were complete before `ModifierChoiceOverlay` existed, and a run that froze
+  on a draft nobody could answer would have been worse than no draft at all. `GameContent`
+  no longer names a milestone for `modifiers`, so today the gate is the unlock alone. A challenge
+  may still turn drafts off for its own run (`ChallengeDef.allowOffers`).
+- **`availableModifiers`** — every modifier whose `modifier:<id>` the profile owns. The three
+  legendaries (`gold_rush`, `phoenix`, `stormrider`) are earned at level 8 or bought for 300
+  coins each; everything else ships `unlock: default` and is in the pool from the first draft.
+  `ModifierCatalog.of` keeps a `default` card available whether or not the evaluator has written
+  it into `unlocked` yet, so a fresh profile never sees a thinner draft than it should.
+
+When both are satisfied, drafts open at gates 10, 25, 45, 70, 100 and 140 (D11): the run enters a
+**breather**, the next obstacle is pushed out, and the cards go up once the air ahead of the bird
+is clear. The player takes one or skips; a 45-tick hold counts 3-2-1 and the resume grants 30
+invulnerability ticks. What was taken is in the HUD's build strip while the run lasts, in
+`RunResult.stats().modifiersTaken()` / `synergiesActivated()` when it ends, on the summary screen,
+and in the profile's two lifetime map counters (`statistics.modifiersTaken`,
+`statistics.synergiesActivated`) that the statistics screen totals.
+
+**Forced modifiers** are the other way a run gets cards. `RunConfig.forcedModifiers` is filled by
+the run *source* — a challenge's `forcedModifiers`, and M9's daily — never by the profile, and the
+cards are taken before the first tick, so they count for synergies exactly like drafted ones. Two
+consequences worth knowing:
+
+- **Ownership does not apply.** `RunFactory` unions the forced ids into the run's catalogue, so a
+  challenge that forces `gold_rush` works on a profile that has not unlocked it. Only the *offer*
+  pool depends on what the profile owns.
+- **The authored rules still apply.** `ModifierDirector` takes them one at a time under
+  `maxStacks`, `excludes` and `requiresFlagsAbsent`, so a list that breaks one of those quietly
+  loses a card — which is why the validator rejects all three in `challenges.json` (see
+  `docs/CONTENT.md` §4). An id that resolves to no card at all is a broken reference and throws.
 
 ---
 
@@ -273,7 +314,7 @@ the words the player reads and the arithmetic the run uses cannot drift apart.
 
 | Where | What it says |
 | --- | --- |
-| `ShopScreen` | worlds other than Green Fields *Arrives in M7*, challenges and achievements *M8*, and — per id, from `GameContent.featureMilestone` — `feature:modifiers` *M6* and `feature:seeded_runs` *M9*. Both features are buyable and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for them. Abilities carried the same note until M5 turned them on |
+| `ShopScreen` | worlds other than Green Fields *Arrives in M7*, challenges and achievements *M8*, and — per id, from `GameContent.featureMilestone` — `feature:seeded_runs` *M9*, which is buyable and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for it. Abilities carried the same note until M5 turned them on, and `feature:modifiers` until M6 did |
 | `UpgradeTreeScreen` | nothing any more. The seven nodes whose whole effect is `ABILITY_COOLDOWN_MULT`, `ABILITY_DURATION_MULT`, `SHIELD_CHARGES` or `REVIVES`, or whose grant is `ABILITY_CAP` / `PASSIVE_SLOT`, carried *Arrives in M5* on the card and on the stat row; M5 consumes all of them and the note is gone |
 | `BirdSelectionScreen` | the ability line still names the bird's innate passives, without a milestone note: Ironbeak's −20 % `COIN_MULT` buys a shield that is live from M5 (`docs/BALANCING.md` §7.1 measures it at +96 % gates for the `average` bot) |
 
@@ -327,13 +368,14 @@ cumulative conditions read "since prestige", so nothing condition-derived is gra
 | `SelectionManagerTest` | a selection is owned, playable and written now |
 | `ProgressionManagerTest` | D14's order, applied once per run, and `purchaseTriggersAchievementsAndUnlocks` |
 | `ContentWiringTest` | what the profile owns reaches the run the screens play |
-| `NewPlayerJourneyTest` (`@Tag("sim")`) | the novice bot on the real economy: `feather_1` bought after run 1 and Ironbeak by run 3 (E17), with the run-by-run table in the failure message. It pins *which* node and *which* run, so doubling a price fails it |
+| `NewPlayerJourneyTest` (`@Tag("sim")`) | the novice bot on the real economy: `feather_1` bought after run 1, Ironbeak by run 3, the shield by run 5 and `feature:modifiers` by run 7 (E17), with the run-by-run table in the failure message. It pins *which* node and *which* run, so doubling a price fails it |
 | `SaveManagerTest` | E21's load order end to end (a renamed bird survives normalisation), an owned node the content dropped, and `abilityLevelCap` clamped from above |
 | `SmokeWindowTest` (`@Tag("gui")`) | a launch grants the unlocks a saved profile has already earned, and persists them |
 | `BirdSelectionScreenTest` | the roster, the cheapest path in words, selection writing and saving, a purchase that moves the wallet and one that cannot, the breakdown against `StatSheet.breakdown`, and the M5 loadout row: the chips a bird's slots and the `passive_slot` grant give, cycling one, and that cycling never drops a passive the bird cannot show |
 | `SelectionManagerTest` | every selection refusal, including a locked ability, a passive in the active slot and a passive list that mixes locked, non-passive and duplicate ids |
 | `UpgradeTreeScreenTest` | the tabs, a locked tree's condition, the tier layout and prerequisites, a bought level moving wallet, card and live stats, every refusal, and a node whose grant is already owned |
-| `ShopScreenTest` | the four tabs, cheapest first, affordability, a purchase leaving the list, and the milestone note on what is not playable yet — including the two features |
+| `ShopScreenTest` | the four tabs, cheapest first, affordability, a purchase leaving the list, the three modifier legendaries at 300 coins each, and the milestone note on what is not playable yet |
+| `ModifierDirectorTest`, `ModifierPoolTest`, `SynergyResolverTest`, `ModifierChoiceOverlayTest` | the draft the feature gate opens: the schedule, the breather, the freeze, the hold, forced cards under the authored rules, the weighted draw, E12's two halves of eligibility and E16's two-entry rule |
 | `ProceduralRenderTest`, `SmokeWindowTest` | the three screens headless in both languages, and through a real window with the Robot buying the cheapest bird |
 
 Run them with `./gradlew test` and `./gradlew simTest`.

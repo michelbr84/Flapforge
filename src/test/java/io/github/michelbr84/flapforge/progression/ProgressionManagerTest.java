@@ -416,8 +416,15 @@ class ProgressionManagerTest {
         assertTrue(bought.ok(), () -> "refused with " + bought.status());
         assertEquals(1, achievementCalls.size(), "the achievement hook runs on every purchase");
         assertSame(profile, achievementCalls.get(0));
-        assertEquals(List.of("cosmetic:heavy:default"), bought.outcome().unlocksGranted(),
+        assertEquals("cosmetic:heavy:default", bought.outcome().unlocksGranted().get(0),
                 "buying the bird makes its default palette earned, in the same call");
+        // Everything after it is the M6 default-modifier set, which is content rather than part
+        // of PlayerProfile.DEFAULT_UNLOCKED and is therefore granted by the first evaluation the
+        // profile ever goes through — here, the one this purchase triggers.
+        for (String granted : bought.outcome().unlocksGranted().subList(1,
+                bought.outcome().unlocksGranted().size())) {
+            assertTrue(granted.startsWith("modifier:"), granted);
+        }
         assertTrue(profile.isUnlocked("cosmetic:heavy:default"));
         assertEquals(List.of(ProgressionManager.Step.ACHIEVEMENTS,
                 ProgressionManager.Step.UNLOCKS, ProgressionManager.Step.DIRTY),

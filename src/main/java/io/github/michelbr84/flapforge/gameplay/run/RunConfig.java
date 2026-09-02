@@ -30,6 +30,9 @@ import java.util.Objects;
  * @param abilityLevels owned level per ability id
  * @param upgradeLevelsTotal total of owned upgrade levels (bird synergies)
  * @param forcedModifiers modifiers pre-taken at start (challenge/daily)
+ * @param availableModifiers the modifier ids the profile may be <em>offered</em> (M6): every
+ *     {@code unlock: default} card is available anyway, so this list only has to carry the
+ *     earned ones ({@code gold_rush}, {@code phoenix}, {@code stormrider})
  * @param rules rules from the run source (challenge/daily/config)
  * @param allowOffers whether modifier offers open during the run
  */
@@ -37,7 +40,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         String challengeId, RunMode mode, String activeAbilityId, List<String> passiveAbilityIds,
         int passiveSlotBonus, List<StatModifier> permanentEffects,
         Map<String, Integer> abilityLevels, int upgradeLevelsTotal, List<String> forcedModifiers,
-        RuleSet rules, boolean allowOffers) {
+        List<String> availableModifiers, RuleSet rules, boolean allowOffers) {
 
     /** Default bird id. */
     public static final String DEFAULT_BIRD = "classic";
@@ -65,6 +68,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
      * @param abilityLevels ability levels
      * @param upgradeLevelsTotal total upgrade levels
      * @param forcedModifiers forced modifiers
+     * @param availableModifiers modifier ids the profile may be offered
      * @param rules rules
      * @param allowOffers whether offers open
      */
@@ -79,6 +83,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         permanentEffects = List.copyOf(permanentEffects);
         abilityLevels = Collections.unmodifiableMap(new LinkedHashMap<>(abilityLevels));
         forcedModifiers = List.copyOf(forcedModifiers);
+        availableModifiers = List.copyOf(availableModifiers);
     }
 
     /**
@@ -121,6 +126,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         b.abilityLevels = new LinkedHashMap<>(abilityLevels);
         b.upgradeLevelsTotal = upgradeLevelsTotal;
         b.forcedModifiers = new ArrayList<>(forcedModifiers);
+        b.availableModifiers = new ArrayList<>(availableModifiers);
         b.rules = rules;
         b.allowOffers = allowOffers;
         return b;
@@ -152,6 +158,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         private Map<String, Integer> abilityLevels = new LinkedHashMap<>();
         private int upgradeLevelsTotal;
         private List<String> forcedModifiers = new ArrayList<>();
+        private List<String> availableModifiers = new ArrayList<>();
         private RuleSet rules = RuleSet.EMPTY;
         private boolean allowOffers;
 
@@ -325,6 +332,17 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         }
 
         /**
+         * Sets the modifier ids the profile may be offered (M6).
+         *
+         * @param value the ids
+         * @return this builder
+         */
+        public Builder availableModifiers(List<String> value) {
+            availableModifiers = new ArrayList<>(value);
+            return this;
+        }
+
+        /**
          * Sets the rules.
          *
          * @param value the rules
@@ -354,7 +372,8 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         public RunConfig build() {
             return new RunConfig(seed, birdId, paletteId, worldId, tierId, challengeId, mode,
                     activeAbilityId, passiveAbilityIds, passiveSlotBonus, permanentEffects,
-                    abilityLevels, upgradeLevelsTotal, forcedModifiers, rules, allowOffers);
+                    abilityLevels, upgradeLevelsTotal, forcedModifiers, availableModifiers, rules,
+                    allowOffers);
         }
     }
 }

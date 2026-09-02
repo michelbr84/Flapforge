@@ -11,6 +11,7 @@ import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.gameplay.TickFact;
 import io.github.michelbr84.flapforge.gameplay.TickReport;
+import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.RewardSummary;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunInput;
@@ -63,10 +64,22 @@ import java.util.Set;
  * rate-limited to one every {@value #REFUSAL_QUIET_TICKS} ticks, because the ability key is
  * exactly the key a player mashes when a gate is closing.
  *
+ * <h2>Drafts (D11, D27, M6)</h2>
+ * When a tick leaves the run in {@code CHOOSING_MODIFIER} the screen pushes a
+ * {@link ModifierChoiceOverlay} and stops ticking: the simulation was already frozen by
+ * {@code ModifierDirector}, and the overlay drives the frozen ticks through
+ * {@link #tickDraft(int)} until the resume countdown hands the run back. The HUD's build strip and
+ * the streak-bonus readout are refreshed from the run after every tick, so a card taken mid-flight
+ * is on screen on the next frame, and a {@code SynergyActivated} fact raises a toast beside the
+ * chip it added.
+ *
  * <h2>Pausing (D2)</h2>
- * While {@code FLYING}, losing the window focus, being iconified or pressing {@code Esc} pushes a
+ * While the run is live — {@code FLYING} and the {@code BREATHER} a draft waits in, both of which
+ * tick the world — losing the window focus, being iconified or pressing {@code Esc} pushes a
  * {@link PauseOverlay}; resuming needs an explicit key or click and zeroes the loop accumulator so
- * no time accrued while paused is replayed as a burst of ticks.
+ * no time accrued while paused is replayed as a burst of ticks. The frozen draft phases pause
+ * nothing, because nothing is moving: {@link ModifierChoiceOverlay} owns those ticks and reads
+ * {@code Esc} as "skip this draft".
  *
  * <p>The one focus loss that must <em>not</em> pause is the one the {@code F11} handshake causes:
  * entering or leaving borderless fullscreen disposes and re-shows the frame, so the toolkit
@@ -107,6 +120,9 @@ public final class GameScreen implements Screen {
     private int refusalQuietTicks;
     private String abilityRefusal = "";
     private ProgressionOutcome lastOutcome = ProgressionOutcome.EMPTY;
+    private int shownModifiers = -1;
+    private int shownSynergies = -1;
+    private long shownStreakBonus = -1;
 
     /**
      * Creates a screen playing classic runs with clock-derived seeds.
@@ -249,6 +265,7 @@ public final class GameScreen implements Screen {
         abilityRefusal = "";
         gameOverShown = false;
         lastOutcome = ProgressionOutcome.EMPTY;
+        invalidateBuild();
         runsStarted++;
         publish(new GameEvent.RunStarted(run.config().birdId(), run.config().worldId(),
                 run.config().tierId(), seed));
@@ -285,12 +302,28 @@ public final class GameScreen implements Screen {
         renderer.setAbilityName(activeAbilityName());
         seedText = seeds.isExplicit() ? strings.format(StringKey.HUD_SEED, seed) : null;
         shownLanguage = strings.language();
+        invalidateBuild();
+    }
+
+    /**
+     * Forces the next {@link #refreshBuild()} to rebuild the HUD's build strip, whatever the run
+     * holds. Needed wherever the HUD's own state was thrown away or its language changed: a new
+     * run ({@code HudRenderer.reset}), re-entering the screen ({@code resetAll}) and a live
+     * language switch all leave the strip empty or in the wrong words while the run still carries
+     * its forced modifiers.
+     */
+    private void invalidateBuild() {
+        shownModifiers = -1;
+        shownSynergies = -1;
+        shownStreakBonus = -1;
+        refreshBuild();
     }
 
     @Override
     public void onEnter() {
         screens.setLetterboxRgb(renderer.palette().letterbox());
         renderer.resetAll();
+        invalidateBuild();
         if (context != null) {
             holdToFlap = context.settings().holdToFlap;
         }
@@ -315,8 +348,7 @@ public final class GameScreen implements Screen {
         if (refusalQuietTicks > 0) {
             refusalQuietTicks--;
         }
-        if (intent.ability() && !report.has(TickFact.AbilityActivated.class)
-                && run.phase() == RunPhase.FLYING) {
+        if (intent.ability() && !report.has(TickFact.AbilityActivated.class) && isLive()) {
             refuseAbility();
         }
         renderer.tick(run, flapped, crashed);
@@ -324,6 +356,13 @@ public final class GameScreen implements Screen {
             toasts.tick();
         }
         publishFacts(report, flapped, crashed);
+        refreshBuild();
+        if (run.phase() == RunPhase.CHOOSING_MODIFIER) {
+            // The director froze the simulation on this tick; the overlay takes over the frozen
+            // ticks from here (M6, D11) and pops itself when the run is flying again.
+            screens.push(new ModifierChoiceOverlay(screens, strings, run, this::tickDraft));
+            return;
+        }
         if (run.isFinished() && !gameOverShown) {
             gameOverShown = true;
             RunResult result = run.result();
@@ -338,20 +377,98 @@ public final class GameScreen implements Screen {
     }
 
     /**
+     * One frozen tick of an open draft (M6, D11), driven by {@link ModifierChoiceOverlay} because
+     * the {@link ScreenManager} only ticks the top of the stack.
+     *
+     * <p>It is deliberately the same path as a flying tick minus the world: the run is ticked
+     * once, its facts are published on the bus (so a taken card and an activated synergy are heard
+     * by the audio manager and the toast layer like everything else), the toasts age and the HUD
+     * build is refreshed. What it does <em>not</em> do is advance the renderers' world animations —
+     * {@code tickFrozen} moves only the clouds, exactly as the game-over strip does — because the
+     * simulation itself has not moved: the draft costs the run no tick, no flap and no obstacle.
+     *
+     * @param choice the card index the player took, {@link RunInput#NO_CHOICE} while the overlay
+     *     is still open, or {@link RunInput#SKIP} to close it with nothing
+     */
+    void tickDraft(int choice) {
+        if (run.isFinished()) {
+            return;
+        }
+        TickReport report = run.tick(new RunInput(false, false, choice, false));
+        renderer.tickFrozen();
+        if (toasts != null) {
+            toasts.tick();
+        }
+        publishFacts(report, false, false);
+        refreshBuild();
+    }
+
+    /**
+     * Brings the HUD's build strip and streak-bonus readout in line with the run (M6, D26, D27).
+     *
+     * <p>Called after every tick and cheap on the common one: the strings are rebuilt only when
+     * the number of taken modifiers, the number of active synergies or the coins a streak step
+     * pays actually changed, which during a run happens at most once per draft. That is what keeps
+     * a steady frame allocation-free while still letting a drafted card show up immediately.
+     */
+    private void refreshBuild() {
+        ModifierDirector draft = run.simulation().modifiers();
+        Map<String, Integer> stacks = draft.stacks();
+        List<String> synergies = draft.activeSynergies();
+        // Counted in takes, not in distinct cards: a second stack of something the run already
+        // holds changes a chip's label without changing how many chips there are.
+        int takes = run.stats().modifiersTaken().size();
+        long perStep = streakCoins() + run.stats().modifierStreakCoins();
+        if (takes == shownModifiers && synergies.size() == shownSynergies
+                && perStep == shownStreakBonus) {
+            return;
+        }
+        shownModifiers = takes;
+        shownSynergies = synergies.size();
+        shownStreakBonus = perStep;
+        List<String> chips = new ArrayList<>(stacks.size());
+        for (Map.Entry<String, Integer> entry : stacks.entrySet()) {
+            String name = ProgressionText.name(strings, ContentKind.MODIFIER, entry.getKey());
+            chips.add(entry.getValue() > 1
+                    ? strings.format(StringKey.HUD_MODIFIER_STACK, name, entry.getValue())
+                    : name);
+        }
+        List<String> bonuses = new ArrayList<>(synergies.size());
+        for (int i = 0; i < synergies.size(); i++) {
+            bonuses.add(ProgressionText.name(strings, ContentKind.SYNERGY, synergies.get(i)));
+        }
+        renderer.setBuild(chips, bonuses);
+        renderer.setStreakBonusText(perStep > 0
+                ? strings.format(StringKey.HUD_STREAK_BONUS, perStep) : "");
+    }
+
+    /**
+     * What one clean-gate streak step pays before the run's own modifiers add to it
+     * ({@code economy.rewards.streak.coins}, E32.a).
+     *
+     * @return the coins, 0 in a session with no content
+     */
+    private long streakCoins() {
+        if (context != null && context.content() != null && context.content().economy() != null) {
+            return context.content().economy().rewards().streak().coins();
+        }
+        return 0;
+    }
+
+    /**
      * Turns the tick's facts into presentation events (D16, E31.b): gameplay never imports the
      * bus, so this is the one seam where a simulation fact becomes something the audio manager,
      * the toast layer or the debug overlay can hear.
      *
      * <p>Facts are published in the order the simulation produced them, so a shield absorb is
      * heard before the crash it prevented. Coins and the streak fire from M3 on, the four ability
-     * facts from M5; the remaining cases cannot fire yet — synergies are M6, rule shifts M7 — but
-     * the mapping is written once, here, so a milestone that adds the fact does not have to
-     * remember to add its sound.
+     * facts from M5, synergies from M6; rule shifts are M7 — but the mapping is written once,
+     * here, so a milestone that adds the fact does not have to remember to add its sound.
      *
-     * <p>Three facts stay deliberately unmapped: {@code OfferOpened} (the event carries the
-     * offered card ids, which the modifier director owns from M6), and the boss trio (the event
-     * carries the boss id, which lives in the world definition from M8). Mapping them now would
-     * mean inventing identifiers.
+     * <p>Four facts stay deliberately unmapped: the draft trio ({@code ModifierOffered},
+     * {@code ModifierChosen}, {@code ModifierSkipped}), which the modifier overlay owns and
+     * renders itself, and the boss trio, whose event carries the boss id that lives in the world
+     * definition from M8.
      */
     private void publishFacts(TickReport report, boolean flapped, boolean crashed) {
         if (context == null) {
@@ -386,6 +503,7 @@ public final class GameScreen implements Screen {
                 publish(new GameEvent.AbilityReady(ready.abilityId()));
             } else if (fact instanceof TickFact.SynergyActivated synergy) {
                 publish(new GameEvent.SynergyActivated(synergy.id()));
+                announceSynergy(synergy.id());
             } else if (fact instanceof TickFact.RuleShift) {
                 publish(new GameEvent.RuleShift(activeRuleFlags()));
             }
@@ -393,6 +511,23 @@ public final class GameScreen implements Screen {
         if (crashed) {
             publish(new GameEvent.Crashed(causeOf(report), run.stats().gatesPassed()));
         }
+    }
+
+    /**
+     * Says out loud that a build came together (D27): the HUD grows a chip and the toast names the
+     * set bonus, because a chip appearing in the corner is not an announcement.
+     *
+     * <p>The toast layer renders under the draft overlay, which is exactly when synergies
+     * activate: the card that completed the set was taken one frozen tick earlier.
+     *
+     * @param synergyId the set bonus that just activated
+     */
+    private void announceSynergy(String synergyId) {
+        if (toasts == null) {
+            return;
+        }
+        toasts.push(strings.format(StringKey.TOAST_SYNERGY,
+                ProgressionText.name(strings, ContentKind.SYNERGY, synergyId)));
     }
 
     /**
@@ -661,11 +796,26 @@ public final class GameScreen implements Screen {
             screens.pop();
             return true;
         }
-        if (run.phase() == RunPhase.FLYING && (escape || lostAttention)) {
+        if (isLive() && (escape || lostAttention)) {
             screens.push(new PauseOverlay(screens, strings));
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether the run is being flown right now, which is what {@code Esc}, a lost focus and a
+     * refused ability all key off.
+     *
+     * <p>{@code BREATHER} is the second live phase M6 added: the simulation runs exactly as in
+     * {@code FLYING} while the draft waits for clear air, which measures 241 ticks at the median
+     * — 4 s — of every schedule entry. Leaving it out would make 9.9 % of a drafting run
+     * un-pausable and lethal to an alt-tab, which is precisely what D2 forbids.
+     *
+     * @return {@code true} in {@code FLYING} and {@code BREATHER}
+     */
+    private boolean isLive() {
+        return run.phase() == RunPhase.FLYING || run.phase() == RunPhase.BREATHER;
     }
 
     @Override

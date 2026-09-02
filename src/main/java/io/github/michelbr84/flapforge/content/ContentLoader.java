@@ -45,8 +45,13 @@ public final class ContentLoader {
     public static final List<String> M4_FILES = List.of("birds", "difficulty", "economy",
             "upgrades", "aliases", "abilities", "worlds", "challenges", "achievements");
 
+    /** The content files milestone M6 ships: {@link #M4_FILES} plus the run modifiers (§4). */
+    public static final List<String> M6_FILES = List.of("birds", "difficulty", "economy",
+            "upgrades", "aliases", "abilities", "modifiers", "worlds", "challenges",
+            "achievements");
+
     /** The content files the game currently loads (the latest milestone's set). */
-    public static final List<String> FILES = M4_FILES;
+    public static final List<String> FILES = M6_FILES;
 
     private static final Gson GSON = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)

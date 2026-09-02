@@ -24,6 +24,7 @@ silently ineffective effect.
 | `upgrades.json` | the three upgrade trees and their eighteen nodes | M4 |
 | `aliases.json` | the id reconciliation table applied to old saves (E21) | M4 (empty) |
 | `abilities.json` | the eight abilities: kind, tags, level costs, unlocks | stub in M4, completed in M5 |
+| `modifiers.json` | the draft: offer schedule, offer width, rarity weights, the seventeen modifiers and the four synergies | M6 |
 | `worlds.json` | the five worlds: order, curve, palette, ambience, spawn weights, boss and boss reward | stub in M4, completed in M7 |
 | `challenges.json` | the seven challenges: world, rules, objective, rewards, unlocks | stub in M4, completed in M8 |
 | `achievements.json` | the forty-one achievements: condition, reward | stub in M4, completed in M8 |
@@ -47,11 +48,10 @@ shipped set is checked in full.
 before its system exists. Abilities became playable in M5; challenges and achievements do in M8. Two
 kinds answer per id instead of per kind: `playable(WORLD, id)` is true only for `green_fields`
 until M7, and `playable(FEATURE, id)` is false while `GameContent.featureMilestone(id)` names a
-milestone — `modifiers` is read by the modifier director in M6 and `seeded_runs` by the Seeded
-mode entry in M9. Both features are still *buyable* in M4, which is what the plan asks for, so the
-shop labels them with that milestone rather than presenting a switch that does nothing. The UI
-asks these to show content as locked by milestone rather than offering something that cannot
-happen yet.
+milestone — `modifiers` named M6 until the draft overlay shipped and is live now, `seeded_runs`
+names M9. A feature is *buyable* before that, which is what the plan asks for, so the shop labels
+it with the milestone rather than presenting a switch that does nothing. The UI asks these to show
+content as locked by milestone rather than offering something that cannot happen yet.
 
 ---
 
@@ -203,6 +203,95 @@ or cancelling a lethal hit (D9, E24).
    ability that costs the bot survival fails the build rather than shipping as a trap
    (`docs/BALANCING.md` §7.2).
 
+### A modifier
+
+A modifier is a card a mid-run draft can offer (D11, D27). It is **pure data**: `ModifierDirector`
+pushes its `effects` into the `MODIFIERS` stat layer and its `flags` into the run's rules, so a new
+card needs no code at all unless it wants a stat that does not exist yet.
+
+1. **Append the entry** to `modifiers.json`:
+
+   ```json
+   { "id": "updraft", "rarity": "RARE", "tags": ["TEMPO", "PRECISION"], "maxStacks": 2,
+     "excludes": ["stormrider"], "requiresFlagsAbsent": ["NO_COINS"],
+     "effects": [ { "stat": "GRAVITY", "op": "MULTIPLY", "value": 0.94 } ],
+     "flags": [], "streakBonus": { "coins": 10 },
+     "unlock": { "type": "default" } }
+   ```
+
+2. **`rarity` is how often it is seen, not how strong it is** — but the two have to agree, because
+   `rarityWeights` (60/28/10/2) makes a COMMON thirty times as likely as a LEGENDARY. Measure the
+   card before choosing (step 8); a RARE that measures like an EPIC is a draft with one correct
+   answer in it.
+
+3. **`tags` are the only input of the synergies block.** Each taken entry contributes its tags
+   once, however many stacks it holds, and a set bonus needs two *distinct* entries (E16) — so a
+   card carrying both tags of a synergy still cannot complete it alone. A card with no tag is an
+   error: it could never feed one.
+
+4. **`maxStacks` caps the whole run**, not the draft. The pool stops offering a card at its cap,
+   and a challenge that forces the same id more often than that is a validator error.
+
+5. **`excludes` is symmetric and enforced in both directions**: holding either half drops the
+   other from the pool, and one draft never shows both halves of an exclusion.
+
+6. **Eligibility has two halves (E12).** `requiresFlagsAbsent` is the authored half — list the
+   rule flags that would make the card a lie. The derived half is computed from the effects and
+   needs no data: a card whose whole effect list is a no-op in this run is dropped anyway
+   (`SHIELD_CHARGES` under `NO_DEFENSIVE_ABILITIES`, `REVIVES` under `NO_REVIVE`, the coin stats
+   under `NO_COINS`, and the two ability-timing stats when nothing equipped declares a cooldown or
+   a duration). Author the flag only when the derivation cannot see it — `phoenix` pays coins as
+   well as reviving, so `NO_REVIVE` has to be written down.
+
+7. **What a card may not do.** It may not grant `SPEED_RAMP` or `ALL_OBSTACLES_MOVE` (the
+   difficulty layer reads those at run start and never again), and it may not touch
+   `MOVING_CHANCE`, which the spawn decision reads — a drafted change to it would make the
+   obstacle sequence depend on what the player picked, and E32.d requires that sequence to be a
+   function of the seed alone. A card that pays a `streakBonus` must list `NO_COINS`. A card with
+   no effect, no flag and no streak bonus is an error.
+
+8. **Add the strings** `modifier.<id>.name` / `.desc` to `strings/en.json` **and**
+   `strings/pt_BR.json`; the overlay, the HUD chips and the run summary all read them through
+   `ProgressionText`. Then `./gradlew contentCheck`, and measure it:
+
+   ```
+   ./gradlew balancing -PtoolArgs="--seeds 200 --skill all --modifier <id>"
+   ./gradlew balancing -PtoolArgs="--seeds 200 --skill all --modifier <id> --modifier-stacks 2"
+   ```
+
+   The sweep forces the card on every run of a cell and prints the payout delta against the same
+   seeds without it, per skill preset. `docs/BALANCING.md` §8.2 is that table for the shipped
+   cards; add the row rather than guessing, because three of the seventeen shipped cards measured
+   at exactly 0.0 % before they were fixed.
+
+9. **Give it an unlock.** `{"type": "default"}` puts it in every profile's pool; anything else is
+   a `modifier:<id>` unlockable and needs a cumulative path (§5) like any other non-cosmetic id.
+
+### A synergy
+
+A synergy is a set bonus over the tags of the cards a run holds (D27).
+
+```json
+{ "id": "slipstream", "requiresTags": ["TEMPO", "PRECISION"],
+  "effects": [ { "stat": "HITBOX_SCALE", "op": "FLAT_ADD", "value": -0.05 } ], "flags": [] }
+```
+
+- `requiresTags` is a **multiset**: `["ECONOMY", "ECONOMY"]` means two ECONOMY contributions, and
+  they must come from at least two distinct taken entries (E16). Fewer than two tags is an error,
+  because one tag can never be split across two entries.
+- The resolver recomputes the active set every time the build changes — a draft pick, the forced
+  cards of a challenge — and pushes the effects into the `MOD_SYNERGY` layer. Deactivation works
+  the same way, so a bonus is not permanent if the build stops covering it.
+- The same rules as a card apply to what it may grant: no `SPEED_RAMP` / `ALL_OBSTACLES_MOVE`, no
+  `MOVING_CHANCE`, and no synergy id may collide with a modifier id (they share the string
+  tables).
+- The validator **warns** when no legal build of the shipped cards can satisfy the tags — it
+  searches subsets honouring `excludes` — rather than failing, because a card added later can make
+  it reachable again.
+- Add `synergy.<id>.name` / `.desc` to both string tables: the HUD lists the bonus, the draft
+  overlay promises it on the card that would complete it, the toast announces it and the run
+  summary lists it.
+
 ### A palette
 
 Append to the bird's `palettes[]` with four `#RRGGBB` colours and an unlock. Cosmetics are the
@@ -230,10 +319,10 @@ balanced silhouette for anything else, so an unchecked typo would ship the wrong
 silence, which is the class of failure D10 exists to prevent.
 
 **Cross-references.** Bird passive abilities and palette unlock ids; upgrade `tree`, `prereqs`
-and `UNLOCK` grants; challenge `world`, `tier`, `curve` and rewards; world `curve` and
-`boss.reward`; achievement counters; level-reward unlocks; the daily tier pool; every namespaced
-id in every reward. A reference into a file that was not supplied is skipped (§1); pattern ids
-are recorded and resolved from M7, modifier ids from M6.
+and `UNLOCK` grants; challenge `world`, `tier`, `curve`, `forcedModifiers` and rewards; world
+`curve` and `boss.reward`; modifier `excludes`; achievement counters; level-reward unlocks; the
+daily tier pool; every namespaced id in every reward. A reference into a file that was not
+supplied is skipped (§1); pattern ids are recorded and resolved from M7.
 
 **Counters (E5).** A `LIFETIME` counter is a `StatisticKey` field, a `<mapField>.<key>` entry of
 one (`bossClears.void`, `bestGatesByTier.hard`) or a profile-root scalar (`level`, `xp`,
@@ -251,6 +340,21 @@ range, and every column must follow its trend (`up`, `down` or free). A `PASSIVE
 `charges`, and — when it declares `effects` — a non-zero duration at every level, because an
 active contributes its effects only while its duration runs. A level-up may not lengthen a cooldown
 or shorten a duration.
+
+**Modifiers and synergies (M6).** The offer schedule is strictly ascending and positive, a draft
+shows at least one card, no rarity weight is negative and every rarity used has one — a card in a
+rarity with no weight could never be offered. A card is takeable at least once, carries at least
+one tag, names only modifiers that exist in `excludes` and never itself, and does something
+(an effect, a flag or a streak bonus). A `streakBonus` must declare `NO_COINS` in
+`requiresFlagsAbsent`. Neither a card nor a synergy may grant `SPEED_RAMP` or `ALL_OBSTACLES_MOVE`
+mid-run (the difficulty layer resolves both at run start) or touch `MOVING_CHANCE` (the spawn
+decision reads it, so a drafted change would make the obstacle sequence depend on the player's
+choice, E32.d). A synergy needs at least two `requiresTags`, must not share an id with a modifier,
+and is *warned* about — not rejected — when no legal build can satisfy it. A challenge's
+`forcedModifiers` must resolve, must not list a card more often than its `maxStacks`, must not
+hold two cards that exclude each other and must not force a card the challenge's own `flags`
+forbid: `ModifierDirector` applies the list under those same rules, so anything unchecked here is
+a card the challenge would silently lose at run start.
 
 **Prerequisites.** The node graph is acyclic and tier-consistent (a prerequisite sits in the same
 tree, in a lower tier).

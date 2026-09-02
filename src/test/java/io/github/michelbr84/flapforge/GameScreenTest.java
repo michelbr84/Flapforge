@@ -15,6 +15,7 @@ import io.github.michelbr84.flapforge.content.RunFactory;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
@@ -26,12 +27,14 @@ import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
 import io.github.michelbr84.flapforge.render.CloudLayer;
 import io.github.michelbr84.flapforge.render.Viewport;
+import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
+import io.github.michelbr84.flapforge.ui.screens.ModifierChoiceOverlay;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.SeededRunSource;
@@ -351,6 +354,155 @@ class GameScreenTest {
         game = new GameScreen(screens, source, SeedSequence.from(42L));
         screens.push(game);
         ticks(GRACE);
+    }
+
+    // ------------------------------------------------------------------ drafts (M6)
+
+    /** Gate the M6 test schedule opens its only draft at. */
+    private static final int DRAFT_GATE = 2;
+
+    /**
+     * Replaces the screen with one whose runs draft from the shipped cards on a flat corridor
+     * (E17), so a draft opens within a few hundred ticks instead of at gate 10.
+     */
+    private void openDraftGame() {
+        screens.pop();
+        ticks(GRACE);
+        game = new GameScreen(screens,
+                DraftRuns.source(DraftRuns.catalog(GameContent.load(), DRAFT_GATE, 3)),
+                SeedSequence.from(42L));
+        screens.push(game);
+        ticks(GRACE);
+    }
+
+    /** Flies the flat corridor until the draft opens, flapping when the bird sinks. */
+    private void flyToDraft() {
+        tap(Keys.SPACE);
+        for (int i = 0; i < 4000 && !(screens.top() instanceof ModifierChoiceOverlay); i++) {
+            if (game.run().simulation().bird().y() > Playfield.BIRD_START_Y + 10) {
+                tap(Keys.SPACE);
+            } else {
+                ticks(1);
+            }
+        }
+        assertTrue(screens.top() instanceof ModifierChoiceOverlay,
+                () -> "no draft after 4000 frames; the run is in " + game.run().phase());
+    }
+
+    @Test
+    void aDraftOpensAtTheScheduledGateAndTheRunResumesAfterTheCountdown() {
+        openDraftGame();
+        flyToDraft();
+        assertEquals(RunPhase.CHOOSING_MODIFIER, game.run().phase());
+        assertTrue(game.run().stats().gatesPassed() >= DRAFT_GATE,
+                "the draft waited for the scheduled gate");
+        assertTrue(game.blocksAutosave(), "an open draft is a live run (D15)");
+        assertTrue(screens.top().blocksAutosave(), "and so is the overlay on top of it");
+
+        // The game screen is not ticked while the overlay is up, and the overlay's own ticks move
+        // nothing: the draft costs the world no tick (D11).
+        ModifierChoiceOverlay overlay = (ModifierChoiceOverlay) screens.top();
+        int simTick = game.run().simulation().tick();
+        int gates = game.run().stats().gatesPassed();
+        ticks(GRACE + 20);
+        assertEquals(simTick, game.run().simulation().tick());
+        assertEquals(RunPhase.CHOOSING_MODIFIER, game.run().phase());
+
+        tap(Keys.ENTER);
+        assertEquals(RunPhase.RESUME_HOLD, game.run().phase(), "Enter took the focused card");
+        assertEquals(1, game.run().stats().modifiersTaken().size());
+        assertEquals(overlay.takenName(),
+                game.renderer().hud().buildChips().get(0), "the HUD shows what was taken");
+
+        for (int i = 0; i < ModifierDirector.RESUME_HOLD_TICKS + 4
+                && screens.top() instanceof ModifierChoiceOverlay; i++) {
+            ticks(1);
+        }
+        assertSame(game, screens.top(), "the overlay left when the countdown ended");
+        assertEquals(RunPhase.FLYING, game.run().phase());
+        assertEquals(simTick, game.run().simulation().tick(),
+                "and the whole draft cost the simulation nothing");
+        assertEquals(ModifierDirector.RESUME_IFRAMES,
+                game.run().simulation().invulnerableTicks(), "the resume grants i-frames");
+
+        // The run really goes on: more gates are passed after the resume.
+        for (int i = 0; i < 1500 && game.run().stats().gatesPassed() <= gates; i++) {
+            if (game.run().simulation().bird().y() > Playfield.BIRD_START_Y + 10) {
+                tap(Keys.SPACE);
+            } else {
+                ticks(1);
+            }
+        }
+        assertTrue(game.run().stats().gatesPassed() > gates, "the run resumed and kept scoring");
+        assertTrue(game.run().simulation().tick() > simTick);
+    }
+
+    /**
+     * D2, against the phase M6 added: a breather is a live phase — the simulation runs exactly as
+     * in {@code FLYING} while the draft waits for clear air — so a lost focus has to pause it. It
+     * lasts about four seconds of every schedule entry, which is a tenth of a drafting run that
+     * would otherwise be un-pausable and lethal to an alt-tab.
+     */
+    @Test
+    void aFocusLossDuringTheBreatherPausesTheRun() {
+        openDraftGame();
+        flyUntilPhase(RunPhase.BREATHER);
+        int tickOfPause = game.run().tick();
+
+        input.offer(new RawInput.FocusLost(stamp++));
+        ticks(1);
+        assertTrue(screens.top() instanceof PauseOverlay,
+                () -> "a focus loss in " + game.run().phase() + " left the run running");
+        ticks(20);
+        assertEquals(tickOfPause, game.run().tick(), "the breather is frozen while paused");
+        assertEquals(RunPhase.BREATHER, game.run().phase(), "and it is still the same breather");
+
+        tap(Keys.SPACE);
+        ticks(GRACE);
+        assertSame(game, screens.top(), "the run resumes where it was");
+        ticks(5);
+        assertTrue(game.run().tick() > tickOfPause, "and the world ticks again");
+    }
+
+    /** The same for {@code Esc}, which is the other half of D2's pause rule. */
+    @Test
+    void escapePausesDuringTheBreatherToo() {
+        openDraftGame();
+        flyUntilPhase(RunPhase.BREATHER);
+        tap(Keys.ESCAPE);
+        assertTrue(screens.top() instanceof PauseOverlay,
+                () -> "Esc in " + game.run().phase() + " did not pause");
+    }
+
+    /** Flies the flat corridor until the run reaches a phase, flapping when the bird sinks. */
+    private void flyUntilPhase(RunPhase target) {
+        tap(Keys.SPACE);
+        for (int i = 0; i < 4000 && game.run().phase() != target; i++) {
+            if (game.run().simulation().bird().y() > Playfield.BIRD_START_Y + 10) {
+                tap(Keys.SPACE);
+            } else {
+                ticks(1);
+            }
+        }
+        assertEquals(target, game.run().phase(), "the run never reached " + target);
+    }
+
+    @Test
+    void anOpenDraftSwallowsTheKeysThatWouldOtherwisePauseOrFlap() {
+        openDraftGame();
+        flyToDraft();
+        ticks(GRACE);
+        int flaps = game.run().simulation().flaps();
+
+        input.offer(new RawInput.FocusLost(stamp++));
+        ticks(2);
+        assertTrue(screens.top() instanceof ModifierChoiceOverlay,
+                "a focus loss must not stack a pause overlay on top of a draft");
+        assertEquals(flaps, game.run().simulation().flaps());
+
+        tap(Keys.ESCAPE);
+        assertEquals(RunPhase.RESUME_HOLD, game.run().phase(), "Esc skips the draft");
+        assertEquals(List.of(), game.run().stats().modifiersTaken());
     }
 
     @Test

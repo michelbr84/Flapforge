@@ -5,6 +5,7 @@ import io.github.michelbr84.flapforge.gameplay.Simulation;
 import io.github.michelbr84.flapforge.gameplay.TickFact;
 import io.github.michelbr84.flapforge.gameplay.TickReport;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
+import io.github.michelbr84.flapforge.gameplay.obstacle.SpawnTable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,10 +25,20 @@ import java.util.Objects;
  *       ability activation, a shield absorb and a revive are counted here, so
  *       {@code RunStats.abilitiesUsed}, {@code shieldAbsorbs} and {@code revives} are a function
  *       of the tick report and never of a second code path.</li>
+ *   <li>{@code BREATHER}: the roguelite draft pushed the next obstacle out and is waiting for
+ *       clear air; the simulation runs exactly as in {@code FLYING} (D11, M6).</li>
+ *   <li>{@code CHOOSING_MODIFIER} and {@code RESUME_HOLD}: the simulation is frozen. The tick
+ *       still happens — it carries the player's answer to the draft and counts the 3-2-1 down —
+ *       but nothing moves, nothing spawns and nothing can kill the bird, so these ticks are not
+ *       counted in {@code ticksAlive}.</li>
  *   <li>{@code DYING}: on a lethal hit the world freezes and the bird falls from +15 px/s (E28)
  *       to the ground line; ground contact while flying finishes the run on the same tick.</li>
  *   <li>{@code FINISHED}: further ticks do nothing; {@link #result()} is final.</li>
  * </ul>
+ *
+ * <p>The phase is derived, never invented: {@code ModifierDirector.State} is the authority on
+ * where a draft is, and {@link #tick(RunInput)} maps it onto {@link RunPhase} after every tick so
+ * the two can never disagree.
  */
 public final class Run {
 
@@ -47,9 +58,31 @@ public final class Run {
      * @param setup the resolved content
      */
     public Run(RunConfig config, RunSetup setup) {
+        this(config, setup, null);
+    }
+
+    /**
+     * Creates a run with an injected spawn table (E17: the test seam that makes the world
+     * predictable).
+     *
+     * @param config the configuration
+     * @param setup the resolved content
+     * @param spawnTable the table to spawn from, or {@code null} for the world's own
+     */
+    public Run(RunConfig config, RunSetup setup, SpawnTable spawnTable) {
         this.config = Objects.requireNonNull(config, "config");
         this.setup = Objects.requireNonNull(setup, "setup");
-        this.sim = new Simulation(config, setup);
+        this.sim = new Simulation(config, setup, spawnTable);
+        // The forced modifiers of a challenge or a daily were taken inside the simulation's
+        // constructor, before any tick and therefore before any fact could carry them (D11).
+        ModifierDirector draft = sim.modifiers();
+        for (String id : draft.taken()) {
+            stats.addModifierTaken(id);
+        }
+        for (String id : draft.activeSynergies()) {
+            stats.addSynergyActivated(id);
+        }
+        stats.setModifierStreakCoins(draft.streakBonusCoins());
     }
 
     /**
@@ -80,7 +113,11 @@ public final class Run {
                 changePhase(RunPhase.FLYING, facts);
                 return tickFlying(input, facts);
             case FLYING:
+            case BREATHER:
                 return tickFlying(input, new ArrayList<>());
+            case CHOOSING_MODIFIER:
+            case RESUME_HOLD:
+                return tickFrozen(input);
             case DYING:
                 return tickDying();
             case FINISHED:
@@ -94,8 +131,45 @@ public final class Run {
                 new SimInput(input.flap(), input.ability(), input.autoFlapHeld()));
         stats.tickAlive();
         facts.addAll(report.facts());
+        CollisionCause cause = absorbFacts(report.facts());
+        if (cause != null) {
+            stats.setDeathCause(cause);
+            sim.beginDying();
+            changePhase(RunPhase.DYING, facts);
+            if (cause == CollisionCause.GROUND) {
+                sim.land();
+                changePhase(RunPhase.FINISHED, facts);
+            }
+        } else {
+            syncDraftPhase(facts);
+        }
+        return new TickReport(report.tick(), facts);
+    }
+
+    /**
+     * One frozen tick of a draft: the simulation does not run, the player's answer reaches the
+     * director and the countdown moves (D11).
+     *
+     * @param input the player intent; only {@link RunInput#choice()} matters here
+     * @return the facts of this tick
+     */
+    private TickReport tickFrozen(RunInput input) {
+        List<TickFact> facts = new ArrayList<>();
+        sim.modifiers().tickFrozen(input.choice(), facts);
+        absorbFacts(facts);
+        syncDraftPhase(facts);
+        return new TickReport(sim.tick(), facts);
+    }
+
+    /**
+     * Folds a tick's facts into the stats.
+     *
+     * @param facts the facts produced this tick
+     * @return the cause of a lethal hit that was not absorbed, or {@code null}
+     */
+    private CollisionCause absorbFacts(List<TickFact> facts) {
         CollisionCause cause = null;
-        for (TickFact f : report.facts()) {
+        for (TickFact f : facts) {
             if (f instanceof TickFact.GatePassed) {
                 stats.setGatesPassed(sim.gatesPassed());
                 stats.setPoints(sim.points());
@@ -114,20 +188,42 @@ public final class Run {
                 stats.countShieldAbsorb();
             } else if (f instanceof TickFact.Revived) {
                 stats.countRevive();
+            } else if (f instanceof TickFact.ModifierChosen chosen) {
+                stats.addModifierTaken(chosen.modifierId());
+                stats.setModifierStreakCoins(sim.modifiers().streakBonusCoins());
+            } else if (f instanceof TickFact.SynergyActivated synergy) {
+                stats.addSynergyActivated(synergy.id());
             } else if (f instanceof TickFact.Crashed crashed) {
                 cause = crashed.cause();
             }
         }
-        if (cause != null) {
-            stats.setDeathCause(cause);
-            sim.beginDying();
-            changePhase(RunPhase.DYING, facts);
-            if (cause == CollisionCause.GROUND) {
-                sim.land();
-                changePhase(RunPhase.FINISHED, facts);
-            }
+        return cause;
+    }
+
+    /**
+     * Brings the run phase in line with the draft the director is running (D11).
+     *
+     * @param facts where the {@code PhaseChanged} goes
+     */
+    private void syncDraftPhase(List<TickFact> facts) {
+        RunPhase target = phaseOf(sim.modifiers().state());
+        if (target != phase) {
+            changePhase(target, facts);
         }
-        return new TickReport(report.tick(), facts);
+    }
+
+    private static RunPhase phaseOf(ModifierDirector.State state) {
+        switch (state) {
+            case BREATHER:
+                return RunPhase.BREATHER;
+            case CHOOSING:
+                return RunPhase.CHOOSING_MODIFIER;
+            case HOLD:
+                return RunPhase.RESUME_HOLD;
+            case IDLE:
+            default:
+                return RunPhase.FLYING;
+        }
     }
 
     private TickReport tickDying() {

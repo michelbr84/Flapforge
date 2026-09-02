@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.content.defs.ModifierDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
 import io.github.michelbr84.flapforge.content.defs.UpgradeDef;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,8 +42,12 @@ class UnlockEvaluatorTest {
     void aFreshProfileAlreadyOwnsEveryDefaultAndNothingElse() {
         // E18's default set is exactly what the data says is default, once the palette rule has
         // been applied: the other birds' default palettes wait for their bird.
-        assertEquals(List.of(), evaluator.evaluate(profile),
-                "a fresh profile has nothing left to be granted");
+        //
+        // The one part of E18's set that is not in PlayerProfile.DEFAULT_UNLOCKED is the
+        // modifiers that ship with "unlock": "default" (M6): they are content, not code, so the
+        // evaluator hands them over on the first evaluation and nothing else is pending.
+        assertEquals(defaultModifiers(), evaluator.evaluate(profile),
+                "a fresh profile has only the default modifiers left to be granted");
         assertTrue(profile.isUnlocked("bird:classic"));
         assertTrue(profile.isUnlocked("cosmetic:classic:default"));
         assertFalse(profile.isUnlocked("cosmetic:swift:default"));
@@ -144,7 +150,7 @@ class UnlockEvaluatorTest {
     @Test
     void purchaseIsNeverEarned() {
         Wallet.of(profile).add(PlayerProfile.CURRENCY_COINS, 1_000_000);
-        assertEquals(List.of(), evaluator.evaluate(profile),
+        assertEquals(defaultModifiers(), evaluator.evaluate(profile),
                 "a purchase branch means 'buyable', never 'earned'");
         assertFalse(evaluator.isSatisfied(evaluator.conditionOf("bird:heavy"), profile));
         assertEquals(200, evaluator.priceOf("bird:heavy"));
@@ -277,5 +283,22 @@ class UnlockEvaluatorTest {
 
     private static UnlockConditionDef threshold(UnlockType type, double value) {
         return new UnlockConditionDef(type, value, null, 0, null, List.of());
+    }
+
+    /**
+     * The modifiers {@code modifiers.json} ships as {@code unlock: default} (M6). They are
+     * content, so {@code PlayerProfile.DEFAULT_UNLOCKED} does not list them and the evaluator
+     * grants them the first time it runs.
+     *
+     * @return the namespaced ids, in content order
+     */
+    private static List<String> defaultModifiers() {
+        List<String> ids = new ArrayList<>();
+        for (ModifierDef def : content.modifiers()) {
+            if (def.unlock().type() == UnlockType.DEFAULT) {
+                ids.add(def.unlockableId());
+            }
+        }
+        return ids;
     }
 }

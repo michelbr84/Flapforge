@@ -29,8 +29,8 @@ import org.junit.jupiter.api.Test;
  * runs changes and this test says so, with the run-by-run table in the failure message.
  *
  * <p>M4 asserted two of the four milestones of the README's opening hour: an upgrade by run 2–3
- * and Ironbeak by run 3; M5 adds the shield by run 5, now that a shield charge does something.
- * {@code feature:modifiers} (run 7) follows in M6, when the thing it gates exists (E17).
+ * and Ironbeak by run 3; M5 added the shield by run 5, now that a shield charge does something,
+ * and M6 adds {@code feature:modifiers} by run 7, now that a draft exists to be gated (E17).
  *
  * <p>The shopping policy is "cheapest first" rather than the class-ordered spender of E25: this is
  * a new player emptying their pockets on whatever they can afford, which is what makes the first
@@ -62,6 +62,7 @@ class NewPlayerJourneyTest {
         int firstUpgradeAfterRun = -1;
         int ironbeakAfterRun = -1;
         int shieldAfterRun = -1;
+        int modifiersAfterRun = -1;
         String firstNodeBought = null;
         header();
 
@@ -92,12 +93,16 @@ class NewPlayerJourneyTest {
             if (shieldAfterRun < 0 && profile.isUnlocked("ability:shield")) {
                 shieldAfterRun = run;
             }
+            if (modifiersAfterRun < 0 && profile.isUnlocked("feature:modifiers")) {
+                modifiersAfterRun = run;
+            }
             row(run, outcome, progressed, profile, bought);
         }
 
         final int firstUpgrade = firstUpgradeAfterRun;
         final int ironbeak = ironbeakAfterRun;
         final int shield = shieldAfterRun;
+        final int modifiers = modifiersAfterRun;
         final String firstNode = firstNodeBought;
         Supplier<String> report = () -> "the novice's first " + RUNS + " runs:\n" + table;
         assertTrue(firstUpgrade > 0, report);
@@ -128,6 +133,28 @@ class NewPlayerJourneyTest {
                 RunMode.STANDARD));
         assertEquals(1, withShield.simulation().shield().maxCharges(),
                 () -> "the unlocked shield must absorb a hit in the next run\n" + report.get());
+        // E17/M6: the README's fourth milestone. feature:modifiers is any_of[runs 7,
+        // purchase 150], so a novice reaches it by playing; and it has to be worth reaching,
+        // which is the second half again — the next run really can draft (D11).
+        assertTrue(modifiers > 0 && modifiers <= 7,
+                () -> "feature:modifiers was unlocked only after run " + modifiers + "\n"
+                        + report.get());
+        Run withDrafts = runs.newRun(RunLoadout.configFor(profile, content, BASE_SEED,
+                RunMode.STANDARD));
+        assertTrue(withDrafts.setup().modifiers().modifiers().size() >= 14,
+                () -> "the next run carries at least the fourteen cards that ship unlocked\n"
+                        + report.get());
+        assertEquals(RunLoadout.availableModifiers(profile, content).size(),
+                withDrafts.setup().modifiers().modifiers().size(),
+                () -> "and exactly what the profile owns, legendaries included\n" + report.get());
+        assertEquals(List.of(10, 25, 45, 70, 100, 140), withDrafts.setup().modifiers()
+                .offerSchedule(), report);
+        // The milestone gate itself: M6 shipped ModifierChoiceOverlay, so feature:modifiers is
+        // playable and the very next run really opens its drafts (E19, D11).
+        assertTrue(RunLoadout.allowOffers(profile, content),
+                () -> "the unlocked feature must turn drafts on\n" + report.get());
+        assertTrue(withDrafts.config().allowOffers(),
+                () -> "and the next run must be configured to draft\n" + report.get());
         assertTrue(profile.statistics.coinsSpent > 0, report);
         assertTrue(Wallet.of(profile).balance(PlayerProfile.CURRENCY_COINS) >= 0, report);
         assertTrue(profile.statistics.totalRuns == RUNS, report);

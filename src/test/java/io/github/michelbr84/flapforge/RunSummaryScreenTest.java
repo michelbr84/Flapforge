@@ -303,6 +303,104 @@ class RunSummaryScreenTest {
         assertEquals(0, screen.scroll(), 1e-9);
     }
 
+    // ------------------------------------------------------------------ the build (M6)
+
+    /**
+     * A finished run that drafted: two stacks of one card, a second card, the set bonus they
+     * activated and the streak bonus one of them pays.
+     *
+     * @param allowOffers whether the run was allowed to draft at all (D11)
+     * @return the result
+     */
+    private static RunResult drafted(boolean allowOffers) {
+        RunStats stats = new RunStats();
+        stats.setGatesPassed(30);
+        stats.setPoints(30);
+        stats.setStreak(15);
+        stats.setStreakSteps(3);
+        for (int i = 0; i < 1800; i++) {
+            stats.tickAlive();
+        }
+        stats.setDeathCause(CollisionCause.OBSTACLE);
+        if (allowOffers) {
+            stats.addModifierTaken("tailwind");
+            stats.addModifierTaken("tailwind");
+            stats.addModifierTaken("stormrider");
+            stats.addSynergyActivated("daredevil");
+            stats.setModifierStreakCoins(10);
+        }
+        return new RunResult(RunConfig.builder(42L).mode(RunMode.SEEDED)
+                .allowOffers(allowOffers).build(), stats, new LinkedHashMap<>());
+    }
+
+    @Test
+    void theBuildSectionListsEveryDraftedModifierWithItsStacksAndEverySynergy() {
+        RunResult result = drafted(true);
+        ProgressionOutcome outcome = progression.apply(profile, result, rules);
+        RunSummaryScreen screen = openSummary(result, outcome, profile);
+
+        assertNotNull(screen.row(StringKey.SUMMARY_SECTION_BUILD.key()), "the section is there");
+        assertEquals(strings.name("modifier", "tailwind"),
+                screen.row("modifier.tailwind").label());
+        assertEquals(strings.format(StringKey.SUMMARY_STACKS, 2),
+                value(screen, "modifier.tailwind"), "two takes of one card are one row of x2");
+        assertEquals(strings.format(StringKey.SUMMARY_STACKS, 1),
+                value(screen, "modifier.stormrider"));
+        assertEquals(strings.name("synergy", "daredevil"),
+                screen.row("synergy.daredevil").label());
+        assertEquals(strings.get(StringKey.SUMMARY_SYNERGY), value(screen, "synergy.daredevil"));
+        assertNull(screen.row("modifiersLocked"), "the run could draft, so nothing is locked");
+
+        // E32.a: the streak term is one number; this row is the part the cards paid for.
+        assertEquals(signed(30), value(screen, "streakBonus"),
+                "10 coins per step times three steps");
+    }
+
+    /**
+     * The coin column is a breakdown, so it has to add up: every signed row above the Base row
+     * sums to it. The streak term of E32.a is one number — {@code economy.rewards.streak.coins}
+     * plus whatever the drafted cards pay, times the steps — and the two rows split it, which is
+     * the one place the arithmetic could double-count.
+     */
+    @Test
+    void theCoinRowsAddUpToTheBaseRow() {
+        RunResult result = drafted(true);
+        ProgressionOutcome outcome = progression.apply(profile, result, rules);
+        RunSummaryScreen screen = openSummary(result, outcome, profile);
+
+        long sum = signedValue(screen, "participation") + signedValue(screen, "firstRunBonus")
+                + signedValue(screen, "gateCoins") + signedValue(screen, "pointCoins")
+                + signedValue(screen, "streakCoins") + signedValue(screen, "streakBonus")
+                + signedValue(screen, "bossCoins") + signedValue(screen, "challengeCoins");
+        assertEquals(outcome.rewardSummary().baseCoins(), sum,
+                () -> "the breakdown does not add up to Base: " + screen.rowTexts());
+        assertEquals(Long.toString(outcome.rewardSummary().baseCoins()),
+                value(screen, "base"));
+        assertTrue(signedValue(screen, "streakBonus") > 0, "the drafted half is on its own row");
+    }
+
+    /** One signed coin row as a number. */
+    private static long signedValue(RunSummaryScreen screen, String id) {
+        RunSummaryScreen.Row row = screen.row(id);
+        if (row == null) {
+            return 0;
+        }
+        String text = row.value();
+        return Long.parseLong(text.startsWith("+") ? text.substring(1) : text);
+    }
+
+    @Test
+    void aRunThatCouldNotDraftSaysWhichFeatureItIsMissing() {
+        RunResult result = drafted(false);
+        RunSummaryScreen screen = openSummary(result, null, null);
+        RunSummaryScreen.Row locked = screen.row("modifiersLocked");
+        assertNotNull(locked, () -> "no locked note: " + screen.rowTexts());
+        assertTrue(locked.label().contains(strings.name("feature", "modifiers")),
+                () -> "the note has to name the thing the shop sells: " + locked.label());
+        assertNull(screen.row("modifiersNone"));
+        assertNull(screen.row("streakBonus"), "a run with no cards has no card bonus");
+    }
+
     /**
      * Starts the run with one flap and then stops flapping: the bird falls to the ground line and
      * the game-over strip is pushed.

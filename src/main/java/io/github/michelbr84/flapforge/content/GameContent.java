@@ -13,6 +13,9 @@ import io.github.michelbr84.flapforge.content.defs.CurveDef;
 import io.github.michelbr84.flapforge.content.defs.DifficultyDef;
 import io.github.michelbr84.flapforge.content.defs.EconomyDef;
 import io.github.michelbr84.flapforge.content.defs.FeatureDef;
+import io.github.michelbr84.flapforge.content.defs.ModifierDef;
+import io.github.michelbr84.flapforge.content.defs.ModifiersDef;
+import io.github.michelbr84.flapforge.content.defs.SynergyDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.TierGeneratorDef;
 import io.github.michelbr84.flapforge.content.defs.TreeDef;
@@ -23,7 +26,9 @@ import io.github.michelbr84.flapforge.content.defs.WorldsDef;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
+import io.github.michelbr84.flapforge.modifier.ModifierCatalog;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -65,6 +70,8 @@ public final class GameContent {
     public static final String ALIASES = "aliases";
     /** Base name of the ability file. */
     public static final String ABILITIES = "abilities";
+    /** Base name of the run-modifier file (M6). */
+    public static final String MODIFIERS = "modifiers";
     /** Base name of the world file. */
     public static final String WORLDS = "worlds";
     /** Base name of the challenge file. */
@@ -87,7 +94,6 @@ public final class GameContent {
 
     static {
         Map<String, String> milestones = new LinkedHashMap<>();
-        milestones.put("modifiers", "M6");
         milestones.put("seeded_runs", "M9");
         FEATURE_MILESTONES = Collections.unmodifiableMap(milestones);
     }
@@ -95,7 +101,8 @@ public final class GameContent {
     /** The kinds whose systems already exist; every other kind is authored but not yet playable. */
     private static final Set<ContentKind> PLAYABLE_KINDS = Collections.unmodifiableSet(EnumSet.of(
             ContentKind.BIRD, ContentKind.COSMETIC, ContentKind.UPGRADE, ContentKind.TREE,
-            ContentKind.TIER, ContentKind.FEATURE, ContentKind.WORLD, ContentKind.ABILITY));
+            ContentKind.TIER, ContentKind.FEATURE, ContentKind.WORLD, ContentKind.ABILITY,
+            ContentKind.MODIFIER, ContentKind.SYNERGY));
 
     private final Set<String> files;
     private final Registry<BirdDef> birds;
@@ -106,6 +113,9 @@ public final class GameContent {
     private final Registry<TreeDef> trees;
     private final Registry<UpgradeDef> upgrades;
     private final Registry<AbilityDef> abilities;
+    private final Registry<ModifierDef> modifiers;
+    private final Registry<SynergyDef> synergies;
+    private final ModifiersDef modifierBlock;
     private final Registry<WorldDef> worlds;
     private final Registry<ChallengeDef> challenges;
     private final Registry<AchievementDef> achievements;
@@ -127,6 +137,9 @@ public final class GameContent {
         this.trees = new Registry<>("tree", bound.trees, TreeDef::id);
         this.upgrades = new Registry<>("upgrade", bound.upgrades, UpgradeDef::id);
         this.abilities = new Registry<>("ability", bound.abilities, AbilityDef::id);
+        this.modifierBlock = bound.modifiers == null ? ModifiersDef.EMPTY : bound.modifiers;
+        this.modifiers = new Registry<>("modifier", modifierBlock.modifiers(), ModifierDef::id);
+        this.synergies = new Registry<>("synergy", modifierBlock.synergies(), SynergyDef::id);
         this.worlds = new Registry<>("world", bound.worlds, WorldDef::id);
         this.challenges = new Registry<>("challenge", bound.challenges, ChallengeDef::id);
         this.achievements = new Registry<>("achievement", bound.achievements, AchievementDef::id);
@@ -153,6 +166,7 @@ public final class GameContent {
         List<TreeDef> trees = List.of();
         List<UpgradeDef> upgrades = List.of();
         List<AbilityDef> abilities = List.of();
+        ModifiersDef modifiers;
         List<WorldDef> worlds = List.of();
         List<ChallengeDef> challenges = List.of();
         List<AchievementDef> achievements = List.of();
@@ -203,6 +217,7 @@ public final class GameContent {
         if (abilities != null) {
             bound.abilities = abilities.abilities();
         }
+        bound.modifiers = bind(files, MODIFIERS, ModifiersDef.class, bound, errors);
         WorldsDef worlds = bind(files, WORLDS, WorldsDef.class, bound, errors);
         if (worlds != null) {
             bound.worlds = worlds.worlds();
@@ -318,9 +333,13 @@ public final class GameContent {
     /**
      * The milestone the system behind a feature arrives in (E19).
      *
-     * <p>{@code feature:modifiers} is bought in M4 and read by the modifier director in M6;
-     * {@code feature:seeded_runs} is read by the Seeded mode entry in M9. Neither is a lie the
-     * shop is allowed to tell silently, which is what this table is for.
+     * <p>{@code feature:modifiers} was listed here from M4 until M6: the draft it gates — pool,
+     * director, synergies, the two stat layers — was complete, but without
+     * {@code ModifierChoiceOverlay} a run would have frozen on a draft nobody could answer. The
+     * overlay ships in M6, so the entry is gone and {@code RunLoadout.allowOffers} now says yes to
+     * a profile that owns the feature. {@code feature:seeded_runs} is read by the Seeded mode
+     * entry in M9. Neither is a lie the shop is allowed to tell silently, which is what this table
+     * is for.
      *
      * @param id the bare feature id
      * @return the milestone name, or {@code null} when the feature works today
@@ -381,6 +400,46 @@ public final class GameContent {
      */
     public Registry<AbilityDef> abilities() {
         return abilities;
+    }
+
+    /**
+     * The run-modifier registry, in file order (M6).
+     *
+     * @return the registry, empty when {@code modifiers.json} was not supplied
+     */
+    public Registry<ModifierDef> modifiers() {
+        return modifiers;
+    }
+
+    /**
+     * The synergy registry, in file order (M6).
+     *
+     * @return the registry, empty when {@code modifiers.json} was not supplied
+     */
+    public Registry<SynergyDef> synergies() {
+        return synergies;
+    }
+
+    /**
+     * The whole of {@code modifiers.json} (§4): the schedule, the offer width, the rarity weights
+     * and both lists.
+     *
+     * @return the block, {@link ModifiersDef#EMPTY} when the file was not supplied
+     */
+    public ModifiersDef modifierBlock() {
+        return modifierBlock;
+    }
+
+    /**
+     * The roguelite content of one run: everything of {@code modifiers.json} filtered down to the
+     * cards a profile may be offered (M6, D27).
+     *
+     * @param available the modifier ids the profile owns, bare or namespaced; cards whose
+     *     {@code unlock} is {@code default} are available whether they are listed or not
+     * @return the catalogue, {@link ModifierCatalog#EMPTY} when the file was not supplied
+     */
+    public ModifierCatalog modifierCatalog(Collection<String> available) {
+        return ModifierCatalog.of(modifierBlock, available);
     }
 
     /**
@@ -517,7 +576,8 @@ public final class GameContent {
     @Override
     public String toString() {
         return "GameContent{files=" + files + ", birds=" + birds.size() + ", upgrades="
-                + upgrades.size() + ", abilities=" + abilities.size() + ", worlds=" + worlds.size()
+                + upgrades.size() + ", abilities=" + abilities.size() + ", modifiers="
+                + modifiers.size() + ", worlds=" + worlds.size()
                 + ", challenges=" + challenges.size() + ", achievements=" + achievements.size()
                 + '}';
     }

@@ -165,7 +165,14 @@ class StatisticsScreenTest {
         }
         assertEquals(List.of(StringKey.STATS_GROUP_FLIGHTS.key(),
                 StringKey.STATS_GROUP_DISTANCE.key(), StringKey.STATS_GROUP_ECONOMY.key(),
-                StringKey.STATS_GROUP_STREAKS.key(), StringKey.STATS_GROUP_DEATHS.key()), headers);
+                StringKey.STATS_GROUP_STREAKS.key(), StringKey.STATS_GROUP_BUILDS.key(),
+                StringKey.STATS_GROUP_DEATHS.key()), headers);
+
+        // M6: the two lifetime map counters, summed. Nothing was drafted in these three runs, so
+        // both are zero -- and a zero has to be shown, because "0 synergies" is the number a
+        // player checks after a run that felt like it should have had one.
+        assertEquals("0", value(screen, "modifiersTaken"));
+        assertEquals("0", value(screen, "synergiesActivated"));
     }
 
     @Test

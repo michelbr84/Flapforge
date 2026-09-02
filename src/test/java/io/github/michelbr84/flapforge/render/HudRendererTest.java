@@ -286,6 +286,43 @@ class HudRendererTest {
     }
 
     /**
+     * M6/D27: the build strip. It draws nothing at all until the run has drafted something — which
+     * is what keeps the classic HUD exactly as M1 left it — and one chip per taken modifier plus
+     * one per active set bonus once it has.
+     */
+    @Test
+    void theBuildStripIsEmptyUntilTheRunHasDraftedSomething() {
+        Strings strings = Strings.load("en");
+        HudRenderer hud = hud(strings);
+        Run run = runWith("dash");
+        start(run);
+        hud.tick(run);
+        BufferedImage bare = draw(hud, run);
+
+        hud.setBuild(java.util.List.of("Tailwind x2", "Gold Rush"),
+                java.util.List.of("Daredevil"));
+        assertEquals(java.util.List.of("Tailwind x2", "Gold Rush"), hud.buildChips());
+        assertEquals(java.util.List.of("Daredevil"), hud.synergyChips());
+        BufferedImage built = draw(hud, run);
+
+        int top = HudRenderer.BUILD_TOP_Y;
+        int bottom = top + 3 * HudRenderer.BUILD_ROW_STEP;
+        int right = HudRenderer.BUILD_X + HudRenderer.BUILD_CHIP_MAX_W;
+        assertFalse(same(bare, built, HudRenderer.BUILD_X, top, right, bottom),
+                "the three chips must be drawn");
+        assertTrue(coloursIn(built, HudRenderer.BUILD_X, top, right, bottom) >= 3,
+                "a chip is a plate, a border and its label");
+        // The ability panel above it must not have moved.
+        assertTrue(same(bare, built, 0, badgeTop(), PANEL_RIGHT, badgeBottom()),
+                "the build strip sits below the ability panel, not over it");
+
+        hud.reset();
+        assertEquals(java.util.List.of(), hud.buildChips(), "a new run starts with no build");
+        assertTrue(same(bare, draw(hud, run), HudRenderer.BUILD_X, top, right, bottom),
+                "and draws nothing again");
+    }
+
+    /**
      * D18's "no per-frame allocation" rule, measured on the panel this milestone added: with the
      * badge, the pips, the shield row and their four strings on screen, a steady frame must not
      * allocate. The strings are rebuilt only when their number changes and every shape and colour
@@ -304,6 +341,10 @@ class HudRendererTest {
         Strings strings = Strings.load("en");
         HudRenderer hud = hud(strings);
         hud.setAbilityName("Dash");
+        // M6: the build strip is part of the steady frame from the first draft on, so it is inside
+        // the budget rather than beside it.
+        hud.setBuild(java.util.List.of("Tailwind x2", "Gold Rush"), java.util.List.of("Daredevil"));
+        hud.setStreakBonusText("+15 coins/step");
         Run run = runWith("dash", "shield");
         start(run);
         run.tick(new RunInput(false, true, RunInput.NO_CHOICE, false));

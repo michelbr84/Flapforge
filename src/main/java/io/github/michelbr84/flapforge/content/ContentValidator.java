@@ -16,6 +16,9 @@ import io.github.michelbr84.flapforge.content.defs.FeatureDef;
 import io.github.michelbr84.flapforge.content.defs.GrantDef;
 import io.github.michelbr84.flapforge.content.defs.GrantType;
 import io.github.michelbr84.flapforge.content.defs.LevelRewardDef;
+import io.github.michelbr84.flapforge.content.defs.ModifierDef;
+import io.github.michelbr84.flapforge.content.defs.ModifiersDef;
+import io.github.michelbr84.flapforge.content.defs.SynergyDef;
 import io.github.michelbr84.flapforge.content.defs.ObjectiveType;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.PrestigeDef;
@@ -37,6 +40,8 @@ import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatOp;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
+import io.github.michelbr84.flapforge.modifier.Rarity;
+import io.github.michelbr84.flapforge.modifier.SynergyResolver;
 import io.github.michelbr84.flapforge.progression.StatisticKey;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -101,6 +106,7 @@ public final class ContentValidator {
     private static final String ECONOMY_FILE = "economy.json";
     private static final String UPGRADES_FILE = "upgrades.json";
     private static final String ABILITIES_FILE = "abilities.json";
+    private static final String MODIFIERS_FILE = "modifiers.json";
     private static final String WORLDS_FILE = "worlds.json";
     private static final String CHALLENGES_FILE = "challenges.json";
     private static final String ACHIEVEMENTS_FILE = "achievements.json";
@@ -173,6 +179,7 @@ public final class ContentValidator {
         validateTrees(content, errors);
         validateUpgrades(content, errors);
         validateAbilities(content, errors);
+        validateModifiers(content, errors);
         validateWorlds(content, errors);
         validateChallenges(content, errors);
         validateAchievements(content, errors);
@@ -193,6 +200,7 @@ public final class ContentValidator {
         List<String> warnings = new ArrayList<>();
         warnPointsSink(content, warnings);
         warnNoOpMultipliers(content, warnings);
+        warnUnreachableSynergies(content, warnings);
         return warnings;
     }
 
@@ -783,6 +791,262 @@ public final class ContentValidator {
         // TODO(M7): resolve against content.patterns() once patterns.json ships.
     }
 
+    // -------------------------------------------------------------- modifiers
+
+    /**
+     * The run modifiers and their set bonuses (D27, §4, M6).
+     *
+     * <p>Four rules are worth naming, because each of them describes content that would look fine
+     * and do nothing:
+     * <ul>
+     *   <li>a rarity with no draw weight makes every card of that rarity unreachable;</li>
+     *   <li>a {@code streakBonus} is coins, so a card that carries one must also refuse
+     *       {@code NO_COINS} — otherwise a challenge that turns coins off is offering a card that
+     *       pays nothing;</li>
+     *   <li>{@code SPEED_RAMP} and {@code ALL_OBSTACLES_MOVE} are read by the difficulty layer
+     *       when the run starts, so a card that turns one on mid-run would be a flag nothing
+     *       looks at again;</li>
+     *   <li>a synergy needs at least two required tags, because E16 asks for two distinct
+     *       contributors and one tag can never be split across two entries.</li>
+     * </ul>
+     *
+     * @param content the content to check
+     * @param errors where to append problems
+     */
+    private static void validateModifiers(GameContent content, List<String> errors) {
+        if (!content.has(GameContent.MODIFIERS)) {
+            return;
+        }
+        ModifiersDef block = content.modifierBlock();
+        if (block.offerSchedule().isEmpty()) {
+            errors.add(MODIFIERS_FILE + "#/offerSchedule: no gate opens a draft");
+        }
+        int previous = 0;
+        for (int i = 0; i < block.offerSchedule().size(); i++) {
+            int gate = block.offerSchedule().get(i);
+            if (gate <= previous) {
+                errors.add(MODIFIERS_FILE + "#/offerSchedule/" + i + ": the schedule must be "
+                        + "strictly ascending and positive (" + previous + " -> " + gate + ")");
+            }
+            previous = gate;
+        }
+        if (block.choicesPerOffer() < 1) {
+            errors.add(MODIFIERS_FILE + "#/choicesPerOffer: a draft shows at least one card, not "
+                    + block.choicesPerOffer());
+        }
+        for (Map.Entry<Rarity, Integer> weight : block.rarityWeights().entrySet()) {
+            if (weight.getValue() < 0) {
+                errors.add(MODIFIERS_FILE + "#/rarityWeights/" + weight.getKey()
+                        + ": a draw weight cannot be negative");
+            }
+        }
+        validateModifierList(content, block, errors);
+        validateSynergyList(content, block, errors);
+    }
+
+    private static void validateModifierList(GameContent content, ModifiersDef block,
+            List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        List<ModifierDef> defs = block.modifiers();
+        for (int i = 0; i < defs.size(); i++) {
+            ModifierDef def = defs.get(i);
+            String at = MODIFIERS_FILE + "#/modifiers/" + i;
+            checkId(errors, at + "/id", "modifier", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate modifier id '" + def.id() + "'");
+            }
+            Integer weight = block.rarityWeights().get(def.rarity());
+            if (weight == null || weight <= 0) {
+                errors.add(at + "/rarity: rarity " + def.rarity() + " has no draw weight in "
+                        + "rarityWeights, so '" + def.id() + "' can never be offered");
+            }
+            if (def.maxStacks() < 1) {
+                errors.add(at + "/maxStacks: a card must be takeable at least once, not "
+                        + def.maxStacks() + " times");
+            }
+            if (def.tags().isEmpty()) {
+                errors.add(at + "/tags: a modifier with no tag can never feed a synergy");
+            }
+            for (int e = 0; e < def.excludes().size(); e++) {
+                String other = def.excludes().get(e);
+                if (def.id().equals(other)) {
+                    errors.add(at + "/excludes/" + e + ": '" + def.id() + "' excludes itself; use "
+                            + "maxStacks to say a card cannot be taken twice");
+                } else if (!content.modifiers().contains(other)) {
+                    errors.add(at + "/excludes/" + e + ": unknown modifier '" + other + "'");
+                }
+            }
+            if (def.effects().isEmpty() && def.flags().isEmpty() && def.streakBonusCoins() <= 0) {
+                errors.add(at + ": '" + def.id() + "' has no effect, no flag and no streak bonus");
+            }
+            if (def.streakBonus() != null) {
+                if (def.streakBonusCoins() <= 0) {
+                    errors.add(at + "/streakBonus/coins: a streak bonus pays a positive number of "
+                            + "coins, not " + def.streakBonusCoins());
+                }
+                if (!def.forbids(RuleFlag.NO_COINS)) {
+                    errors.add(at + "/requiresFlagsAbsent: '" + def.id() + "' pays coins per "
+                            + "streak step, so it must list NO_COINS (E12)");
+                }
+            }
+            checkMidRunFlags(errors, at + "/flags", "modifier '" + def.id() + "'", def.flags());
+            checkSpawnCriticalStats(errors, at + "/effects", "modifier '" + def.id() + "'",
+                    def.effects());
+            checkCondition(content, errors, at + "/unlock", def.unlock(), false);
+        }
+    }
+
+    private static void validateSynergyList(GameContent content, ModifiersDef block,
+            List<String> errors) {
+        Set<String> seen = new HashSet<>();
+        List<SynergyDef> defs = block.synergies();
+        for (int i = 0; i < defs.size(); i++) {
+            SynergyDef def = defs.get(i);
+            String at = MODIFIERS_FILE + "#/synergies/" + i;
+            checkId(errors, at + "/id", "synergy", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate synergy id '" + def.id() + "'");
+            }
+            if (content.modifiers().contains(def.id())) {
+                errors.add(at + "/id: '" + def.id() + "' is also a modifier id; the two share the "
+                        + "string tables and would collide");
+            }
+            if (def.requiresTags().size() < SynergyResolver.MIN_DISTINCT_ENTRIES) {
+                errors.add(at + "/requiresTags: a set bonus needs at least "
+                        + SynergyResolver.MIN_DISTINCT_ENTRIES + " tags, because it activates only "
+                        + "when two distinct modifiers contribute to it (E16)");
+            }
+            if (def.effects().isEmpty() && def.flags().isEmpty()) {
+                errors.add(at + ": synergy '" + def.id() + "' has no effect and no flag");
+            }
+            checkMidRunFlags(errors, at + "/flags", "synergy '" + def.id() + "'", def.flags());
+            checkSpawnCriticalStats(errors, at + "/effects", "synergy '" + def.id() + "'",
+                    def.effects());
+        }
+    }
+
+    /**
+     * Stats a card or a synergy may not touch, because the spawner reads them when it decides what
+     * to spawn (E32.d).
+     *
+     * <p>{@code SpawnTable.roll} reads {@code MOVING_CHANCE} to decide both the moving flag and the
+     * layout, and how many draws come out of the {@code obstacle} stream follows from that. A
+     * drafted change to it would therefore make the obstacle sequence a function of what the
+     * player picked, which is exactly the invariant E32.d asks for: the sequence of spawn decisions
+     * is the same however the drafts are answered. {@code checkMidRunFlags} above keeps
+     * {@code ALL_OBSTACLES_MOVE} out for the same reason, one level up; this is the stat-level
+     * half, and it is a list rather than a single case so that a stat a later spawn table starts
+     * reading is one line to close.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the effect list
+     * @param what the thing being validated, for the message
+     * @param effects the effects it pushes
+     */
+    private static void checkSpawnCriticalStats(List<String> errors, String at, String what,
+            List<StatModifierDef> effects) {
+        for (int i = 0; i < effects.size(); i++) {
+            StatId stat = effects.get(i).stat();
+            if (stat == StatId.MOVING_CHANCE) {
+                errors.add(at + "/" + i + ": " + what + " may not change " + stat
+                        + "; the spawn decision reads it, so the obstacle sequence would depend on"
+                        + " what the player drafted (E32.d)");
+            }
+        }
+    }
+
+    /**
+     * Rule flags a card or a synergy may not turn on mid-run: the difficulty layer reads them when
+     * the run starts and never again, so granting one later is a flag nothing acts on.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the flag list
+     * @param what the thing being validated, for the message
+     * @param flags the flags it grants
+     */
+    private static void checkMidRunFlags(List<String> errors, String at, String what,
+            List<RuleFlag> flags) {
+        for (int i = 0; i < flags.size(); i++) {
+            RuleFlag flag = flags.get(i);
+            if (flag == RuleFlag.SPEED_RAMP || flag == RuleFlag.ALL_OBSTACLES_MOVE) {
+                errors.add(at + "/" + i + ": " + what + " may not grant " + flag + " mid-run; the "
+                        + "difficulty layer resolves it at run start (D8)");
+            }
+        }
+    }
+
+    /**
+     * A synergy no build can ever complete (D27, E16): warned rather than rejected, because it is
+     * a balance problem and not a broken reference, and because a modifier added later can make
+     * it reachable again.
+     *
+     * @param content the content to check
+     * @param warnings where to append
+     */
+    private static void warnUnreachableSynergies(GameContent content, List<String> warnings) {
+        if (!content.has(GameContent.MODIFIERS)) {
+            return;
+        }
+        List<ModifierDef> cards = content.modifiers().all();
+        List<SynergyDef> defs = content.synergies().all();
+        for (int i = 0; i < defs.size(); i++) {
+            SynergyDef def = defs.get(i);
+            if (!satisfiable(def, cards)) {
+                warnings.add(MODIFIERS_FILE + "#/synergies/" + i + "/requiresTags: no two distinct "
+                        + "shipped modifiers can ever satisfy " + def.requiresTags()
+                        + ", so '" + def.id() + "' can never activate");
+            }
+        }
+    }
+
+    /**
+     * Whether some set of mutually compatible modifiers satisfies a synergy. The search is over
+     * subsets of at most {@code requiresTags.size()} cards — more contributors than required tags
+     * can never help — and it honours {@code excludes}, so a pair that could never be held
+     * together does not count as a way of reaching the bonus.
+     *
+     * @param def the synergy
+     * @param cards every shipped modifier
+     * @return {@code true} when a legal build activates it
+     */
+    private static boolean satisfiable(SynergyDef def, List<ModifierDef> cards) {
+        return search(def, cards, 0, new ArrayList<>(), def.requiresTags().size());
+    }
+
+    private static boolean search(SynergyDef def, List<ModifierDef> cards, int from,
+            List<ModifierDef> picked, int limit) {
+        if (picked.size() >= SynergyResolver.MIN_DISTINCT_ENTRIES
+                && SynergyResolver.matches(def, picked)) {
+            return true;
+        }
+        if (picked.size() >= limit) {
+            return false;
+        }
+        for (int i = from; i < cards.size(); i++) {
+            ModifierDef candidate = cards.get(i);
+            if (conflicts(candidate, picked)) {
+                continue;
+            }
+            picked.add(candidate);
+            boolean found = search(def, cards, i + 1, picked, limit);
+            picked.remove(picked.size() - 1);
+            if (found) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean conflicts(ModifierDef candidate, List<ModifierDef> picked) {
+        for (ModifierDef held : picked) {
+            if (held.excludes().contains(candidate.id())
+                    || candidate.excludes().contains(held.id())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ------------------------------------------------------------- challenges
 
     private static void validateChallenges(GameContent content, List<String> errors) {
@@ -815,7 +1079,62 @@ public final class ContentValidator {
             if (def.forcedPattern() != null) {
                 checkPattern(content, errors, at + "/forcedPattern", def.forcedPattern());
             }
-            // forcedModifiers point at modifiers.json, which ships in M6 (E19).
+            checkForcedModifiers(content, errors, at, def);
+        }
+    }
+
+    /**
+     * A challenge's {@code forcedModifiers} (E19: the check switches on now that
+     * {@code modifiers.json} ships).
+     *
+     * <p>{@code ModifierDirector.start} takes them one at a time under the authored rules, so a
+     * list that breaks one of them silently loses a card at run start — and the challenge would
+     * then be a different challenge from the one that was authored. Four ways to break it: an id
+     * that resolves to nothing, more copies of a card than its {@code maxStacks}, two cards that
+     * exclude each other, and a card whose {@code requiresFlagsAbsent} names a flag the challenge
+     * itself turns on.
+     *
+     * @param content the content to check
+     * @param errors where to append problems
+     * @param at the pointer of the challenge
+     * @param def the challenge
+     */
+    private static void checkForcedModifiers(GameContent content, List<String> errors, String at,
+            ChallengeDef def) {
+        if (!content.has(GameContent.MODIFIERS)) {
+            return;
+        }
+        List<String> forced = def.forcedModifiers();
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (int i = 0; i < forced.size(); i++) {
+            String id = forced.get(i);
+            String where = at + "/forcedModifiers/" + i;
+            if (!content.modifiers().contains(id)) {
+                errors.add(where + ": unknown modifier '" + id + "'");
+                continue;
+            }
+            ModifierDef card = content.modifiers().get(id);
+            int count = counts.merge(id, 1, Integer::sum);
+            if (count > Math.max(1, card.maxStacks())) {
+                errors.add(where + ": '" + id + "' is forced " + count + " times but its maxStacks"
+                        + " is " + card.maxStacks() + ", so the extra copies are dropped");
+            }
+            for (RuleFlag flag : card.requiresFlagsAbsent()) {
+                if (def.flags().contains(flag)) {
+                    errors.add(where + ": '" + id + "' requires " + flag + " to be absent, and the"
+                            + " challenge turns it on");
+                }
+            }
+            for (int j = 0; j < i; j++) {
+                String other = forced.get(j);
+                if (!content.modifiers().contains(other) || other.equals(id)) {
+                    continue;
+                }
+                ModifierDef held = content.modifiers().get(other);
+                if (held.excludes().contains(id) || card.excludes().contains(other)) {
+                    errors.add(where + ": '" + id + "' and '" + other + "' exclude each other");
+                }
+            }
         }
     }
 
@@ -1189,8 +1508,11 @@ public final class ContentValidator {
                 }
                 break;
             case MODIFIER:
+                if (content.has(GameContent.MODIFIERS) && !content.modifiers().contains(rest)) {
+                    errors.add(at + ": unknown modifier '" + rest + "' in '" + id + "'");
+                }
+                break;
             default:
-                // modifiers.json ships in M6 (E19); the reference is left unchecked until then.
                 break;
         }
     }
@@ -1449,8 +1771,8 @@ public final class ContentValidator {
     }
 
     /**
-     * Every {@code name}/{@code desc} key the content in hand needs (E31.h). Kinds whose files
-     * land in a later milestone (modifier, synergy) contribute nothing until they exist.
+     * Every {@code name}/{@code desc} key the content in hand needs (E31.h). A kind whose file
+     * was not supplied contributes nothing, which is what lets an M1-shaped fixture pass.
      *
      * @param content the content
      * @return the keys, in content order
@@ -1465,6 +1787,12 @@ public final class ContentValidator {
         }
         for (AbilityDef ability : content.abilities()) {
             addNameAndDesc(keys, ContentKind.ABILITY, ability.id());
+        }
+        for (ModifierDef modifier : content.modifiers()) {
+            addNameAndDesc(keys, ContentKind.MODIFIER, modifier.id());
+        }
+        for (SynergyDef synergy : content.synergies()) {
+            addNameAndDesc(keys, ContentKind.SYNERGY, synergy.id());
         }
         for (TreeDef tree : content.trees()) {
             addNameAndDesc(keys, ContentKind.TREE, tree.id());

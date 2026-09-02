@@ -25,6 +25,7 @@ import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.geom.Vec2;
 import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.event.GameEvent;
+import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.input.InputAction;
@@ -48,6 +49,7 @@ import io.github.michelbr84.flapforge.render.HudRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
+import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
@@ -63,6 +65,7 @@ import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.RunSummaryScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
+import io.github.michelbr84.flapforge.ui.screens.ModifierChoiceOverlay;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
 import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
 import io.github.michelbr84.flapforge.ui.screens.UpgradeTreeScreen;
@@ -144,6 +147,8 @@ class SmokeWindowTest {
      */
     private static final int FLIGHT_FLAPS = 5;
     private static final int GRACE = ScreenManager.TRANSITION_GRACE_TICKS + 5;
+    /** Gate the M6 smoke draft opens at; the shipped schedule starts at 10 (E17). */
+    private static final int DRAFT_GATE = 1;
 
     /**
      * Overlay recording the frames it sees, pushed on top of the menu for input checks.
@@ -1029,6 +1034,96 @@ class SmokeWindowTest {
 
             rig.requestCloseAndVerify();
         }
+    }
+
+    /**
+     * The M6 loop through the toolkit: fly a real run until the draft opens, read the cards, take
+     * one with a real click and watch the build appear on the HUD.
+     *
+     * <p>The schedule is shortened to one draft at gate {@value #DRAFT_GATE} on a flat corridor
+     * (E17) — a smoke test cannot spend the ten gates the shipped schedule asks for — but the
+     * cards, the rarities, the synergies and every string on them are the shipped ones. The
+     * screenshots in {@code build/smoke/} are what a reviewer looks at to see the three panels and
+     * the build strip drawn on a real window.
+     */
+    @Test
+    void aMidRunDraftIsTakenWithTheRobotAndShownOnTheHud() throws Exception {
+        requireDisplay();
+        try (Rig rig = new Rig("Flapforge smoke test (draft)", false)) {
+            MainMenuScreen menu = new MainMenuScreen(rig.screens,
+                    DraftRuns.source(DraftRuns.catalog(GameContent.load(), DRAFT_GATE, 3)),
+                    SeedSequence.of(42));
+            rig.start(menu);
+            rig.frames(30);
+            focusCanvasOrAbort(rig);
+            Driver driver = new Driver(rig);
+
+            driver.tap(KeyEvent.VK_ENTER, () -> rig.screens.top() instanceof GameScreen);
+            GameScreen game = (GameScreen) rig.screens.top();
+            driver.tap(KeyEvent.VK_SPACE, () -> game.run().phase() == RunPhase.FLYING);
+            flyToDraft(rig, game, 6000);
+            assertTrue(rig.screens.top() instanceof ModifierChoiceOverlay,
+                    () -> "no draft after gate " + game.run().stats().gatesPassed()
+                            + "; the run is in " + game.run().phase());
+            ModifierChoiceOverlay overlay = (ModifierChoiceOverlay) rig.screens.top();
+            rig.frames(GRACE);
+            assertEquals(3, overlay.cards().size(), "three cards are on the table");
+            assertFalse(overlay.cards().get(0).name().isEmpty(), "and they are named");
+            assertTrue(saveShot("draft", rig) >= 2, "the draft frame is uniform");
+
+            // A real click on the middle card takes it.
+            ModifierChoiceOverlay.Card card = overlay.cards().get(1);
+            driver.click(card, () -> !game.run().stats().modifiersTaken().isEmpty());
+            assertEquals(List.of(card.id()), game.run().stats().modifiersTaken(),
+                    "the Robot click took the card it was over");
+            assertEquals(RunPhase.RESUME_HOLD, game.run().phase());
+            rig.frames(6);
+            assertTrue(saveShot("draft-countdown", rig) >= 2, "the countdown frame is uniform");
+
+            // The countdown runs out, the overlay leaves and the HUD carries the build.
+            assertTrue(rig.until(() -> rig.screens.top() == game,
+                    ModifierDirector.RESUME_HOLD_TICKS + 120), "the run resumed");
+            assertEquals(RunPhase.FLYING, game.run().phase());
+            assertEquals(List.of(card.name()), game.renderer().hud().buildChips(),
+                    "the taken card is on the HUD");
+            rig.frames(6);
+            assertTrue(saveShot("draft-hud", rig) >= 2, "the HUD build frame is uniform");
+
+            rig.requestCloseAndVerify();
+        }
+    }
+
+    /**
+     * Flies the flat corridor until the draft opens, queueing a flap whenever the bird has sunk
+     * below the gap centre and resuming the run if the desktop steals the window's focus.
+     *
+     * <p>It stops the moment the run enters {@code CHOOSING_MODIFIER}: Space is the confirm key on
+     * every screen, so one more queued flap over the open cards would take one of them before the
+     * test has looked at it.
+     *
+     * @param rig the window and loop
+     * @param game the screen being played
+     * @param maxFrames the frame budget
+     */
+    private static void flyToDraft(Rig rig, GameScreen game, int maxFrames) {
+        long stamp = 1;
+        for (int i = 0; i < maxFrames && !(rig.screens.top() instanceof ModifierChoiceOverlay)
+                && game.run().phase() != RunPhase.CHOOSING_MODIFIER; i++) {
+            if (rig.screens.top() instanceof PauseOverlay) {
+                System.out.println("[smoke] focus was stolen mid-flight; resuming the run");
+                focusCanvasOrAbort(rig);
+                rig.input.offer(new RawInput.KeyDown(Keys.SPACE, stamp++));
+                rig.input.offer(new RawInput.KeyUp(Keys.SPACE, stamp++));
+                rig.loop.frame();
+                continue;
+            }
+            if (game.run().simulation().bird().y() > Playfield.BIRD_START_Y + 10) {
+                rig.input.offer(new RawInput.KeyDown(Keys.SPACE, stamp++));
+                rig.input.offer(new RawInput.KeyUp(Keys.SPACE, stamp++));
+            }
+            rig.loop.frame();
+        }
+        rig.until(() -> rig.screens.top() instanceof ModifierChoiceOverlay, 10);
     }
 
     /**

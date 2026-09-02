@@ -33,6 +33,7 @@ import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
+import io.github.michelbr84.flapforge.modifier.ModifierCatalog;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveEntry;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
@@ -206,8 +207,13 @@ class ContentIntegrityTest {
     void contentBuildsTheSameSetupAsTheHardCodedClassicSeam() {
         RunFactory factory = new RunFactory(SHIPPED);
         RunSetup setup = factory.setup(RunConfig.classic(1));
-        assertEquals(RunSetup.CLASSIC, setup,
+        assertEquals(RunSetup.CLASSIC, setup.withModifiers(ModifierCatalog.EMPTY),
                 "birds.json + difficulty.json must reproduce RunSetup.CLASSIC exactly");
+        // The one thing content adds on top of the classic seam is the M6 draft catalogue, and a
+        // default configuration carries only the cards that ship unlocked.
+        assertEquals(14, setup.modifiers().modifiers().size(),
+                "the three legendaries are unlockables and are not in a default catalogue");
+        assertEquals(List.of(10, 25, 45, 70, 100, 140), setup.modifiers().offerSchedule());
         BirdProfile profile = SHIPPED.birdProfile("classic");
         assertEquals(BirdProfile.CLASSIC, profile);
     }
@@ -540,7 +546,8 @@ class ContentIntegrityTest {
         assertTrue(SHIPPED.playable(ContentKind.TIER));
         assertTrue(SHIPPED.playable(ContentKind.FEATURE));
         assertTrue(SHIPPED.playable(ContentKind.ABILITY), "abilities landed in M5");
-        assertFalse(SHIPPED.playable(ContentKind.MODIFIER), "modifiers land in M6");
+        assertTrue(SHIPPED.playable(ContentKind.MODIFIER), "modifiers landed in M6");
+        assertTrue(SHIPPED.playable(ContentKind.SYNERGY), "and so did their set bonuses");
         assertTrue(SHIPPED.playable(ContentKind.WORLD, "green_fields"));
         assertFalse(SHIPPED.playable(ContentKind.WORLD, "storm_sky"), "worlds land in M7");
         assertFalse(SHIPPED.playable(ContentKind.CHALLENGE), "challenges land in M8");
@@ -567,13 +574,15 @@ class ContentIntegrityTest {
                 "pt_BR gaps are warnings; the shipped content ships translated");
         assertTrue(ContentValidator.contentKeys(SHIPPED).contains("upgrade.master_forge_1.name"));
         assertTrue(ContentValidator.contentKeys(SHIPPED).contains("challenge.coin_rush_1.desc"));
+        assertTrue(ContentValidator.contentKeys(SHIPPED).contains("modifier.stormrider.name"));
+        assertTrue(ContentValidator.contentKeys(SHIPPED).contains("synergy.daredevil.desc"));
     }
 
-    /** The M4 file set is what the game loads. */
+    /** The M6 file set is what the game loads. */
     @Test
-    void theShippedFileSetIsTheM4One() {
+    void theShippedFileSetIsTheM6One() {
         assertEquals(List.of("birds", "difficulty", "economy", "upgrades", "aliases", "abilities",
-                "worlds", "challenges", "achievements"), ContentLoader.FILES);
+                "modifiers", "worlds", "challenges", "achievements"), ContentLoader.FILES);
         for (String file : ContentLoader.FILES) {
             assertTrue(SHIPPED.has(file), file + " was loaded");
         }

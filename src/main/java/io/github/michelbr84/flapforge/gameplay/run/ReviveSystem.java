@@ -18,9 +18,9 @@ import io.github.michelbr84.flapforge.core.Playfield;
  * at the start of the next tick, which would make a revive on the ground worth exactly one tick.
  * A mid-air revive is never moved — it gets its velocity kick and stays in the column it was in.
  *
- * <p><b>Known limit for M6.</b> Like {@link ShieldSystem}, {@code maxCharges} is the
- * {@code REVIVES} the sheet resolved at run start; a modifier that raises the stat mid-run (E12)
- * is invisible to this system until M6 re-resolves it or excludes it from the pool.
+ * <p><b>Mid-run charges (M6).</b> Like {@link ShieldSystem}, {@code maxCharges} starts as the
+ * {@code REVIVES} the sheet resolved at run start and {@link #raiseTo(int)} moves it when a
+ * drafted card ({@code second_wind}, {@code phoenix}) raises the stat (E12).
  */
 public final class ReviveSystem {
 
@@ -30,7 +30,7 @@ public final class ReviveSystem {
     /** How far above the ground line a revived bird is placed, in px. */
     public static final double GROUND_CLEARANCE_PX = 80;
 
-    private final int maxCharges;
+    private int maxCharges;
     private int charges;
     private int invulnTicks = DEFAULT_INVULN_TICKS;
     private double kickMultiplier;
@@ -44,6 +44,28 @@ public final class ReviveSystem {
     public ReviveSystem(int charges) {
         this.maxCharges = Math.max(0, charges);
         this.charges = maxCharges;
+    }
+
+    /**
+     * Raises the ceiling to a freshly resolved {@code REVIVES} and hands the difference over as
+     * usable charges (M6).
+     *
+     * <p>This is the answer to the limit M5 recorded above: the roguelite draft can add revives
+     * in the middle of a run, and a snapshot taken at run start would silently swallow the card.
+     * It only ever raises — a card cannot take a charge the player has already been given, and a
+     * spent charge stays spent.
+     *
+     * @param resolved the {@code REVIVES} the sheet resolves now
+     * @return {@code true} when the ceiling moved
+     */
+    public boolean raiseTo(int resolved) {
+        int target = Math.max(0, resolved);
+        if (target <= maxCharges) {
+            return false;
+        }
+        charges += target - maxCharges;
+        maxCharges = target;
+        return true;
     }
 
     /**

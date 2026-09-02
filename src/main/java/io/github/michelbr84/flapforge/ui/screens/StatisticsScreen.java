@@ -27,6 +27,7 @@ import java.awt.Graphics2D;
 import java.awt.Shape;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -34,8 +35,9 @@ import java.util.Objects;
  *
  * <p>The counters are grouped the way a player thinks about them rather than the way
  * {@link Statistics} stores them: how much has been flown, how far the flights got, what the
- * economy did, how the clean-gate streaks went (D26) and what the deaths were. The last runs come
- * from {@code statistics.runHistory} — the capped list the progression pass appends to — and are
+ * economy did, how the clean-gate streaks went (D26), what the drafts have built (D27) and what
+ * the deaths were. The last runs come from {@code statistics.runHistory} — the capped list the
+ * progression pass appends to — and are
  * paged through with a {@link ListView}, newest first, so a hundred entries cost one row of screen
  * instead of a hundred.
  *
@@ -172,6 +174,15 @@ public final class StatisticsScreen implements Screen {
         row("shieldAbsorbs", StringKey.STATS_SHIELD_ABSORBS, Long.toString(stats.shieldAbsorbs));
         row("revives", StringKey.STATS_REVIVES, Long.toString(stats.revives));
 
+        // M6: the lifetime totals of the two map counters the progression pass already keeps
+        // (D27). The sum over the map is what a player recognises as "how much have I drafted";
+        // the per-id breakdown is what achievements and unlock conditions read.
+        header(StringKey.STATS_GROUP_BUILDS);
+        row("modifiersTaken", StringKey.STATS_MODIFIERS_TAKEN,
+                Long.toString(total(stats.modifiersTaken)));
+        row("synergiesActivated", StringKey.STATS_SYNERGIES_ACTIVATED,
+                Long.toString(total(stats.synergiesActivated)));
+
         header(StringKey.STATS_GROUP_DEATHS);
         int deaths = 0;
         for (CollisionCause cause : CollisionCause.values()) {
@@ -189,6 +200,22 @@ public final class StatisticsScreen implements Screen {
         if (deaths == 0) {
             row("death.none", StringKey.STATS_NONE, "");
         }
+    }
+
+    /**
+     * The sum over one of the profile's map counters.
+     *
+     * @param counter the counter, may hold {@code null} values from an edited save
+     * @return the total, 0 when the map is empty
+     */
+    private static long total(Map<String, Long> counter) {
+        long sum = 0;
+        for (Long value : counter.values()) {
+            if (value != null) {
+                sum += value;
+            }
+        }
+        return sum;
     }
 
     private static StringKey causeKey(CollisionCause cause) {

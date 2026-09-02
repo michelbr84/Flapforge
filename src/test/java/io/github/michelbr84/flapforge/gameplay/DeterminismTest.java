@@ -12,6 +12,7 @@ import io.github.michelbr84.flapforge.gameplay.harness.HeadlessRunner;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunInput;
+import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -153,6 +154,62 @@ class DeterminismTest {
         HeadlessRunner.run(run, new BotPilot(BotPilot.Preset.PERFECT, 42), 600, false);
         assertFalse(run.simulation().hasRunSystems(),
                 "nothing in a classic run can grow an ability, a shield or a revive");
+    }
+
+    /**
+     * E32.d, the milestone's own case: two runs on the same seed where the player answers the
+     * drafts differently draw the same spawn decisions. The two runs diverge in everything else —
+     * a card that changes the scroll speed moves every obstacle and ends the run at a different
+     * tick — so the assertion is on the common prefix of the per-spawn hashes, and the test first
+     * proves the two runs really did take different cards, or it would be measuring nothing.
+     *
+     * <p>The mechanism is the named streams (D12): the draft draws from {@code offers} and the
+     * spawner from {@code spawn}/{@code obstacle}, so however much the draft draws, the obstacle
+     * sequence is a function of the seed alone.
+     */
+    @Test
+    void theSpawnDecisionSequenceSurvivesADifferentChoice() {
+        Draft first = draftRun(9, 0);
+        Draft second = draftRun(9, 2);
+        Draft skipping = draftRun(9, RunInput.SKIP);
+
+        assertFalse(first.taken.isEmpty(), "the first run must reach a draft and take a card");
+        assertNotEquals(first.taken, second.taken, "and the two runs must differ in what they took");
+        assertEquals(List.of(), skipping.taken, "the third run skipped every draft");
+
+        assertPrefixEquals(first.decisions, second.decisions);
+        assertPrefixEquals(first.decisions, skipping.decisions);
+    }
+
+    private static void assertPrefixEquals(List<Long> a, List<Long> b) {
+        int common = Math.min(a.size(), b.size());
+        assertTrue(common > 12, "the runs must share more than twelve spawns, was " + common);
+        assertEquals(a.subList(0, common), b.subList(0, common),
+                "the same seed draws the same obstacles whatever the player picks (E32.d)");
+    }
+
+    /** What one drafted run produced: the cards it took and the spawns it drew. */
+    private record Draft(List<String> taken, List<Long> decisions) {
+    }
+
+    /**
+     * Plays a run with drafts on, answering every offer the same way.
+     *
+     * @param seed the run seed
+     * @param choice the card index to take, or {@link RunInput#SKIP}
+     * @return what the run took and drew
+     */
+    private static Draft draftRun(long seed, int choice) {
+        RunConfig config = RunConfig.builder(seed).allowOffers(true).build();
+        Run run = new RunFactory(GameContent.load()).newRun(config);
+        BotPilot bot = new BotPilot(BotPilot.Preset.PERFECT, seed);
+        for (int t = 0; t < TICKS && !run.isFinished(); t++) {
+            RunInput input = run.phase() == RunPhase.CHOOSING_MODIFIER
+                    ? new RunInput(false, false, choice, false) : bot.decide(run);
+            run.tick(input);
+        }
+        return new Draft(List.copyOf(run.stats().modifiersTaken()),
+                run.simulation().spawner().decisionHashes());
     }
 
     private static List<Long> spawnDecisions(long seed, BotPilot.Preset preset, long pilotSeed) {

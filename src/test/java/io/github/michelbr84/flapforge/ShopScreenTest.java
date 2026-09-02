@@ -20,8 +20,10 @@ import io.github.michelbr84.flapforge.input.InputQueue;
 import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
+import io.github.michelbr84.flapforge.progression.RunLoadout;
 import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import io.github.michelbr84.flapforge.progression.UnlockManager;
 import io.github.michelbr84.flapforge.progression.UpgradeManager;
@@ -218,15 +220,26 @@ class ShopScreenTest {
                 () -> screen.offerGrid().card("world:wind_valley").subtitle());
 
         openTab(3);
-        assertEquals(4, screen.offers().size(), "two trees and two features");
+        assertEquals(7, screen.offers().size(),
+                "two trees, two features and the three legendary modifiers (M6)");
         assertEquals("feature:seeded_runs", screen.offers().get(0).id(), "cheapest first");
         assertNotNull(screen.offer("tree:economy"));
         assertNotNull(screen.offer("feature:modifiers"));
-        // E19: both features are buyable in M4 and read by nothing until M6 and M9, so the card
-        // says which milestone starts using them rather than presenting a working switch.
-        assertFalse(content.playable(ContentKind.FEATURE, "modifiers"));
+        // M6: the three legendaries are the only modifiers that are not unlocked by default, and
+        // §4 prices them at 300 coins each. The draft system exists, so they carry no "soon" note.
+        assertNotNull(screen.offer("modifier:gold_rush"));
+        assertNotNull(screen.offer("modifier:phoenix"));
+        assertEquals(300, screen.offer("modifier:stormrider").cost());
+        assertFalse(screen.offerGrid().card("modifier:stormrider").subtitle()
+                        .contains(strings.format(StringKey.COMMON_SOON, "M6")),
+                () -> screen.offerGrid().card("modifier:stormrider").subtitle());
+        // E19: a feature's card says which milestone starts using it rather than presenting a
+        // working switch. M6 shipped the draft overlay, so feature:modifiers is a working switch
+        // now and its card carries no note at all; Seeded mode still waits for M9.
+        assertTrue(content.playable(ContentKind.FEATURE, "modifiers"),
+                "M6 turned the modifier drafts on");
         assertFalse(content.playable(ContentKind.FEATURE, "seeded_runs"));
-        assertTrue(screen.offerGrid().card("feature:modifiers").subtitle()
+        assertFalse(screen.offerGrid().card("feature:modifiers").subtitle()
                         .contains(strings.format(StringKey.COMMON_SOON, "M6")),
                 () -> screen.offerGrid().card("feature:modifiers").subtitle());
         assertTrue(screen.offerGrid().card("feature:seeded_runs").subtitle()
@@ -257,11 +270,19 @@ class ShopScreenTest {
         click(screen.offerGrid().card("tree:economy"));
         assertTrue(profile.isUnlocked("tree:economy"), "the tree is a purchase like any other");
         assertEquals(880, coins());
+        assertFalse(RunLoadout.allowOffers(profile, content),
+                "before the purchase the next run cannot draft");
         click(screen.offerGrid().card("feature:modifiers"));
         assertTrue(profile.isUnlocked("feature:modifiers"));
         assertEquals(730, coins());
         assertNull(screen.offer("tree:economy"));
         assertNull(screen.offer("feature:modifiers"));
+        // M6: buying it is the whole gate — the very next run opens its drafts (D11).
+        assertTrue(RunLoadout.allowOffers(profile, content),
+                "the purchase must turn the drafts on");
+        assertTrue(RunLoadout.configFor(profile, content, 42L, RunMode.STANDARD).allowOffers());
+        assertFalse(RunLoadout.availableModifiers(profile, content).isEmpty(),
+                "and the run carries the cards the profile owns");
     }
 
     // ------------------------------------------------------------------ ability levels (M5, E3)

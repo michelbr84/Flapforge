@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.support.TestContent;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -587,6 +588,275 @@ class ContentValidatorTest {
                             level(root, 1, 2).addProperty("cost", 400)),
                     "abilities.json#/abilities/1/levels/2/cost: level 3 must cost more than the "
                             + "level below it");
+        }
+    }
+
+    /** M6: {@code modifiers.json} and the two ways a card can look fine and do nothing. */
+    @Nested
+    class Modifiers {
+
+        private List<String> errorsOfShippedWith(Consumer<JsonObject> edit) {
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(edited(edit)));
+            return e.errors();
+        }
+
+        private Map<String, JsonElement> edited(Consumer<JsonObject> edit) {
+            Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.shippedJson());
+            JsonElement modifiers = files.get("modifiers").deepCopy();
+            edit.accept(modifiers.getAsJsonObject());
+            files.put("modifiers", modifiers);
+            return files;
+        }
+
+        private JsonObject modifier(JsonObject root, int index) {
+            return root.getAsJsonArray("modifiers").get(index).getAsJsonObject();
+        }
+
+        private JsonObject synergy(JsonObject root, int index) {
+            return root.getAsJsonArray("synergies").get(index).getAsJsonObject();
+        }
+
+        private void assertHasError(List<String> errors, String prefix) {
+            assertTrue(errors.stream().anyMatch(error -> error.startsWith(prefix)),
+                    () -> "expected an error starting with\n  " + prefix + "\nbut got\n  "
+                            + String.join("\n  ", errors));
+        }
+
+        @Test
+        void theShippedModifiersAreValid() {
+            GameContent content = GameContent.load();
+            assertEquals(List.of(), ContentValidator.errorsOf(content));
+            assertEquals(List.of(), ContentValidator.warningsOf(content));
+            assertEquals(17, content.modifiers().size());
+            assertEquals(4, content.synergies().size());
+        }
+
+        @Test
+        void anUnknownExcludedModifierIsRejected() {
+            assertHasError(errorsOfShippedWith(root -> {
+                JsonArray excludes = new JsonArray();
+                excludes.add("tail_wind");
+                modifier(root, 0).add("excludes", excludes);
+            }), "modifiers.json#/modifiers/0/excludes/0: unknown modifier 'tail_wind'");
+        }
+
+        @Test
+        void aCardThatExcludesItselfIsRejected() {
+            assertHasError(errorsOfShippedWith(root -> {
+                JsonArray excludes = new JsonArray();
+                excludes.add("tailwind");
+                modifier(root, 0).add("excludes", excludes);
+            }), "modifiers.json#/modifiers/0/excludes/0: 'tailwind' excludes itself");
+        }
+
+        @Test
+        void aStreakBonusThatSurvivesNoCoinsIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            modifier(root, 6).add("requiresFlagsAbsent", new JsonArray())),
+                    "modifiers.json#/modifiers/6/requiresFlagsAbsent: 'streak_bounty' pays coins "
+                            + "per streak step, so it must list NO_COINS");
+        }
+
+        @Test
+        void aRarityWithNoWeightIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            root.getAsJsonObject("rarityWeights").remove("LEGENDARY")),
+                    "modifiers.json#/modifiers/14/rarity: rarity LEGENDARY has no draw weight");
+        }
+
+        @Test
+        void aCardThatCannotBeTakenIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            modifier(root, 0).addProperty("maxStacks", 0)),
+                    "modifiers.json#/modifiers/0/maxStacks: a card must be takeable at least "
+                            + "once");
+        }
+
+        @Test
+        void aCardWithNothingToGiveIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            modifier(root, 0).add("effects", new JsonArray())),
+                    "modifiers.json#/modifiers/0: 'tailwind' has no effect, no flag and no streak "
+                            + "bonus");
+        }
+
+        /**
+         * The difficulty layer resolves {@code SPEED_RAMP} when the run starts and never again, so
+         * a card that turns it on halfway through would be a flag nothing looks at (D8).
+         */
+        @Test
+        void aCardGrantingARunStartOnlyFlagIsRejected() {
+            assertHasError(errorsOfShippedWith(root -> {
+                JsonArray flags = new JsonArray();
+                flags.add("SPEED_RAMP");
+                modifier(root, 0).add("flags", flags);
+            }), "modifiers.json#/modifiers/0/flags/0: modifier 'tailwind' may not grant "
+                    + "SPEED_RAMP mid-run");
+        }
+
+        @Test
+        void aScheduleThatDoesNotAscendIsRejected() {
+            assertHasError(errorsOfShippedWith(root -> {
+                JsonArray schedule = new JsonArray();
+                schedule.add(10);
+                schedule.add(10);
+                root.add("offerSchedule", schedule);
+            }), "modifiers.json#/offerSchedule/1: the schedule must be strictly ascending");
+        }
+
+        /** E16: one required tag can never be split across the two entries the rule asks for. */
+        @Test
+        void aSynergyWithOneRequiredTagIsRejected() {
+            assertHasError(errorsOfShippedWith(root -> {
+                JsonArray tags = new JsonArray();
+                tags.add("ECONOMY");
+                synergy(root, 0).add("requiresTags", tags);
+            }), "modifiers.json#/synergies/0/requiresTags: a set bonus needs at least 2 tags");
+        }
+
+        /** A set bonus no build can complete is a balance problem, so it warns rather than fails. */
+        @Test
+        void aSynergyNoBuildCanCompleteIsWarnedAbout() {
+            // Only tailwind and stormrider carry SPEED, so three SPEED contributions cannot be
+            // assembled by any build however the cards are combined.
+            JsonArray tags = new JsonArray();
+            tags.add("SPEED");
+            tags.add("SPEED");
+            tags.add("SPEED");
+            GameContent content = GameContent.fromJson(edited(root ->
+                    synergy(root, 3).add("requiresTags", tags)));
+            assertEquals(List.of(), ContentValidator.errorsOf(content));
+            assertTrue(ContentValidator.warningsOf(content).stream().anyMatch(w -> w.startsWith(
+                            "modifiers.json#/synergies/3/requiresTags: no two distinct shipped "
+                                    + "modifiers can ever satisfy")),
+                    () -> ContentValidator.warningsOf(content).toString());
+        }
+
+        @Test
+        void anUnknownTagIsRejectedAtBindTime() {
+            assertHasError(errorsOfShippedWith(root -> {
+                JsonArray tags = new JsonArray();
+                tags.add("LUCK");
+                modifier(root, 0).add("tags", tags);
+            }), "modifiers.json#/modifiers/0/tags/0: not a valid ModifierTag: 'LUCK'");
+        }
+
+        @Test
+        void anUnknownRarityIsRejectedAtBindTime() {
+            assertHasError(errorsOfShippedWith(root ->
+                            modifier(root, 0).addProperty("rarity", "MYTHIC")),
+                    "modifiers.json#/modifiers/0/rarity: not a valid Rarity: 'MYTHIC'");
+        }
+
+        /**
+         * E32.d: the spawn decision reads {@code MOVING_CHANCE} — both the moving flag and the
+         * layout, and therefore how many draws come out of the {@code obstacle} stream — so a card
+         * that changed it would make the obstacle sequence depend on what the player drafted.
+         * {@code checkMidRunFlags} keeps {@code ALL_OBSTACLES_MOVE} out for the same reason; this
+         * is the stat-level half of the same rule.
+         */
+        @Test
+        void aCardThatWouldMoveTheSpawnDecisionIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            modifier(root, 0).add("effects", effects(StatId.MOVING_CHANCE))),
+                    "modifiers.json#/modifiers/0/effects/0: modifier 'tailwind' may not change "
+                            + "MOVING_CHANCE");
+        }
+
+        @Test
+        void aSynergyThatWouldMoveTheSpawnDecisionIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            synergy(root, 0).add("effects", effects(StatId.MOVING_CHANCE))),
+                    "modifiers.json#/synergies/0/effects/0: synergy 'coin_engine' may not change "
+                            + "MOVING_CHANCE");
+        }
+
+        private JsonArray effects(StatId stat) {
+            JsonObject effect = new JsonObject();
+            effect.addProperty("stat", stat.name());
+            effect.addProperty("op", "FLAT_ADD");
+            effect.addProperty("value", 0.5);
+            JsonArray effects = new JsonArray();
+            effects.add(effect);
+            return effects;
+        }
+    }
+
+    /**
+     * M6, E19: {@code challenges.json.forcedModifiers} resolves against {@code modifiers.json} now
+     * that the file ships. {@code ModifierDirector.start} applies the list under the authored
+     * rules, so anything this misses is a card the challenge silently loses at run start.
+     */
+    @Nested
+    class ForcedModifiers {
+
+        private List<String> errorsOfChallengesWith(Consumer<JsonObject> edit) {
+            Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.shippedJson());
+            JsonElement challenges = files.get("challenges").deepCopy();
+            edit.accept(challenges.getAsJsonObject());
+            files.put("challenges", challenges);
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(files));
+            return e.errors();
+        }
+
+        /** Replaces the {@code forcedModifiers} of one challenge. */
+        private Consumer<JsonObject> forcing(int index, String... ids) {
+            return root -> {
+                JsonArray forced = new JsonArray();
+                for (String id : ids) {
+                    forced.add(id);
+                }
+                root.getAsJsonArray("challenges").get(index).getAsJsonObject()
+                        .add("forcedModifiers", forced);
+            };
+        }
+
+        private void assertHasError(List<String> errors, String prefix) {
+            assertTrue(errors.stream().anyMatch(error -> error.startsWith(prefix)),
+                    () -> "expected an error starting with\n  " + prefix + "\nbut got\n  "
+                            + String.join("\n  ", errors));
+        }
+
+        @Test
+        void theShippedChallengesForceOnlyCardsThatExist() {
+            GameContent content = GameContent.load();
+            assertEquals(List.of("coin_drops"),
+                    content.challenges().get("coin_rush_1").forcedModifiers(),
+                    "the one live reference in the shipped content");
+            assertEquals(List.of(), ContentValidator.errorsOf(content));
+        }
+
+        @Test
+        void anUnknownForcedModifierIsRejected() {
+            assertHasError(errorsOfChallengesWith(forcing(5, "coin_dropz")),
+                    "challenges.json#/challenges/5/forcedModifiers/0: unknown modifier "
+                            + "'coin_dropz'");
+        }
+
+        @Test
+        void moreCopiesThanMaxStacksAreRejected() {
+            assertHasError(errorsOfChallengesWith(forcing(5, "coin_drops", "coin_drops",
+                            "coin_drops", "coin_drops")),
+                    "challenges.json#/challenges/5/forcedModifiers/3: 'coin_drops' is forced 4 "
+                            + "times but its maxStacks is 3");
+        }
+
+        @Test
+        void twoCardsThatExcludeEachOtherAreRejected() {
+            assertHasError(errorsOfChallengesWith(forcing(5, "light_frame", "glass_wings")),
+                    "challenges.json#/challenges/5/forcedModifiers/1: 'glass_wings' and "
+                            + "'light_frame' exclude each other");
+        }
+
+        @Test
+        void aCardTheChallengesOwnFlagsForbidIsRejected() {
+            // no_shield_1 turns NO_DEFENSIVE_ABILITIES on, which is exactly what temp_shield
+            // declares it cannot live with — the run would drop the card and nothing would say so.
+            assertHasError(errorsOfChallengesWith(forcing(0, "temp_shield")),
+                    "challenges.json#/challenges/0/forcedModifiers/0: 'temp_shield' requires "
+                            + "NO_DEFENSIVE_ABILITIES to be absent, and the challenge turns it on");
         }
     }
 

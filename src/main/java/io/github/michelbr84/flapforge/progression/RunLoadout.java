@@ -1,12 +1,15 @@
 package io.github.michelbr84.flapforge.progression;
 
+import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
+import io.github.michelbr84.flapforge.content.defs.ModifierDef;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -29,6 +32,9 @@ import java.util.Objects;
  * and the challenge, which the simulation strips defensively at run start (D9).
  */
 public final class RunLoadout {
+
+    /** The feature that gates mid-run drafts (D11, {@code economy.json.features}). */
+    public static final String MODIFIERS_FEATURE = "modifiers";
 
     private RunLoadout() {
     }
@@ -57,7 +63,52 @@ public final class RunLoadout {
                 .passiveSlotBonus(profile.passiveSlotBonus)
                 .abilityLevels(profile.abilityLevels)
                 .permanentEffects(upgradeEffects(profile, content))
-                .upgradeLevelsTotal(profile.upgradeLevelsTotal());
+                .upgradeLevelsTotal(profile.upgradeLevelsTotal())
+                .availableModifiers(availableModifiers(profile, content))
+                .allowOffers(allowOffers(profile, content));
+    }
+
+    /**
+     * The modifier ids the profile owns (M6), so the draft never offers a card the player has not
+     * unlocked. The cards that ship {@code unlock: default} are in the list too once the evaluator
+     * has granted them, and {@link io.github.michelbr84.flapforge.modifier.ModifierCatalog} keeps
+     * them available even before that — what this list adds is the three earned legendaries.
+     *
+     * @param profile the profile to read
+     * @param content the loaded content
+     * @return the bare ids, in content order
+     */
+    public static List<String> availableModifiers(PlayerProfile profile, GameContent content) {
+        if (!content.has(GameContent.MODIFIERS)) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (ModifierDef def : content.modifiers()) {
+            if (profile.isUnlocked(def.unlockableId())) {
+                out.add(def.id());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Whether mid-run drafts open for this profile (D11).
+     *
+     * <p>Two conditions, and the second one is a milestone gate rather than a rule of the game:
+     * the profile has to own {@code feature:modifiers}, and the feature has to be
+     * {@linkplain GameContent#playable(ContentKind, String) playable}, which it becomes when
+     * {@code GameContent.FEATURE_MILESTONES} stops naming a milestone for it. It stopped in M6,
+     * when {@code ModifierChoiceOverlay} shipped and a frozen draft finally had something that
+     * could answer it; the second condition is therefore satisfied today and the gate is the
+     * unlock alone (runs 7, or 150 coins in the shop).
+     *
+     * @param profile the profile to read
+     * @param content the loaded content
+     * @return {@code true} when a run may open a draft
+     */
+    public static boolean allowOffers(PlayerProfile profile, GameContent content) {
+        return profile.isUnlocked(ContentKind.FEATURE.unlockableId(MODIFIERS_FEATURE))
+                && content.playable(ContentKind.FEATURE, MODIFIERS_FEATURE);
     }
 
     /**

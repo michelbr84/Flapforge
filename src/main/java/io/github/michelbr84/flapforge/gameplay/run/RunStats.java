@@ -30,6 +30,7 @@ public final class RunStats {
     private int shieldAbsorbs;
     private int revives;
     private int nearMisses;
+    private long modifierStreakCoins;
 
     /** Creates empty stats. */
     public RunStats() {
@@ -59,6 +60,7 @@ public final class RunStats {
         c.shieldAbsorbs = shieldAbsorbs;
         c.revives = revives;
         c.nearMisses = nearMisses;
+        c.modifierStreakCoins = modifierStreakCoins;
         return c;
     }
 
@@ -230,6 +232,29 @@ public final class RunStats {
      */
     public void addModifierTaken(String modifierId) {
         modifiersTaken.add(modifierId);
+    }
+
+    /**
+     * The extra coins one clean-gate streak step pays because of the modifiers this run took
+     * (E32.a, the {@code Σ modifier.streakBonus.coins} term of the coin formula).
+     *
+     * <p>It travels with the stats rather than being recomputed from
+     * {@link #modifiersTaken()} at payout time, so the reward calculator stays a pure function of
+     * the result and never has to resolve a modifier id against content that may have moved on.
+     *
+     * @return the coins per step
+     */
+    public long modifierStreakCoins() {
+        return modifierStreakCoins;
+    }
+
+    /**
+     * Sets the modifier streak bonus.
+     *
+     * @param value the coins per step
+     */
+    public void setModifierStreakCoins(long value) {
+        modifierStreakCoins = value;
     }
 
     /**

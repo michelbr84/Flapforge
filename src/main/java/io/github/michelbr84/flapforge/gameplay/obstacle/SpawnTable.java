@@ -16,13 +16,18 @@ import java.util.Random;
  * emits a static, standard pair and rolls no probability at all. {@link #rollFirst} reproduces
  * it — see that method for the one Flapforge addition.
  *
+ * <p>The class is open for one reason (E17): a test needs a world it can predict, and
+ * {@code FixedSpawnTable} gets it by overriding {@link #roll} and {@link #rollFirst} to answer
+ * with the same standard gate every time. {@link #materialize} is deliberately not part of that
+ * seam — a subclass changes what is decided, never how a decision becomes an obstacle.
+ *
  * <p>Two streams are consumed: {@code spawn} decides kind, moving flag and layout;
  * {@code obstacle} decides the geometry ({@code top ∈ [80, 400]}, floating {@code h ∈ [106, 160)}
  * then {@code y ∈ [53, 106)} in upstream's draw order). The moving draw is always consumed, even
  * when {@code ALL_OBSTACLES_MOVE} forces the result, so the streams stay aligned whatever rules
  * are active.
  */
-public final class SpawnTable {
+public class SpawnTable {
 
     /** Smallest top of a standard gap (upstream {@code MIN_HEIGHT = 640 >> 3}). */
     public static final int STANDARD_TOP_MIN = 80;

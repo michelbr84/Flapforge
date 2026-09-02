@@ -38,6 +38,7 @@ import io.github.michelbr84.flapforge.render.WorldPalette;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
+import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.BootScreen;
@@ -45,9 +46,11 @@ import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
+import io.github.michelbr84.flapforge.ui.screens.ModifierChoiceOverlay;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.RunSummaryScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
+import io.github.michelbr84.flapforge.ui.screens.SeededRunSource;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
 import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
 import io.github.michelbr84.flapforge.ui.screens.StatisticsScreen;
@@ -231,6 +234,40 @@ class ProceduralRenderTest {
     }
 
     @Test
+    void theDraftOverlayRendersItsCardsAndItsCountdown() {
+        // The cards are the shipped ones on a flat corridor (E17), so what is drawn is what a
+        // player sees: three panels, their rarity colours and the dimmed frozen game behind them.
+        Rig rig = new Rig(DraftRuns.source(DraftRuns.catalog(GameContent.load(), 2, 3)));
+        ModifierChoiceOverlay overlay = rig.flyToDraft();
+        assertEquals(3, overlay.cards().size());
+        BufferedImage cards = copy(rig.frame(0.5));
+        assertTrue(distinctColours(cards, 2) >= 2, "the draft frame is uniform");
+
+        // The countdown is a different frame: the cards are gone and a 3-2-1 stands in their
+        // place. The card is activated the way the focus ring activates it.
+        overlay.cards().get(0).activate();
+        rig.tick(2);
+        BufferedImage hold = rig.frame(0.5);
+        assertTrue(distinctColours(hold, 2) >= 2, "the countdown frame is uniform");
+        assertFalse(identical(cards, hold), "the countdown must not look like the draft");
+    }
+
+    @Test
+    void theDraftOverlayShowsTheSynergyACardWouldComplete() {
+        Rig rig = new Rig(DraftRuns.source(
+                DraftRuns.catalog(GameContent.load(), 2, 2, "coin_drops", "magnet_burst"),
+                List.of("coin_drops")));
+        ModifierChoiceOverlay overlay = rig.flyToDraft();
+        boolean promised = false;
+        for (ModifierChoiceOverlay.Card card : overlay.cards()) {
+            promised |= !card.synergy().isEmpty();
+        }
+        assertTrue(promised, () -> "no card promised coin_engine: " + overlay.cards().stream()
+                .map(ModifierChoiceOverlay.Card::id).toList());
+        assertTrue(distinctColours(rig.frame(0.5), 2) >= 2, "the synergy frame is uniform");
+    }
+
+    @Test
     void everyScreenRendersInBothLanguages() {
         String original = Strings.active().language();
         Map<String, BufferedImage> byLanguage = new LinkedHashMap<>();
@@ -290,6 +327,17 @@ class ProceduralRenderTest {
                     assertTrue(distinctColours(rig.frame(0.5), 2) >= 2,
                             phase + " frame is uniform in " + language);
                 }
+
+                // M6: the draft is the one screen whose text comes from the content tables rather
+                // than from StringKey alone, so a missing modifier translation shows up here.
+                Rig draft = new Rig(DraftRuns.source(DraftRuns.catalog(GameContent.load(), 2, 2,
+                        "coin_drops", "magnet_burst"), List.of("coin_drops")));
+                ModifierChoiceOverlay overlay = draft.flyToDraft();
+                assertEquals(Strings.active().name("modifier", overlay.cards().get(0).id()),
+                        overlay.cards().get(0).name(), "the card is named in " + language);
+                BufferedImage cards = draft.frame(0.5);
+                assertTrue(distinctColours(cards, 2) >= 2, "the draft is uniform in " + language);
+                byLanguage.put(language + "-draft", copy(cards));
             }
         } finally {
             Strings.use(Strings.load(original));
@@ -311,6 +359,8 @@ class ProceduralRenderTest {
                 "the upgrade trees must look different in the two languages");
         assertFalse(identical(byLanguage.get("en-shop"), byLanguage.get("pt_BR-shop")),
                 "the shop must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-draft"), byLanguage.get("pt_BR-draft")),
+                "the modifier draft must look different in the two languages");
     }
 
     @Test
@@ -507,12 +557,37 @@ class ProceduralRenderTest {
         final GameScreen game;
 
         Rig() {
+            this(new ClassicRunFactory());
+        }
+
+        Rig(SeededRunSource source) {
             presenter = new NullPresenter(screens, viewport, Playfield.WIDTH, Playfield.HEIGHT);
             screens.setPresenter(presenter);
-            game = new GameScreen(screens, new ClassicRunFactory(), SeedSequence.of(42));
+            game = new GameScreen(screens, source, SeedSequence.of(42));
             screens.push(game);
             screens.applyPending();
             screens.tick(InputFrame.EMPTY);
+        }
+
+        /**
+         * Flies the flat corridor until the draft opens, flapping whenever the bird has sunk
+         * below the gap centre (M6).
+         *
+         * @return the overlay on top of the stack
+         */
+        ModifierChoiceOverlay flyToDraft() {
+            flap();
+            for (int i = 0; i < 4000 && !(screens.top() instanceof ModifierChoiceOverlay); i++) {
+                if (game.run().simulation().bird().y() > Playfield.BIRD_START_Y + 10) {
+                    flap();
+                } else {
+                    tick(1);
+                }
+            }
+            assertTrue(screens.top() instanceof ModifierChoiceOverlay,
+                    () -> "the draft never opened: " + game.run().phase());
+            tick(ScreenManager.TRANSITION_GRACE_TICKS + 2);
+            return (ModifierChoiceOverlay) screens.top();
         }
 
         void driveTo(Phase phase) {
