@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.michelbr84.flapforge.content.defs.SfxSet;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,8 @@ class ToneSynthTest {
     void coversEverySoundTheGameAsksFor() {
         assertTrue(ToneSynth.IDS.containsAll(List.of("flap", "score", "coin", "crash", "ability",
                 "shield", "revive", "ui_move", "ui_select", "ui_back", "unlock", "boss_warning",
-                "rule_shift", "streak", "synergy", "level_up")), ToneSynth.IDS::toString);
+                "rule_shift", "streak", "synergy", "level_up", "lightning_warning", "thunder",
+                "piston_telegraph", "wind")), ToneSynth.IDS::toString);
         assertEquals(ToneSynth.IDS.size(), java.util.Set.copyOf(ToneSynth.IDS).size(),
                 "ids must be unique");
     }
@@ -135,5 +137,51 @@ class ToneSynthTest {
             peak = Math.max(peak, Math.abs(sample));
         }
         return peak;
+    }
+
+    // ------------------------------------------------------------------ sound sets (M7)
+
+    @ParameterizedTest
+    @MethodSource("ids")
+    void everySetRendersAudibleDeterministicBytes(String id) {
+        for (SfxSet set : SfxSet.values()) {
+            float[] samples = synth.render(id, set);
+            float peak = peak(samples);
+            assertTrue(peak >= 0.2f, id + " in " + set + " is effectively silent, peak " + peak);
+            assertTrue(peak <= (float) ToneSynth.MAX_PEAK + 1e-6f, id + " in " + set
+                    + " exceeds the headroom budget");
+            assertEquals(0.0f, samples[0], 0.0f, id + " in " + set + " starts mid-waveform");
+            assertEquals(0.0f, samples[samples.length - 1], 0.0f,
+                    id + " in " + set + " ends mid-waveform");
+            assertArrayEquals(samples, new ToneSynth().render(id, set),
+                    id + " in " + set + " is not deterministic");
+            for (float sample : samples) {
+                assertTrue(Float.isFinite(sample));
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("ids")
+    void theFieldsSetIsTheCanonicalSoundAndEveryOtherSetDiffers(String id) {
+        float[] canonical = synth.render(id);
+        assertArrayEquals(canonical, synth.render(id, SfxSet.FIELDS),
+                "FIELDS is the canonical timbre, byte for byte");
+        assertArrayEquals(canonical, synth.render(id, (SfxSet) null));
+        float[][] all = synth.renderAllSets(id);
+        assertEquals(SfxSet.values().length, all.length);
+        for (SfxSet set : SfxSet.values()) {
+            if (set == SfxSet.FIELDS) {
+                continue;
+            }
+            assertFalse(Arrays.equals(canonical, all[set.ordinal()]),
+                    id + " sounds the same in " + set + " as in the fields");
+            for (SfxSet other : SfxSet.values()) {
+                if (other.ordinal() > set.ordinal()) {
+                    assertFalse(Arrays.equals(all[set.ordinal()], all[other.ordinal()]),
+                            id + " sounds the same in " + set + " and " + other);
+                }
+            }
+        }
     }
 }

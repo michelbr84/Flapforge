@@ -50,8 +50,17 @@ public final class ContentLoader {
             "upgrades", "aliases", "abilities", "modifiers", "worlds", "challenges",
             "achievements");
 
+    /**
+     * The content files milestone M7 ships: {@link #M6_FILES} plus the obstacle patterns (§4).
+     * {@code patterns.json} is optional like {@code worlds.json}: a content set without it (the
+     * frozen golden fixture) still binds, with every pattern check switched off (E19).
+     */
+    public static final List<String> M7_FILES = List.of("birds", "difficulty", "economy",
+            "upgrades", "aliases", "abilities", "modifiers", "worlds", "patterns", "challenges",
+            "achievements");
+
     /** The content files the game currently loads (the latest milestone's set). */
-    public static final List<String> FILES = M6_FILES;
+    public static final List<String> FILES = M7_FILES;
 
     private static final Gson GSON = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)

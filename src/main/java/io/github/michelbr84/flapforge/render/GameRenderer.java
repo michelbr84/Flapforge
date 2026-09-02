@@ -5,21 +5,32 @@ import io.github.michelbr84.flapforge.gameplay.bird.Bird;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * Composes the whole in-run picture from the M1 renderers (D18).
+ * Composes the whole in-run picture from the renderers (D18).
  *
- * <p>Draw order: backdrop (sky, hills, ground), clouds, obstacles, coins, bird, HUD. Upstream
- * drew its clouds as a "foreground" layer between background and pipes; keeping them behind the pipes is
- * the same visual result (clouds live in the top third and pipes are opaque) and avoids clouds
- * crossing in front of a gate the player is aiming at.
+ * <p>Draw order: backdrop (sky, the world's parallax bands, ground), clouds, obstacles, coins,
+ * bird, particles, the world's darkness veil, the sky flash, HUD. Upstream drew its clouds as a
+ * "foreground" layer between background and pipes; keeping them behind the pipes is the same
+ * visual result (clouds live in the top third and pipes are opaque) and avoids clouds crossing
+ * in front of a gate the player is aiming at.
  *
  * <p>Art comes from {@link ProceduralArt} unless {@code assets/manifest.json} declares an
  * override for the id, which {@link #applyAssets(AssetResolver, String, String)} resolves once per
  * run (D18). The shipped manifest is empty, so the shipped game is fully procedural.
+ *
+ * <p>M7 makes the renderer world-aware: {@link #setWorld(WorldPalette, WorldStyle)} picks the
+ * palette and the parallax style of the run's world (the screen reads them from
+ * {@code worlds.json}), the obstacles go through the {@link ObstacleRendererRegistry}, the
+ * world's {@code ambient.darkness} is drawn by a {@link DarknessOverlay} around the bird, and
+ * {@link #ambientFlash()} is the cosmetic sky flash of E8 — a brief whole-sky brightening that
+ * {@code settings.reduceFlashing} (the default) turns into a mild tint. The setting is read from
+ * {@link ParticleSystem#defaultReduceFlashing()} on every tick, the same source the particles
+ * use.
  *
  * <p>{@link #tick(Run, boolean)} advances every animation by one simulation tick;
  * {@link #render(Graphics2D, double, Run, String, boolean)} draws with the frame alpha, so the
@@ -32,16 +43,29 @@ public final class GameRenderer {
     public static final double CRASH_SHAKE = 5.0;
     /** Manifest id of the bird's wing sheet, tried as {@code bird/&lt;birdId&gt;} first. */
     public static final String BIRD_SHEET_ID = "bird";
+    /** Ticks a sky flash lasts (E8). */
+    public static final int FLASH_TICKS = 9;
+    /** Peak alpha of the sky flash with {@code reduceFlashing} off. */
+    public static final double FLASH_ALPHA = 0.55;
+    /** Peak alpha of the sky flash with {@code reduceFlashing} on: a tint, never a strobe. */
+    public static final double FLASH_ALPHA_REDUCED = 0.12;
 
-    private final WorldPalette palette;
+    private static final Color[] FLASH_RAMP = ramp(0xFFFFFF);
+
     private final BackgroundRenderer background = new BackgroundRenderer();
     private final CloudLayer clouds = new CloudLayer();
-    private final ObstacleRenderer obstacles = new ObstacleRenderer();
+    private final ObstacleRendererRegistry obstacles = new ObstacleRendererRegistry();
     private final PickupRenderer pickups = new PickupRenderer();
     private final BirdRenderer bird = new BirdRenderer();
     private final HudRenderer hud;
     private final ParticleSystem particles = new ParticleSystem();
     private final Camera camera = new Camera();
+    private final DarknessOverlay darkness = new DarknessOverlay();
+    private WorldPalette palette;
+    private WorldStyle style = WorldStyle.HILLS;
+    private boolean reduceFlashing = ParticleSystem.defaultReduceFlashing();
+    private int flashTicks;
+    private int flashes;
 
     /**
      * Creates a renderer for one world.
@@ -55,12 +79,34 @@ public final class GameRenderer {
     }
 
     /**
+     * Switches the look to another world (M7): its palette and its parallax style. Called by the
+     * screen when a run starts; the darkness is read from the run itself on every frame.
+     *
+     * @param newPalette the world palette
+     * @param newStyle the parallax style
+     */
+    public void setWorld(WorldPalette newPalette, WorldStyle newStyle) {
+        this.palette = Objects.requireNonNull(newPalette, "palette");
+        this.style = Objects.requireNonNull(newStyle, "style");
+        background.setStyle(newStyle);
+    }
+
+    /**
      * The palette in use.
      *
      * @return the palette
      */
     public WorldPalette palette() {
         return palette;
+    }
+
+    /**
+     * The parallax style in use.
+     *
+     * @return the style
+     */
+    public WorldStyle style() {
+        return style;
     }
 
     /**
@@ -118,6 +164,24 @@ public final class GameRenderer {
     }
 
     /**
+     * The per-kind obstacle renderers.
+     *
+     * @return the registry
+     */
+    public ObstacleRendererRegistry obstacles() {
+        return obstacles;
+    }
+
+    /**
+     * The darkness veil.
+     *
+     * @return the overlay
+     */
+    public DarknessOverlay darkness() {
+        return darkness;
+    }
+
+    /**
      * Resolves the art this renderer may override with a real sprite sheet, and installs it.
      *
      * <p>The lookup is {@code bird/&lt;birdId&gt;} then the bare {@code bird}, each of them first
@@ -160,6 +224,16 @@ public final class GameRenderer {
      */
     public void setReadyHint(String readyHint) {
         hud.setReadyHint(readyHint);
+    }
+
+    /**
+     * Names the world the run is played in, already translated by the screen (M7, D25); the
+     * HUD shows it while the run waits for its first flap and briefly after it starts.
+     *
+     * @param worldName the name, or {@code null} for none
+     */
+    public void setWorldName(String worldName) {
+        hud.setWorldName(worldName);
     }
 
     /**
@@ -238,6 +312,43 @@ public final class GameRenderer {
     }
 
     /**
+     * Lights the sky (E8): the cosmetic flash of {@code ambient.lightningEveryGates}. With
+     * {@code reduceFlashing} on it is a mild tint; the thunder is the audio manager's.
+     */
+    public void ambientFlash() {
+        flashTicks = FLASH_TICKS;
+        flashes++;
+    }
+
+    /**
+     * Whether a sky flash is being drawn.
+     *
+     * @return {@code true} during the flash
+     */
+    public boolean isFlashing() {
+        return flashTicks > 0;
+    }
+
+    /**
+     * Sky flashes lit since the last reset (tests).
+     *
+     * @return the count
+     */
+    public int flashes() {
+        return flashes;
+    }
+
+    /**
+     * Whether bright transients are damped ({@code settings.reduceFlashing}), as read on the
+     * last tick.
+     *
+     * @return {@code true} when damped
+     */
+    public boolean isReduceFlashing() {
+        return reduceFlashing;
+    }
+
+    /**
      * Advances every animation by one simulation tick.
      *
      * <p>The ground and the hills scroll while the run is {@code READY} or flying and stop in
@@ -263,8 +374,11 @@ public final class GameRenderer {
         RunPhase phase = run.phase();
         boolean frozen = phase == RunPhase.DYING || phase == RunPhase.FINISHED;
         double scroll = scrollPerTick(run);
+        reduceFlashing = ParticleSystem.defaultReduceFlashing();
+        background.setReduceFlashing(reduceFlashing);
         background.tick(scroll, frozen);
         clouds.tick(scroll, frozen);
+        obstacles.tick();
         bird.tick(flapped);
         // The coins are ticked before the HUD so a coin taken this tick has already produced its
         // flourish when the counter next to the icon changes.
@@ -272,6 +386,9 @@ public final class GameRenderer {
         hud.tick(run);
         camera.tick();
         particles.update(1.0 / Playfield.TICK_RATE);
+        if (flashTicks > 0) {
+            flashTicks--;
+        }
         double birdY = run.simulation().bird().y();
         if (flapped) {
             particles.emitFlapPuff(Playfield.BIRD_X - Playfield.SPRITE_W * 0.35, birdY);
@@ -294,6 +411,9 @@ public final class GameRenderer {
         clouds.tick(0, true);
         camera.tick();
         particles.update(1.0 / Playfield.TICK_RATE);
+        if (flashTicks > 0) {
+            flashTicks--;
+        }
     }
 
     /**
@@ -306,12 +426,17 @@ public final class GameRenderer {
      */
     public void reset() {
         background.reset();
+        obstacles.reset();
         bird.reset();
         hud.reset();
         pickups.reset();
         particles.clear();
         camera.reset();
-        particles.setReduceFlashing(ParticleSystem.defaultReduceFlashing());
+        flashTicks = 0;
+        flashes = 0;
+        reduceFlashing = ParticleSystem.defaultReduceFlashing();
+        background.setReduceFlashing(reduceFlashing);
+        particles.setReduceFlashing(reduceFlashing);
     }
 
     /** {@link #reset()} plus an empty sky: the state a screen starts from when it is entered. */
@@ -336,13 +461,24 @@ public final class GameRenderer {
         background.render(g, alpha, palette);
         clouds.render(g, alpha, palette);
         camera.apply(g, alpha);
-        obstacles.render(g, alpha, run.simulation().obstacles(), palette, debugBoxes);
+        double scroll = scrollPerTick(run);
+        obstacles.render(g, alpha, run.simulation().obstacles(), palette, scroll, reduceFlashing,
+                debugBoxes);
         pickups.render(g, alpha, run.simulation().pickups(), debugBoxes);
         Bird b = run.simulation().bird();
         double hitboxScale = run.simulation().stats().resolve(StatId.HITBOX_SCALE);
         bird.render(g, alpha, b, palette, hitboxScale, debugBoxes);
         particles.render(g);
+        // The veil follows the drawn bird, so it sits inside the camera transform.
+        darkness.prepare(run.simulation().darkness());
+        darkness.render(g, b.y());
         camera.unapply(g);
+        if (flashTicks > 0) {
+            double peak = reduceFlashing ? FLASH_ALPHA_REDUCED : FLASH_ALPHA;
+            int step = (int) Math.round(16 * peak * flashTicks / FLASH_TICKS);
+            g.setColor(FLASH_RAMP[Math.max(0, Math.min(16, step))]);
+            g.fillRect(0, 0, Playfield.WIDTH, Playfield.GROUND_Y);
+        }
         hud.render(g, run, palette, seedText);
     }
 
@@ -355,5 +491,13 @@ public final class GameRenderer {
     public static double scrollPerTick(Run run) {
         return run.simulation().stats().resolve(StatId.SCROLL_SPEED)
                 * run.simulation().stats().resolve(StatId.TIME_SCALE) / Playfield.TICK_RATE;
+    }
+
+    private static Color[] ramp(int rgb) {
+        Color[] out = new Color[17];
+        for (int i = 0; i <= 16; i++) {
+            out[i] = new Color((rgb & 0xFFFFFF) | (Math.min(255, i * 16) << 24), true);
+        }
+        return out;
     }
 }

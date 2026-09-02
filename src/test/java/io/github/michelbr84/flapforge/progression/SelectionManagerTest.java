@@ -91,13 +91,20 @@ class SelectionManagerTest {
     }
 
     @Test
-    void aWorldThisBuildCannotPlayIsRefusedEvenWhenOwned() {
-        profile.unlock("world:wind_valley");
+    void aWorldIsSelectableOnceOwnedAndNotBefore() {
+        // E19: every world plays from M7, so ownership is the one gate left.
         assertFalse(selection.selectWorld(profile, "wind_valley", content),
-                "E19: only Green Fields is playable until M7");
+                "a world the player does not own is refused");
         assertEquals("green_fields", profile.selected.worldId);
-        assertTrue(selection.selectWorld(profile, "green_fields", content));
-        assertEquals(0, saves, "re-selecting what is already selected writes nothing");
+        profile.unlock("world:wind_valley");
+        assertTrue(selection.selectWorld(profile, "wind_valley", content),
+                "an owned world is playable in M7");
+        assertEquals("wind_valley", profile.selected.worldId);
+        assertEquals(1, saves);
+        assertTrue(selection.selectWorld(profile, "wind_valley", content));
+        assertEquals(1, saves, "re-selecting what is already selected writes nothing");
+        assertEquals("wind_valley", RunLoadout.configFor(profile, content, 1,
+                RunConfig.classic(1).mode()).worldId(), "the run is played in it");
     }
 
     /**

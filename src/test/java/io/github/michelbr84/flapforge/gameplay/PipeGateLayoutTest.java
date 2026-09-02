@@ -138,7 +138,7 @@ class PipeGateLayoutTest {
         int minH = Integer.MAX_VALUE;
         int maxH = Integer.MIN_VALUE;
         for (int i = 0; i < 20_000; i++) {
-            SpawnDecision d = SpawnTable.GREEN_FIELDS.roll(spawn, obstacle, 0.5, false);
+            SpawnDecision d = SpawnTable.GREEN_FIELDS.roll(spawn, obstacle, 0.5);
             if (d.layout() == PipeGate.Layout.STANDARD) {
                 minTop = Math.min(minTop, (int) d.top());
                 maxTop = Math.max(maxTop, (int) d.top());

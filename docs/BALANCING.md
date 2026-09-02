@@ -1,4 +1,4 @@
-# Balancing — the conversion table (M1), the run economy (M3), the meta-progression (M4) and the abilities (M5)
+# Balancing — the conversion table (M1), the run economy (M3), the meta-progression (M4), the abilities (M5), the modifiers (M6) and the worlds (M7)
 
 Flapforge is a rewrite of a 30 Hz Flappy Bird clone
 ([kingyuluk/FlappyBird](https://github.com/kingyuluk/FlappyBird), the tree at commit `b811782` of
@@ -690,8 +690,8 @@ already took something.
 
 ## 9. What is not yet measured here
 
-The other four worlds (M7) and the runs-to-unlock table that `BalancingSim --meta` prints (M9,
-E25) extend this document as they land. Four M4 measurements, three M5 ones and two M6 ones are
+The runs-to-unlock table that `BalancingSim --meta` prints (M9, E25) extends this document when
+it lands; the worlds are §10. Four M4 measurements, three M5 ones and two M6 ones are
 recorded above as open questions for M9 rather than as settled balance:
 `glide_1` cannot bind (§6.3), the bot is not monotone in the stats the tree sells (§6.4), Jackdaw and
 Oracle do not pay for themselves (§6.5), the participation gate zeroes one novice run in five (§6.6),
@@ -702,3 +702,200 @@ The rule stays
 the same: a row is added only once a test or a tool measures it — §5's, §7's and §8's numbers are
 `BalancingSim` output, not estimates, and the shape of the distributions matters as much as the means
 (an expert's coins are almost a constant because the bot reaches the tick budget; a novice's are not).
+
+## 10. Worlds, patterns and tiers (M7)
+
+Every number below is `BalancingSim` output on the shipped `worlds.json` / `patterns.json` after
+the M7 review pass (2026-09-02), the classic bird, no ability, no drafts, seeds `1..N`, the
+20 000-tick budget unless stated. `ContentFeasibilityTest` (`simTest`) asserts §10.1 and §10.3
+on seeds 1–50 with the same bot, budgets and seeds.
+
+### 10.1 The expert reaches the boss gate — world × tier
+
+`./gradlew balancing -PtoolArgs="--seeds 50 --world all --tier all --skill expert"`; success =
+`gatesPassed ≥ boss.atGate` (30 / 30 / 30 / 35 / 40). The bar is 30 % on every cell (§6, risk
+11); gates are the median and the mean of the same 50 runs, deaths the killer by kind.
+
+| world | tier | reach boss gate | gates p50 / mean | deaths |
+| --- | --- | --- | --- | --- |
+| green_fields (30) | normal | **100 %** | 248 / 246.3 | ALIVE 49, PIPE_GATE 1 |
+| | hard | 84 % | 73 / 106.3 | PIPE_GATE 44, ALIVE 6 |
+| | nightmare | **32 %** | 21 / 24.7 | PIPE_GATE 50 |
+| wind_valley (30) | normal | 98 % | 137 / 124.9 | ALIVE 29, PIPE_GATE 21 |
+| | hard | 98 % | 108 / 107.9 | PIPE_GATE 48, ALIVE 2 |
+| | nightmare | 92 % | 57 / 59.7 | PIPE_GATE 50 |
+| iron_forge (30) | normal | 98 % | 89 / 119.2 | PIPE_GATE 37, PISTON 12, ALIVE 1 |
+| | hard | 80 % | 52 / 66.5 | PIPE_GATE 33, PISTON 17 |
+| | nightmare | 64 % | 44 / 44.5 | PIPE_GATE 48, PISTON 2 |
+| storm_sky (35) | normal | 90 % | 65 / 70.3 | PIPE_GATE 49, LIGHTNING 1 |
+| | hard | 38 % | 28 / 39.2 | PIPE_GATE 50 |
+| | nightmare | 38 % | 25 / 29.0 | PIPE_GATE 47, LIGHTNING 3 |
+| void (40) | normal | 98 % | 124 / 138.7 | PIPE_GATE 47, LIGHTNING 1, ALIVE 2 |
+| | hard | 92 % | 96 / 102.4 | PIPE_GATE 50 |
+| | nightmare | 58 % | 55 / 52.6 | PIPE_GATE 49, PISTON 1 |
+
+Every cell is above the bar and the feasibility test holds every cell to it — the 15 % floor the
+first M7 pass gave Green Fields nightmare is gone. That cell went from 22 % to 32 % without a
+change to Green Fields or to the bot's Green Fields decisions: the nightmare tier's
+`ALL_OBSTACLES_MOVE` used to be folded into the gate decision *before* the layout roll, so every
+gate took the moving layout mix (¼ floating); the rule is now applied when the decision becomes
+an obstacle (E32.d, §10.5) and a gate rolled static keeps the static mix (½ floating), which the
+bot survives more often. The tightest cells are the two nightmare gate worlds and Storm Sky's two
+upper tiers, all killed by the moving gate at 1.5× scroll (§10.4); M9's tier balance reads them
+from here.
+
+### 10.2 Survival by world and preset
+
+`./gradlew balancing -PtoolArgs="--seeds 100 --world all --skill all"` (normal tier). Gates are
+nearest-rank percentiles; deaths are counted by the obstacle kind that killed the bird (M7:
+`RunStats.deathKind`), `GROUND`/`CEILING` when nothing did, `ALIVE` at the budget.
+
+| world | preset | gates p50 | p90 | mean | budget | deaths |
+| --- | --- | --- | --- | --- | --- | --- |
+| green_fields | novice | 4 | 13 | 5.5 | 0 % | PIPE_GATE 100 |
+| green_fields | average | 63 | 200 | 81.7 | 7 % | PIPE_GATE 93 |
+| green_fields | expert | 248 | 248 | 243.0 | 95 % | PIPE_GATE 5 |
+| green_fields | perfect | 248 | 248 | 244.5 | 95 % | PIPE_GATE 5 |
+| wind_valley | novice | 3 | 13 | 5.5 | 0 % | PIPE_GATE 100 |
+| wind_valley | average | 35 | 84 | 40.5 | 0 % | PIPE_GATE 100 |
+| wind_valley | expert | 136 | 150 | 123.1 | 60 % | PIPE_GATE 40 |
+| wind_valley | perfect | 137 | 150 | 132.0 | 66 % | PIPE_GATE 34 |
+| iron_forge | novice | 6 | 20 | 7.8 | 0 % | PIPE_GATE 91, PISTON 5, GEAR 4 |
+| iron_forge | average | 40 | 101 | 52.1 | 0 % | PIPE_GATE 73, PISTON 21, GEAR 6 |
+| iron_forge | expert | 92 | 173 | 106.9 | 1 % | PIPE_GATE 69, PISTON 30 |
+| iron_forge | perfect | 94 | 147 | 101.6 | 1 % | PIPE_GATE 59, PISTON 40 |
+| storm_sky | novice | 4 | 17 | 7.0 | 0 % | PIPE_GATE 96, LIGHTNING 4 |
+| storm_sky | average | 39 | 92 | 43.2 | 0 % | PIPE_GATE 99, LIGHTNING 1 |
+| storm_sky | expert | 66 | 123 | 74.1 | 0 % | PIPE_GATE 95, LIGHTNING 5 |
+| storm_sky | perfect | 64 | 118 | 70.7 | 0 % | PIPE_GATE 97, LIGHTNING 3 |
+| void | novice | 5 | 17 | 7.7 | 0 % | PIPE_GATE 90, GEAR 5, LIGHTNING 4, PISTON 1 |
+| void | average | 54 | 101 | 56.3 | 0 % | PIPE_GATE 90, LIGHTNING 5, PISTON 3, GEAR 2 |
+| void | expert | 129 | 243 | 139.9 | 2 % | PIPE_GATE 96, LIGHTNING 1, GEAR 1 |
+| void | perfect | 136 | 264 | 151.6 | 6 % | PIPE_GATE 94 |
+
+What changed against the first M7 pass, and why. Iron Forge's perfect run went from 82 to 94
+median gates and its gear deaths from 10 % to 0 %: the pilot now clears a gear on the side that
+leads on (§10.4) and the cursor keeps 120 px of clear air after a 112 px gear (§10.5). Pistons
+took the deaths gears used to cause (33 % → 40 %): a piston 160 px after another column is now the
+tightest thing in the world, which is the tier balance's next item. Wind Valley's perfect run
+went from 59 % to 66 % of runs reaching the budget once a zone stopped covering the approach to
+the gate after it. Storm Sky's perfect bolt deaths are 3 % (4 % before); the Void's are 0 % (5 %
+before, all from bolts drawn on the far side of a gear, §10.5), and its perfect median went from
+108 to 136 gates. Gates kill everywhere: even in Iron Forge and the Void, where half the spawns
+are gears, pistons and bolts, the gate is the killer in 59–97 % of runs — the new families are
+read by the oracles and telegraph themselves, a moving gate at 1.5× scroll does not. No world but
+Green Fields lets an expert reach the budget: the standard curve's scroll ramp (×1.5 at gate 125)
+ends every run around gate 100–250.
+
+### 10.3 Every pattern in isolation
+
+`./gradlew balancing -PtoolArgs="--seeds 50 --pattern all --skill expert --ticks 2400"` — each
+pattern in its own world (its curve, effects and ambience), looped from the first spawn; success =
+still flying after 2 400 ticks, which is longer than every shipped `surviveTicks`, so surviving it
+is surviving a whole boss fight on that phase.
+
+| pattern | world | survive |
+| --- | --- | --- |
+| wv_updraft_run | wind_valley | 100 % |
+| wv_crosswind | wind_valley | 100 % |
+| forge_gear_corridor | iron_forge | 100 % |
+| forge_piston_row | iron_forge | 98 % |
+| storm_bolt_lane | storm_sky | 100 % |
+| storm_squall | storm_sky | 100 % |
+| void_mixer | void | 100 % |
+| void_gauntlet | void | 100 % |
+| gf_boss_p1 / gf_boss_p2 | green_fields | 100 % / 100 % |
+| wv_boss_p1 / wv_boss_p2 | wind_valley | 86 % / 100 % |
+| forge_boss_p1 / forge_boss_p2 | iron_forge | 100 % / 100 % |
+| storm_boss_p1 / storm_boss_p2 | storm_sky | 100 % / 100 % |
+| void_boss_p1 / p2 / p3 | void | 100 % / 100 % / 100 % |
+| corridor_1 / corridor_boss_p1 | green_fields | 100 % / 100 % |
+
+Two data edits from the review pass. `storm_squall` step 3 and `wv_crosswind` step 3 were
+`"random"` gates 160 px after a `BOTTOM` bolt and a floating gate: a centre rolled at the bottom
+was a 130 px dive in the 23 ticks the nightmare scroll leaves, so they are authored (0.4 and
+0.45) and the validator now refuses a random gate right after a bolt. `storm_bolt_lane`'s
+`BOTTOM` bolt after the 0.7 gate lit from y 269 — 174 px of climb in 160 px of `dx`, the one
+column that killed the expert in Storm Sky nightmare (14 of 50 runs, every one at that step) —
+and lights 45 % of the height now (safe above y 329, 114 px of climb); `storm_boss_p1` got the
+same treatment (`BOTTOM` 0.6 → 0.4). Six authorings of that lane were measured on Storm Sky ×
+tiers before choosing: moving the *gate* down (0.55–0.65) cost 10–20 points of reach rate at
+every tier, lowering the *bolt* cost none and removed the deaths. The validator now bounds a
+bolt's travel by the scroll to it (§10.5), which is what caught both.
+
+### 10.4 What the bot models, and what it does not
+
+Every change to the pilot in M7 is to its *model of the world*, never to its reaction or its
+error, and none of them changes a decision in Green Fields — the published `--headless-run` hash
+and the golden run pin the bot there, and every M1–M6 table stands.
+
+1. **The corridor is bounded by the nearest column not yet cleared** (the M6 pilot took the
+   farthest one inside its flap window, which with 40 px gates 160 px apart was the same
+   column; a pattern step 130 px behind a gate is not).
+2. **The flap arc is computed under the wind the bird is in** (D21: a −600 px/s² updraft turns
+   the 42 px rise into 68).
+3. **The gear oracle keeps its clearance from the chord** the circle cuts through the bird's x
+   range on each crossing tick, not from the whole diameter.
+4. **A gear is cleared on the side that leads on** (review pass). `Oracles.gearCorridors`
+   returns both sides; the pilot aims at the gear band nearer the band of the column after it
+   and, with the gear as its current column, takes the side that holds a flap arc, is reachable
+   before the crossing and is nearest the aim — the larger side only as a tie-break. A band the
+   box fits in but a flap does not (under a gear near the ground) is never chosen: three of the
+   six remaining gear-only deaths were exactly that trap. Gear-only table, perfect bot, 20 seeds,
+   3 000 ticks: M6 pilot 7/20, first M7 pass 14/20, now 20/20 (`BotOracleTest` requires 20/20
+   for every kind). A band consistent with two gears — above both, below both or between —
+   always exists for spawn-table gears, so the "pairs of big gears on opposite sides" the first
+   pass recorded as unwinnable content were a limit of the bot, not of the data.
+
+What it still does not model, recorded so M9's tier balance reads the tables for what they are:
+it picks the first card; it never anticipates a lane change before the current column is
+cleared; and its gate oracle uses a moving gate where it is (shrunk by the travel during one
+flap rise) rather than where it will be at the crossing tick — D21 asks for the prediction, and
+it is the reason a moving gate at 1.5× scroll is the killer in every world above. That change
+would move the published hash, so it waits for the M9 baseline re-record.
+
+### 10.5 The fairness rules, in numbers
+
+The review pass added four rules to the spawner and two to the validator; each is a
+consequence of the physics, so the numbers are worth writing down.
+
+- **A spawn-table bolt is reachable from the column before it.** The scroll between a 40 px
+  column clearing the bird's box and a bolt 160 px on striking is 115 px: 57 ticks at the
+  classic 2 px/tick, 33 at the nightmare late-run 3.45, 19 at the 360 px/s cap. Flapping every
+  tick the bird climbs 6.25 px/tick; from rest it falls `0.25·n·(n+1)` px in `n` ticks (95 px
+  in 19). `SpawnTable.roll` therefore takes the previous decision's reference band
+  (`SpawnDecision.referenceBandY`: the gap centre at the default 128 px gap, a gear's larger
+  side, a piston's free side, a bolt's unlit side — never the resolved gap or the oscillator,
+  so the decision stays seed-only) and swaps the bolt to the side whose unlit band is nearer it,
+  then shortens the lit fraction (in hundredths, never below 0.30) until the travel from that
+  band to 24 px clear of the lit span fits `LIGHTNING_MAX_TRAVEL_PX` = 80. Over 2 000 gate→bolt
+  pairs the rule swaps the side in about a third and shortens about a sixth of the bolts; the
+  table also warns from 75 ticks out (patterns keep their authored 45) and the renderer shows an
+  idle bolt column from spawn. A gate+bolt table at ×1.5 scroll over the standard ramp is flown
+  20/20 seeds with no bolt death; Storm Sky expert bolt deaths per tier: 2 % / 0 % / 6 %.
+- **Wide columns keep their clear air.** `x = last.x + max(0, last.width − 40) + 160`: a 112 px
+  gear or a 200 px zone pushes the next column out by its extra width, so any two columns have
+  at least 120 px between the right edge of one and the left edge of the next; a 24 px bolt is
+  never pulled closer. Two big railed gears used to leave 48 px of scroll (~22 ticks) to cross a
+  172 px sweep.
+- **The breather always finds its window.** `isDraftPathClear` needs no lethal column between
+  the bird's hitbox left edge (x 88) and the right edge of the playfield: 332 px, plus a 20 px
+  margin so the window is a few ticks wide. D11's 1.5 intervals give a 40 px gate 360 px of
+  clear air (fine), a 112 px gear 288 (never clear) and a pattern step `dx + 200` (never clear
+  under 132 px). `Simulation.deferSpawn` now passes the 352 px as an absolute floor behind the
+  last column's right edge; Green Fields and the 128 px corridor of `ModifierDirectorTest` get
+  the same x they always got. Longest breather over every world × 12 seeds × take/skip: under
+  300 ticks (`BreatherClearanceTest`; Iron Forge and the Void had 600–2 565 tick breathers
+  looping on the 600-tick retry).
+- **An authored gap is a base value.** A pattern gate's `gapSize` is scaled by `GAP_SIZE / 128`
+  — the tier's ×0.9/×0.8, the standard curve's ramp down to ×0.8, the Void's ×0.85 option, a
+  card — and kept centred. The validator's `gapSize × 0.8 × 0.9 ≥ 54.5` now describes what the
+  nightmare tier plays; the tightest shipped pattern gate (118 px, `gf_boss_p2`) is 75.5 px on
+  nightmare at gate 0 and 60 px at the curve's floor, above the 54.5 a scaled hitbox lands
+  through.
+- **Validator, patterns.** A gate right after a bolt is authored (never `"random"`) on the
+  bolt's unlit side; a bolt's safe band is no further from the previous lethal column's band
+  than the scroll between them — `dx − width − 5` px, one px of climb per px of scroll, which is
+  the 6.25 px/tick climb at the 6 px/tick cap with the bird free to start moving inside the
+  previous gap. The shipped file passes both; `content_bad/bolt_then_gate.json` pins three
+  pointers.

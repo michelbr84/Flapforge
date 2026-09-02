@@ -40,16 +40,21 @@ public final class PipeGate extends Obstacle {
     private final double floatH;
     private final double gap;
     private final Oscillator oscillator;
+    private final double speed;
 
     private PipeGate(double x, Layout layout, double top, double floatY, double floatH,
-            double gap, Oscillator oscillator) {
+            double gap, Oscillator oscillator, double speed) {
         super(ObstacleKind.PIPE_GATE, x, Playfield.PIPE_BODY_W, true);
+        if (speed < 0) {
+            throw new IllegalArgumentException("Oscillation speed must not be negative: " + speed);
+        }
         this.layout = layout;
         this.top = top;
         this.floatY = floatY;
         this.floatH = floatH;
         this.gap = gap;
         this.oscillator = oscillator;
+        this.speed = speed;
     }
 
     /**
@@ -62,7 +67,23 @@ public final class PipeGate extends Obstacle {
      * @return the gate
      */
     public static PipeGate standard(double x, double top, double gap, Oscillator oscillator) {
-        return new PipeGate(x, Layout.STANDARD, top, 0, 0, gap, oscillator);
+        return new PipeGate(x, Layout.STANDARD, top, 0, 0, gap, oscillator, 0);
+    }
+
+    /**
+     * Creates a standard gate with its own oscillation speed (pattern gates, M7).
+     *
+     * @param x the left edge
+     * @param top the bottom edge of the upper pipe (top of the gap)
+     * @param gap the gap height
+     * @param oscillator the motion, or {@code null} for a static gate
+     * @param speed the oscillation speed in px/s, or {@code 0} for the {@code OSCILLATION_SPEED}
+     *     stat
+     * @return the gate
+     */
+    public static PipeGate standard(double x, double top, double gap, Oscillator oscillator,
+            double speed) {
+        return new PipeGate(x, Layout.STANDARD, top, 0, 0, gap, oscillator, speed);
     }
 
     /**
@@ -77,14 +98,31 @@ public final class PipeGate extends Obstacle {
      */
     public static PipeGate floating(double x, double y, double h, double gap,
             Oscillator oscillator) {
-        return new PipeGate(x, Layout.FLOATING, 0, y, h, gap, oscillator);
+        return new PipeGate(x, Layout.FLOATING, 0, y, h, gap, oscillator, 0);
+    }
+
+    /**
+     * Creates a floating gate with its own oscillation speed (pattern gates, M7).
+     *
+     * @param x the left edge
+     * @param y the top edge of the upper floating pipe
+     * @param h the height of the upper floating pipe
+     * @param gap the gap height
+     * @param oscillator the motion, or {@code null} for a static gate
+     * @param speed the oscillation speed in px/s, or {@code 0} for the {@code OSCILLATION_SPEED}
+     *     stat
+     * @return the gate
+     */
+    public static PipeGate floating(double x, double y, double h, double gap,
+            Oscillator oscillator, double speed) {
+        return new PipeGate(x, Layout.FLOATING, 0, y, h, gap, oscillator, speed);
     }
 
     @Override
     public void update(SimContext ctx) {
         super.update(ctx);
         if (oscillator != null) {
-            oscillator.advance(ctx.oscillationPerTick());
+            oscillator.advance(speed > 0 ? ctx.perTick(speed) : ctx.oscillationPerTick());
         }
     }
 
@@ -127,7 +165,20 @@ public final class PipeGate extends Obstacle {
         h = MathUtil.fold(h, Double.doubleToLongBits(floatY));
         h = MathUtil.fold(h, Double.doubleToLongBits(floatH));
         h = MathUtil.fold(h, Double.doubleToLongBits(gap));
+        if (speed > 0) {
+            // Only a pattern gate carries its own speed; the classic fold stays what M1 hashed.
+            h = MathUtil.fold(h, Double.doubleToLongBits(speed));
+        }
         return oscillator == null ? MathUtil.fold(h, -1) : oscillator.hashState(h);
+    }
+
+    /**
+     * The gate's own oscillation speed.
+     *
+     * @return px/s, or {@code 0} when the {@code OSCILLATION_SPEED} stat drives it
+     */
+    public double oscillationSpeed() {
+        return speed;
     }
 
     /**

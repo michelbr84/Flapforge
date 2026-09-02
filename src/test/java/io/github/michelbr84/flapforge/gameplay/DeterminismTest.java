@@ -87,16 +87,19 @@ class DeterminismTest {
      */
     @Test
     void anAbilityEquippedRunIsReproducible() {
-        RunConfig config = RunConfig.builder(31)
+        // Seed 40: one where the average bot spends both the dash and a shield charge. It was
+        // seed 31 until M7 fixed the bot's corridor selection during a dash, after which that
+        // run never needs its shield and the passive would go unexercised.
+        RunConfig config = RunConfig.builder(40)
                 .activeAbilityId("dash")
                 .passiveAbilityIds(List.of("shield", "coin_magnet"))
                 .abilityLevels(Map.of("dash", 2, "shield", 3, "coin_magnet", 2))
                 .build();
         RunFactory factory = new RunFactory(GameContent.load());
         HeadlessRunner.Outcome a = HeadlessRunner.run(factory.newRun(config),
-                new BotPilot(BotPilot.Preset.AVERAGE, 31), TICKS, true);
+                new BotPilot(BotPilot.Preset.AVERAGE, 40), TICKS, true);
         HeadlessRunner.Outcome b = HeadlessRunner.run(factory.newRun(config),
-                new BotPilot(BotPilot.Preset.AVERAGE, 31), TICKS, true);
+                new BotPilot(BotPilot.Preset.AVERAGE, 40), TICKS, true);
         assertEquals(a.hashes(), b.hashes());
         assertEquals(a.result().counters(), b.result().counters());
         assertEquals(a.result().stats().abilitiesUsed(), b.result().stats().abilitiesUsed());
@@ -106,8 +109,8 @@ class DeterminismTest {
         assertTrue(a.result().stats().shieldAbsorbs() > 0, "and the passive must be spent too");
 
         HeadlessRunner.Outcome bare = HeadlessRunner.run(
-                factory.newRun(RunConfig.classic(31)),
-                new BotPilot(BotPilot.Preset.AVERAGE, 31), TICKS, true);
+                factory.newRun(RunConfig.classic(40)),
+                new BotPilot(BotPilot.Preset.AVERAGE, 40), TICKS, true);
         assertNotEquals(bare.hashes(), a.hashes(), "and it is not the same run as without them");
     }
 
@@ -215,6 +218,116 @@ class DeterminismTest {
     private static List<Long> spawnDecisions(long seed, BotPilot.Preset preset, long pilotSeed) {
         Run run = Run.classic(RunConfig.classic(seed));
         HeadlessRunner.run(run, new BotPilot(preset, pilotSeed), 2000);
+        return run.simulation().spawner().decisionHashes();
+    }
+
+    /**
+     * M7: the worlds with the new families, patterns, ambience and rule cycles replay tick for
+     * tick — same seed twice → identical per-tick hashes, on every shipped world.
+     */
+    @Test
+    void everyShippedWorldReplaysTickForTick() {
+        RunFactory factory = new RunFactory(GameContent.load());
+        for (String world : factory.content().worlds().ids()) {
+            RunConfig config = RunConfig.builder(77).worldId(world).build();
+            HeadlessRunner.Outcome a = HeadlessRunner.run(factory.newRun(config),
+                    new BotPilot(BotPilot.Preset.EXPERT, 77), TICKS, true);
+            HeadlessRunner.Outcome b = HeadlessRunner.run(factory.newRun(config),
+                    new BotPilot(BotPilot.Preset.EXPERT, 77), TICKS, true);
+            assertEquals(a.hashes(), b.hashes(), world);
+            assertEquals(a.result().counters(), b.result().counters(), world);
+            assertTrue(a.result().gatesPassed() >= 5, world + ": gates " + a.result().gatesPassed());
+        }
+    }
+
+    /**
+     * E32.d on a world that streams patterns and samples wind: the spawn decisions — table draws
+     * and pattern steps alike — depend on the seed and not on the pilot. Storm Sky mixes gates,
+     * bolts, wind zones and two patterns; the wind zones make the scroll itself depend on where
+     * the bird flies, and the decision sequence must still be the same.
+     */
+    @Test
+    void patternStepsAndTableDrawsDependOnlyOnTheSeed() {
+        RunFactory factory = new RunFactory(GameContent.load());
+        RunConfig config = RunConfig.builder(19).worldId("storm_sky").build();
+        List<Long> expert = decisionsOf(factory, config, BotPilot.Preset.EXPERT, 1);
+        List<Long> perfect = decisionsOf(factory, config, BotPilot.Preset.PERFECT, 2);
+        List<Long> novice = decisionsOf(factory, config, BotPilot.Preset.NOVICE, 3);
+        assertPrefixEquals(expert, perfect);
+        int common = Math.min(expert.size(), novice.size());
+        assertTrue(common > 3, "the novice run must spawn a few columns, was " + common);
+        assertEquals(expert.subList(0, common), novice.subList(0, common),
+                "a pilot that dies early still draws the same decisions while it lives");
+        Run run = factory.newRun(config);
+        HeadlessRunner.run(run, new BotPilot(BotPilot.Preset.PERFECT, 2), TICKS);
+        assertTrue(run.simulation().spawner().streamer().patternsStarted() > 0,
+                "the run must have streamed at least one pattern for the claim to cover steps");
+    }
+
+    /**
+     * E32.d in the shipped Void: the rule cycles land {@code ALL_OBSTACLES_MOVE} on a tick that
+     * depends on how the run was played (a draft holds the landing, a scroll card moves it), so
+     * the spawn the flag first applies from differs between runs of the same seed — and the
+     * decisions must still be the same, because the rule is applied at materialisation and
+     * never folded into a decision. Twelve seeds, four draft answers, two presets each.
+     */
+    @Test
+    void theVoidsDecisionsDependOnTheSeedAloneWhateverIsDraftedOrLanded() {
+        RunFactory factory = new RunFactory(GameContent.load());
+        int landedRuns = 0;
+        boolean landingSpawnDiffered = false;
+        for (long seed = 1; seed <= 12; seed++) {
+            List<Long> reference = null;
+            java.util.Set<List<Integer>> landingSpawns = new java.util.HashSet<>();
+            for (int choice : new int[] {0, 1, 2, RunInput.SKIP}) {
+                for (BotPilot.Preset preset : List.of(BotPilot.Preset.PERFECT,
+                        BotPilot.Preset.EXPERT)) {
+                    RunConfig config = RunConfig.builder(seed).worldId("void").allowOffers(true)
+                            .build();
+                    Run run = factory.newRun(config);
+                    BotPilot bot = new BotPilot(preset, seed);
+                    int shifts = 0;
+                    List<Integer> landings = new java.util.ArrayList<>();
+                    for (int t = 0; t < 6000 && !run.isFinished(); t++) {
+                        RunInput input = run.phase() == RunPhase.CHOOSING_MODIFIER
+                                ? new RunInput(false, false, choice, false) : bot.decide(run);
+                        run.tick(input);
+                        WorldEffects effects = run.simulation().worldEffects();
+                        if (effects.shifts() > shifts) {
+                            shifts = effects.shifts();
+                            if (effects.activeIndex() == 0) {
+                                // The spawn ALL_OBSTACLES_MOVE applies from, in this run.
+                                landings.add(run.simulation().spawner().spawnCount());
+                            }
+                        }
+                    }
+                    List<Long> decisions = run.simulation().spawner().decisionHashes();
+                    if (reference == null) {
+                        reference = decisions;
+                    } else {
+                        int common = Math.min(reference.size(), decisions.size());
+                        assertTrue(common > 5, "seed " + seed + ": common spawns " + common);
+                        assertEquals(reference.subList(0, common), decisions.subList(0, common),
+                                "seed " + seed + " choice " + choice + " " + preset.name()
+                                        + ": the Void's decisions depend on the seed alone");
+                    }
+                    if (!landings.isEmpty()) {
+                        landedRuns++;
+                        landingSpawns.add(landings);
+                    }
+                }
+            }
+            landingSpawnDiffered |= landingSpawns.size() > 1;
+        }
+        assertTrue(landedRuns > 0, "ALL_OBSTACLES_MOVE never landed: the check would be vacuous");
+        assertTrue(landingSpawnDiffered,
+                "the flag landed on the same spawn in every run of every seed: nothing was tested");
+    }
+
+    private static List<Long> decisionsOf(RunFactory factory, RunConfig config,
+            BotPilot.Preset preset, long pilotSeed) {
+        Run run = factory.newRun(config);
+        HeadlessRunner.run(run, new BotPilot(preset, pilotSeed), TICKS);
         return run.simulation().spawner().decisionHashes();
     }
 }

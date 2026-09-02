@@ -62,6 +62,24 @@ public final class Oscillator {
     }
 
     /**
+     * The offset of a triangle wave at an arbitrary phase (the bot's rail oracle, D21): the same
+     * formula {@link #advance} applies, so predicting {@code phase() + k × step} gives exactly the
+     * offset the oscillator will report after {@code k} advances of {@code step}.
+     *
+     * @param phase a distance along the wave path (any sign)
+     * @param amplitude the peak offset
+     * @return the offset in {@code [0, amplitude]}
+     */
+    public static double offsetForPhase(double phase, double amplitude) {
+        double period = 2 * amplitude;
+        double p = phase % period;
+        if (p < 0) {
+            p += period;
+        }
+        return p <= amplitude ? p : period - p;
+    }
+
+    /**
      * Current vertical offset in {@code [0, amplitude]}.
      *
      * @return the offset

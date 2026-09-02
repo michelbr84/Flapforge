@@ -30,12 +30,18 @@ import java.util.function.Supplier;
  * physics of the very next run (D8, D14). A session without persistence — the headless launch and
  * most tests — passes no profile supplier and gets the default configuration for the seed, which
  * is what keeps the shipped-content hash a function of the seed and the data alone (D12).
+ *
+ * <p>From M7 a launch can pin the world ({@code --world}, {@link #withWorld(String)}): the
+ * override replaces the world of every run this factory builds, profile or not, and is never
+ * written back into the profile — it is a launch flag, so the next normal launch is back to
+ * what the player selected. An id the content does not ship is ignored with a log line.
  */
 public final class ContentRunFactory implements SeededRunSource {
 
     private final RunFactory runs;
     private final RunMode mode;
     private final Supplier<PlayerProfile> profiles;
+    private String worldOverride;
 
     /**
      * Creates a factory producing {@link RunMode#STANDARD} runs with no profile.
@@ -88,12 +94,39 @@ public final class ContentRunFactory implements SeededRunSource {
         return mode;
     }
 
+    /**
+     * Pins the world of every run this factory builds (M7, {@code --world}).
+     *
+     * @param worldId the world id, or {@code null} to play the profile's selection
+     * @return this factory
+     * @throws IllegalArgumentException when the content does not ship the world
+     */
+    public ContentRunFactory withWorld(String worldId) {
+        if (worldId != null && !runs.content().worlds().contains(worldId)) {
+            throw new IllegalArgumentException("unknown world: " + worldId);
+        }
+        this.worldOverride = worldId;
+        return this;
+    }
+
+    /**
+     * The pinned world.
+     *
+     * @return the world id, or {@code null} when runs use the profile's selection
+     */
+    public String worldOverride() {
+        return worldOverride;
+    }
+
     @Override
     public Run newRun(long seed) {
         PlayerProfile profile = profiles == null ? null : profiles.get();
         RunConfig config = profile == null
                 ? RunConfig.builder(seed).mode(mode).build()
                 : RunLoadout.configFor(profile, runs.content(), seed, mode);
+        if (worldOverride != null && !worldOverride.equals(config.worldId())) {
+            config = config.toBuilder().worldId(worldOverride).build();
+        }
         return runs.newRun(config);
     }
 }

@@ -44,13 +44,13 @@ public final class FixedSpawnTable extends SpawnTable {
     }
 
     @Override
-    public SpawnDecision rollFirst(Random obstacle, boolean forceMoving) {
+    public SpawnDecision rollFirst(Random obstacle) {
         return decision();
     }
 
     @Override
     public SpawnDecision roll(Random spawn, Random obstacle, double movingChance,
-            boolean forceMoving) {
+            double previousBandY) {
         return decision();
     }
 

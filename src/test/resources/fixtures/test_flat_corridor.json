@@ -1,0 +1,10 @@
+{
+  "_comment": "A flat corridor of standard gates (E17, M7): four gates 160 px apart whose gap is centred on the bird's start height (320 / 598 of the playable height, so the gap top rounds to 256 px - exactly FixedSpawnTable.CENTRED_TOP). Streamed as a forced pattern it places every gate where the fixed table would; PatternStreamerTest proves it tick for tick.",
+  "id": "test_flat_corridor", "world": "green_fields", "weight": 0, "minGate": 0, "scoringSteps": true,
+  "steps": [
+    { "dx": 160, "kind": "pipe_gate", "params": { "layout": "STANDARD", "gapCenter": 0.5351170568561873, "gapSize": 128 } },
+    { "dx": 160, "kind": "pipe_gate", "params": { "layout": "STANDARD", "gapCenter": 0.5351170568561873, "gapSize": 128 } },
+    { "dx": 160, "kind": "pipe_gate", "params": { "layout": "STANDARD", "gapCenter": 0.5351170568561873, "gapSize": 128 } },
+    { "dx": 160, "kind": "pipe_gate", "params": { "layout": "STANDARD", "gapCenter": 0.5351170568561873, "gapSize": 128 } }
+  ]
+}

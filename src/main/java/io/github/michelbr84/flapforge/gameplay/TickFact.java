@@ -3,6 +3,8 @@ package io.github.michelbr84.flapforge.gameplay;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
+import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
 import java.util.List;
 
 /**
@@ -32,8 +34,19 @@ public sealed interface TickFact {
      * The bird took a lethal hit.
      *
      * @param cause what was hit
+     * @param kind the family of the obstacle that was hit, or {@code null} for the ground and
+     *     the ceiling (M7: the balancing report groups deaths by kind)
      */
-    record Crashed(CollisionCause cause) implements TickFact {
+    record Crashed(CollisionCause cause, ObstacleKind kind) implements TickFact {
+
+        /**
+         * A hit with no obstacle behind it (the ground, the ceiling).
+         *
+         * @param cause what was hit
+         */
+        public Crashed(CollisionCause cause) {
+            this(cause, null);
+        }
     }
 
     /**
@@ -165,8 +178,39 @@ public sealed interface TickFact {
     record BossCleared() implements TickFact {
     }
 
-    /** A world rule cycle shifted the active rules. */
-    record RuleShift() implements TickFact {
+    /**
+     * A world rule cycle picked its next option and started the telegraph (M7, the Void). The
+     * option lands {@code telegraphTicks} flying ticks later — never inside a draft; a freeze or
+     * a breather defers it to the next {@code FLYING} tick — when its flags join the run's rules
+     * and its effects replace the previous option's in the {@code WORLD_CYCLE} layer. The
+     * presentation renders the banner and its countdown from this fact.
+     *
+     * @param flags the rule flags the option turns on, in declaration order
+     * @param effects the stat modifiers the option applies
+     * @param telegraphTicks flying ticks between this fact and the shift landing
+     */
+    record RuleShift(List<RuleFlag> flags, List<StatModifier> effects, int telegraphTicks)
+            implements TickFact {
+
+        /**
+         * Copies the lists, so a fact is a value.
+         *
+         * @param flags the flags
+         * @param effects the effects
+         * @param telegraphTicks the countdown start
+         */
+        public RuleShift {
+            flags = List.copyOf(flags);
+            effects = List.copyOf(effects);
+        }
+    }
+
+    /**
+     * The sky flashed (M7, E8): Storm Sky's {@code ambient.lightningEveryGates} is cosmetic — a
+     * flash and a thunder cue, honouring {@code reduceFlashing}, with no hitbox behind it. Lethal
+     * bolts announce themselves with {@link LightningWarning} instead.
+     */
+    record AmbientFlash() implements TickFact {
     }
 
     /**

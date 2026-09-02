@@ -11,6 +11,7 @@ import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.RandomProvider;
 import io.github.michelbr84.flapforge.gameplay.bird.Bird;
 import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleLayer;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleSpawner;
 import io.github.michelbr84.flapforge.gameplay.obstacle.PipeGate;
@@ -26,6 +27,7 @@ import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
 
@@ -80,7 +82,7 @@ class ObstacleSpawnerTest {
         // The spawn stream was not touched, so the second gate is its very first roll.
         layer.last().setX(200);
         SpawnDecision second = SpawnTable.GREEN_FIELDS.roll(spawn, obstacle,
-                StatSheet.defaults().resolve(StatId.MOVING_CHANCE), false);
+                StatSheet.defaults().resolve(StatId.MOVING_CHANCE));
         PipeGate gate = (PipeGate) spawner.update(ctx);
         assertEquals(second.layout(), gate.layout());
         assertEquals(second.moving(), gate.isMoving());
@@ -156,7 +158,7 @@ class ObstacleSpawnerTest {
         int movingFloating = 0;
         int staticStandard = 0;
         for (int i = 0; i < n; i++) {
-            SpawnDecision d = SpawnTable.GREEN_FIELDS.roll(spawn, obstacle, 0.5, false);
+            SpawnDecision d = SpawnTable.GREEN_FIELDS.roll(spawn, obstacle, 0.5);
             if (d.moving()) {
                 moving++;
                 if (d.layout() == PipeGate.Layout.FLOATING) {
@@ -182,7 +184,7 @@ class ObstacleSpawnerTest {
             int moving = 0;
             int n = 5000;
             for (int i = 0; i < n; i++) {
-                if (SpawnTable.GREEN_FIELDS.roll(spawn, obstacle, chance, false).moving()) {
+                if (SpawnTable.GREEN_FIELDS.roll(spawn, obstacle, chance).moving()) {
                     moving++;
                 }
             }
@@ -204,7 +206,14 @@ class ObstacleSpawnerTest {
         Random spawn = new Random(1);
         Random obstacle = new Random(2);
         for (int i = 0; i < 200; i++) {
-            assertTrue(SpawnTable.GREEN_FIELDS.roll(spawn, obstacle, 0.0, true).moving());
+            // The decision records the roll (static at chance 0); the rule applies when the
+            // decision becomes an obstacle (E32.d).
+            SpawnDecision d = SpawnTable.GREEN_FIELDS.roll(spawn, obstacle, 0.0);
+            assertFalse(d.moving(), "a decision never carries the rule");
+            assertTrue(((PipeGate) SpawnTable.GREEN_FIELDS.materialize(d, 420, 128, true))
+                    .isMoving());
+            assertFalse(((PipeGate) SpawnTable.GREEN_FIELDS.materialize(d, 420, 128, false))
+                    .isMoving());
         }
         ObstacleLayer layer = new ObstacleLayer();
         ObstacleSpawner spawner = new ObstacleSpawner(layer, SpawnTable.GREEN_FIELDS,
@@ -214,19 +223,97 @@ class ObstacleSpawnerTest {
         assertTrue(gate.isMoving());
     }
 
+    /**
+     * E32.d: the same seed draws the same decisions whether or not {@code ALL_OBSTACLES_MOVE}
+     * is on — the rule is applied at materialisation, so a spawner under the rule and one
+     * without it agree on every decision hash and leave both streams at the same position.
+     */
     @Test
-    void forcedMovingStillConsumesTheSpawnStream() {
-        List<SpawnDecision> forced = new ArrayList<>();
-        List<SpawnDecision> free = new ArrayList<>();
-        Random s1 = new Random(5);
-        Random o1 = new Random(6);
-        Random s2 = new Random(5);
-        Random o2 = new Random(6);
+    void theRuleNeverTouchesTheDecisionOrTheStreams() {
+        ObstacleLayer forcedLayer = new ObstacleLayer();
+        ObstacleLayer freeLayer = new ObstacleLayer();
+        ObstacleSpawner forced = new ObstacleSpawner(forcedLayer, SpawnTable.GREEN_FIELDS,
+                new RandomProvider(5));
+        ObstacleSpawner free = new ObstacleSpawner(freeLayer, SpawnTable.GREEN_FIELDS,
+                new RandomProvider(5));
+        SimContext ruled = context(StatSheet.defaults(), RuleSet.of(RuleFlag.ALL_OBSTACLES_MOVE));
+        SimContext plain = context(StatSheet.defaults(), RuleSet.EMPTY);
+        int movingUnderRule = 0;
+        int movingFree = 0;
         for (int i = 0; i < 100; i++) {
-            forced.add(SpawnTable.GREEN_FIELDS.roll(s1, o1, 1.0, true));
-            free.add(SpawnTable.GREEN_FIELDS.roll(s2, o2, 1.0, false));
+            forcedLayer.clear();
+            freeLayer.clear();
+            PipeGate a = (PipeGate) forced.update(ruled);
+            PipeGate b = (PipeGate) free.update(plain);
+            assertTrue(a.isMoving(), "spawn " + i + " moves under the rule");
+            movingUnderRule += a.isMoving() ? 1 : 0;
+            movingFree += b.isMoving() ? 1 : 0;
+            assertEquals(b.layout(), a.layout(), "spawn " + i);
+            assertEquals(b.baseGapTopY(), a.baseGapTopY(), 0.0, "spawn " + i);
         }
-        assertEquals(free, forced, "at chance 1.0 forcing changes nothing, streams stay aligned");
+        assertEquals(free.decisionHashes(), forced.decisionHashes(),
+                "the rule is not part of any decision (E32.d)");
+        assertEquals(100, movingUnderRule);
+        assertTrue(movingFree < 100, "without the rule the roll decides: " + movingFree);
+    }
+
+    /**
+     * M7 fairness: the cursor measures the interval from where a pipe body's right edge would
+     * be, so a wide column pushes the next one out by its extra width and a 24 px bolt is never
+     * pulled closer than a gate would be. For a 40 px gate that is upstream's rule to the pixel.
+     */
+    @Test
+    void wideKindsPushTheNextColumnOutByTheirExtraWidth() {
+        for (ObstacleKind kind : ObstacleKind.values()) {
+            ObstacleLayer layer = new ObstacleLayer();
+            ObstacleSpawner spawner = new ObstacleSpawner(layer, new SpawnTable(Map.of(kind, 100)),
+                    new RandomProvider(31));
+            SimContext ctx = context(StatSheet.defaults(), RuleSet.EMPTY);
+            spawner.update(ctx);
+            for (int i = 0; i < 40; i++) {
+                Obstacle last = layer.last();
+                last.setX(300);
+                Obstacle next = spawner.update(ctx);
+                double extra = Math.max(0, last.width() - Playfield.PIPE_BODY_W);
+                assertEquals(300 + extra + Playfield.GATE_INTERVAL, next.x(), 0.0,
+                        kind + " after a " + last.width() + " px column");
+                assertTrue(next.x() - (last.x() + last.width()) >= Playfield.GATE_INTERVAL
+                        - Playfield.PIPE_BODY_W, kind + ": at least 120 px of clear air");
+            }
+        }
+    }
+
+    /**
+     * M7: a breather's deferral is also an absolute clearance behind the last column, so a wide
+     * column or a pattern step never leaves the draft without its window.
+     */
+    @Test
+    void theDeferralGuaranteesClearAirBehindAWideColumn() {
+        ObstacleLayer layer = new ObstacleLayer();
+        ObstacleSpawner spawner = new ObstacleSpawner(layer,
+                new SpawnTable(Map.of(ObstacleKind.GEAR, 100)), new RandomProvider(4));
+        SimContext ctx = context(StatSheet.defaults(), RuleSet.EMPTY);
+        spawner.update(ctx);
+        layer.last().setX(300);
+        spawner.update(ctx);
+        Obstacle gear = layer.last();
+        gear.setX(300);
+        spawner.deferNextSpawn(1.5, 352);
+        assertEquals(1.5, spawner.deferredIntervals(), 0.0);
+        assertEquals(352, spawner.deferredClearancePx(), 0.0);
+        Obstacle next = spawner.update(ctx);
+        double natural = 300 + (gear.width() - Playfield.PIPE_BODY_W) + 160 * 2.5;
+        assertEquals(Math.max(natural, 300 + gear.width() + 352), next.x(), 0.0);
+        assertTrue(next.x() - (gear.x() + gear.width()) >= 352, "the window exists");
+        assertEquals(0, spawner.deferredClearancePx(), 0.0, "consumed by the spawn");
+        // A plain gate world is untouched by the floor: the D11 push already clears it.
+        ObstacleLayer gates = new ObstacleLayer();
+        ObstacleSpawner classic = new ObstacleSpawner(gates, SpawnTable.GREEN_FIELDS,
+                new RandomProvider(4));
+        classic.update(ctx);
+        gates.last().setX(300);
+        classic.deferNextSpawn(1.5, 352);
+        assertEquals(300 + 160 * 2.5, classic.update(ctx).x(), 0.0);
     }
 
     @Test

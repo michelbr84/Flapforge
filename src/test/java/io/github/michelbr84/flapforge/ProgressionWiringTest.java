@@ -15,6 +15,7 @@ import io.github.michelbr84.flapforge.app.Threads;
 import io.github.michelbr84.flapforge.audio.AudioManager;
 import io.github.michelbr84.flapforge.audio.ToneSynth;
 import io.github.michelbr84.flapforge.audio.NullAudio;
+import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
@@ -31,6 +32,7 @@ import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionOutcome;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
+import io.github.michelbr84.flapforge.progression.SelectionManager;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
@@ -40,6 +42,8 @@ import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
+import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
+import io.github.michelbr84.flapforge.ui.screens.ProgressionText;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -263,5 +267,33 @@ class ProgressionWiringTest {
         diveToGameOver();
         assertEquals(2, profile().statistics.totalRuns);
         assertTrue(coins() >= afterFirst, "the second run added to the same wallet");
+    }
+
+    /**
+     * M7: the menu names the world the next run is played in, and follows a selection made on
+     * the bird selection screen even though a pop back does not re-enter the menu (D17).
+     */
+    @Test
+    void theMenuNamesTheSelectedWorldAndFollowsAChangeWithoutBeingReEntered() {
+        MainMenuScreen menu = new MainMenuScreen(context,
+                new ContentRunFactory(content, RunMode.SEEDED, save::profile),
+                SeedSequence.from(42L));
+        screens.push(menu);
+        screens.applyPending();
+        loop.start();
+        ticks(2);
+        Strings strings = Strings.active();
+        assertEquals(strings.format(io.github.michelbr84.flapforge.content.StringKey.MENU_WORLD,
+                ProgressionText.name(strings, ContentKind.WORLD, "green_fields")),
+                menu.worldLine(), "a fresh profile flies the fields");
+
+        PlayerProfile profile = save.profile();
+        profile.unlock("world:iron_forge");
+        SelectionManager selection = new SelectionManager(progression, () -> { });
+        assertTrue(selection.selectWorld(profile, "iron_forge", content));
+        ticks(1);
+        assertEquals(strings.format(io.github.michelbr84.flapforge.content.StringKey.MENU_WORLD,
+                ProgressionText.name(strings, ContentKind.WORLD, "iron_forge")),
+                menu.worldLine(), "the line followed the selection on the next tick");
     }
 }

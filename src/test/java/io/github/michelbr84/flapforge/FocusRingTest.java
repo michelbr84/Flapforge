@@ -47,6 +47,22 @@ class FocusRingTest {
         }
     }
 
+    /** Node that steps on Left/Right itself, as a list row does. */
+    static final class Row extends UiNode {
+        Row(double x, double y, double w, double h) {
+            super(x, y, w, h);
+        }
+
+        @Override
+        public boolean handlesHorizontalKeys() {
+            return true;
+        }
+
+        @Override
+        public void render(Graphics2D g) {
+        }
+    }
+
     private FocusRing ring;
     private Probe a;
     private Probe b;
@@ -219,6 +235,23 @@ class FocusRingTest {
         assertEquals(3, ring.nodes().size());
         ring.clear();
         assertTrue(ring.nodes().isEmpty());
+    }
+
+    @Test
+    void aNodeThatHandlesHorizontalKeysKeepsTheFocusOnLeftAndRight() {
+        // A list row (M4 tier, M7 world) steps on Left/Right itself; with a node to its side the
+        // ring used to move the focus on the same key before the row ever saw the press.
+        UiNode row = ring.add(new Row(100, 280, 200, 40));
+        ring.focus(row);
+        press(InputAction.RIGHT);
+        assertSame(row, ring.focused(), "Right stays on a row that steps itself");
+        press(InputAction.LEFT);
+        assertSame(row, ring.focused(), "so does Left");
+        press(InputAction.UP);
+        assertSame(c, ring.focused(), "Up still navigates");
+        ring.focus(b);
+        press(InputAction.RIGHT);
+        assertSame(side, ring.focused(), "a plain node still hands the focus on");
     }
 
     private void press(InputAction action) {

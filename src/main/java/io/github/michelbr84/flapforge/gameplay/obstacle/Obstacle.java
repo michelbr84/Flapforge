@@ -23,13 +23,14 @@ public abstract class Obstacle {
 
     private final ObstacleKind kind;
     private final double width;
-    private final boolean scoring;
+    private boolean scoring;
     private double x;
     private double prevX;
     private boolean scored;
     private boolean dirty;
     private boolean nearMissReported;
     private boolean streakResolved;
+    private ObstacleSignal pendingSignal;
 
     /**
      * Creates an obstacle.
@@ -106,6 +107,27 @@ public abstract class Obstacle {
      * @param ctx the tick context
      */
     public void affectBird(Bird bird, SimContext ctx) {
+    }
+
+    /**
+     * Queues a signal for the simulation to announce (M7). A tick holds at most one signal per
+     * obstacle; the simulation drains it with {@link #takeSignal()} after the world moved.
+     *
+     * @param signal the signal
+     */
+    protected void raise(ObstacleSignal signal) {
+        pendingSignal = signal;
+    }
+
+    /**
+     * Takes the pending signal, if any, and clears it.
+     *
+     * @return the signal, or {@code null}
+     */
+    public ObstacleSignal takeSignal() {
+        ObstacleSignal signal = pendingSignal;
+        pendingSignal = null;
+        return signal;
     }
 
     /**
@@ -208,6 +230,15 @@ public abstract class Obstacle {
      */
     public boolean isScoring() {
         return scoring;
+    }
+
+    /**
+     * Turns scoring off for a column a pattern streams with {@code "scoring": false} (or under
+     * {@code scoringSteps: false}, M7). Called once, when the column spawns; a column that was
+     * never scoring (a wind zone) stays that way.
+     */
+    public void markNonScoring() {
+        scoring = false;
     }
 
     /**

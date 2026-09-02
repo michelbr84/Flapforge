@@ -4,13 +4,18 @@ import io.github.michelbr84.flapforge.ability.AbilityInstance;
 import io.github.michelbr84.flapforge.ability.AbilityManager;
 import io.github.michelbr84.flapforge.app.GameContext;
 import io.github.michelbr84.flapforge.content.ContentKind;
+import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.content.defs.AbilityDef;
 import io.github.michelbr84.flapforge.content.defs.AbilityKind;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.gameplay.TickFact;
 import io.github.michelbr84.flapforge.gameplay.TickReport;
+import io.github.michelbr84.flapforge.gameplay.WorldEffects;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
+import io.github.michelbr84.flapforge.gameplay.obstacle.WindZone;
 import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.RewardSummary;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
@@ -31,6 +36,7 @@ import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.GameRenderer;
 import io.github.michelbr84.flapforge.render.WorldPalette;
+import io.github.michelbr84.flapforge.render.WorldStyle;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.Screen;
@@ -42,7 +48,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * The screen a run is played on (M1). It owns one {@link Run} and one {@link GameRenderer} and
@@ -89,6 +94,14 @@ import java.util.Set;
  * inside that window is ignored. An {@code Esc} press or an iconify is always honoured, since
  * neither can be produced by the handshake.
  *
+ * <h2>Worlds (D18, M7)</h2>
+ * The renderer takes the palette and the parallax style of the run's world from {@code worlds.json}
+ * when a run starts, and the HUD names the world on the READY screen. The three obstacle facts
+ * of M7 become events (a lightning warning, a piston telegraph, the cosmetic sky flash — which
+ * also lights the renderer), a wind zone the bird enters raises a gust, and a Void rule shift
+ * opens the {@link RuleShiftBanner}: a non-blocking overlay this screen owns and ticks itself,
+ * so the run keeps flying and every key still reaches it while the countdown runs.
+ *
  * <h2>Game over (D29, D14)</h2>
  * The tick that moves the run to {@code FINISHED} writes the run into the profile — exactly once,
  * through {@link ProgressionManager#apply} — publishes what it paid on the bus, queues a save and
@@ -109,6 +122,7 @@ public final class GameScreen implements Screen {
     private final GameRenderer renderer;
     private final Strings strings;
     private final ToastLayer toasts;
+    private final RuleShiftBanner banner;
 
     private Run run;
     private long seed;
@@ -123,6 +137,7 @@ public final class GameScreen implements Screen {
     private int shownModifiers = -1;
     private int shownSynergies = -1;
     private long shownStreakBonus = -1;
+    private int windZonesInside;
 
     /**
      * Creates a screen playing classic runs with clock-derived seeds.
@@ -174,6 +189,7 @@ public final class GameScreen implements Screen {
         this.renderer.setAbilityStateLabels(strings.get(StringKey.HUD_ABILITY_READY),
                 strings.get(StringKey.HUD_ABILITY_COOLDOWN));
         this.renderer.setShieldLabel(strings.get(StringKey.HUD_SHIELD_CHARGES));
+        this.banner = new RuleShiftBanner(strings);
         this.shownLanguage = strings.language();
         this.holdToFlap = context != null && context.settings().holdToFlap;
         startRun();
@@ -229,6 +245,15 @@ public final class GameScreen implements Screen {
     }
 
     /**
+     * The rule-shift banner (M7), for tests inspecting its state.
+     *
+     * @return the banner
+     */
+    public RuleShiftBanner banner() {
+        return banner;
+    }
+
+    /**
      * Whether hold-to-flap is engaged (accessibility, D2; a settings flag from M2 on).
      *
      * @return {@code true} when a held flap key issues synthetic flaps
@@ -255,12 +280,16 @@ public final class GameScreen implements Screen {
         seed = seeds.next();
         seedText = seeds.isExplicit() ? strings.format(StringKey.HUD_SEED, seed) : null;
         run = runFactory.newRun(seed);
+        applyWorldLook();
         renderer.reset();
+        banner.reset();
+        windZonesInside = 0;
         // A manifest entry may override the procedural bird per bird and per world (D18); with the
         // shipped empty manifest this resolves to nothing and the art stays procedural.
         renderer.applyAssets(AssetResolver.active(), run.config().birdId(),
                 run.config().worldId());
         renderer.setAbilityName(activeAbilityName());
+        renderer.setWorldName(worldName());
         refusalQuietTicks = 0;
         abilityRefusal = "";
         gameOverShown = false;
@@ -275,6 +304,45 @@ public final class GameScreen implements Screen {
         if (context != null) {
             context.publish(event);
         }
+    }
+
+    /**
+     * Points the renderer at the run's world (M7): its palette and parallax style from
+     * {@code worlds.json}, and the letterbox tone with them. Without content — a bare screen
+     * stack in a test — every world looks like Green Fields, which is what the classic seam is.
+     */
+    private void applyWorldLook() {
+        WorldDef world = worldDef();
+        if (world == null) {
+            renderer.setWorld(WorldPalette.GREEN_FIELDS, WorldStyle.HILLS);
+        } else {
+            renderer.setWorld(WorldPalette.from(world.palette()), WorldStyle.fromId(world.style()));
+        }
+        screens.setLetterboxRgb(renderer.palette().letterbox());
+    }
+
+    /**
+     * The definition of the world the run is played in.
+     *
+     * @return the world, or {@code null} when the session has no content or the id is unknown
+     */
+    private WorldDef worldDef() {
+        if (context == null || context.content() == null
+                || !context.content().has(GameContent.WORLDS)) {
+            return null;
+        }
+        String id = run.config().worldId();
+        return context.content().worlds().contains(id) ? context.content().worlds().get(id) : null;
+    }
+
+    /**
+     * The translated name of the run's world, for the HUD (M7).
+     *
+     * @return the name, or the empty string when the session has no content
+     */
+    private String worldName() {
+        return worldDef() == null ? ""
+                : ProgressionText.name(strings, ContentKind.WORLD, run.config().worldId());
     }
 
     /**
@@ -294,6 +362,8 @@ public final class GameScreen implements Screen {
     /** Re-reads the texts the HUD draws (a live language switch, D25). */
     private void refreshTexts() {
         renderer.setReadyHint(strings.get(StringKey.GAME_READY_HINT));
+        renderer.setWorldName(worldName());
+        banner.refreshTexts();
         renderer.setStreakLabel(strings.get(StringKey.HUD_STREAK));
         renderer.setCoinLabel(strings.get(StringKey.HUD_COINS));
         renderer.setAbilityStateLabels(strings.get(StringKey.HUD_ABILITY_READY),
@@ -356,6 +426,8 @@ public final class GameScreen implements Screen {
             toasts.tick();
         }
         publishFacts(report, flapped, crashed);
+        tickBanner();
+        watchWind();
         refreshBuild();
         if (run.phase() == RunPhase.CHOOSING_MODIFIER) {
             // The director froze the simulation on this tick; the overlay takes over the frozen
@@ -401,6 +473,43 @@ public final class GameScreen implements Screen {
         }
         publishFacts(report, false, false);
         refreshBuild();
+    }
+
+    /**
+     * Runs the banner's countdown against the simulation (M7): the banner counts the telegraph
+     * down on its own, holds at "now" while the simulation is still deferring the landing (a
+     * draft), and confirms the moment the world effects say the option landed.
+     */
+    private void tickBanner() {
+        if (!banner.isVisible()) {
+            return;
+        }
+        WorldEffects effects = run.simulation().worldEffects();
+        boolean pending = effects.isTelegraphing();
+        if (banner.phase() == RuleShiftBanner.Phase.TELEGRAPH && !pending
+                && effects.activeOption() != null) {
+            banner.land();
+            return;
+        }
+        banner.tick(pending);
+    }
+
+    /**
+     * Raises a gust when the bird flies into a wind zone (M7): the zones report whether they act
+     * on the bird, and one more of them doing so than on the previous tick is an entry.
+     */
+    private void watchWind() {
+        int inside = 0;
+        List<Obstacle> obstacles = run.simulation().obstacles().obstacles();
+        for (int i = 0; i < obstacles.size(); i++) {
+            if (obstacles.get(i) instanceof WindZone zone && zone.isAffecting()) {
+                inside++;
+            }
+        }
+        if (inside > windZonesInside) {
+            publish(new GameEvent.WindGust());
+        }
+        windZonesInside = inside;
     }
 
     /**
@@ -472,6 +581,16 @@ public final class GameScreen implements Screen {
      */
     private void publishFacts(TickReport report, boolean flapped, boolean crashed) {
         if (context == null) {
+            // No bus to publish on, but the screen's own reactions still happen (M7).
+            List<TickFact> facts = report.facts();
+            for (int i = 0; i < facts.size(); i++) {
+                TickFact fact = facts.get(i);
+                if (fact instanceof TickFact.RuleShift shift) {
+                    banner.announce(shift);
+                } else if (fact instanceof TickFact.AmbientFlash) {
+                    renderer.ambientFlash();
+                }
+            }
             return;
         }
         if (flapped) {
@@ -504,8 +623,24 @@ public final class GameScreen implements Screen {
             } else if (fact instanceof TickFact.SynergyActivated synergy) {
                 publish(new GameEvent.SynergyActivated(synergy.id()));
                 announceSynergy(synergy.id());
-            } else if (fact instanceof TickFact.RuleShift) {
-                publish(new GameEvent.RuleShift(activeRuleFlags()));
+            } else if (fact instanceof TickFact.RuleShift shift) {
+                // The fact is the telegraph (M7): the flags it names are the ones about to land,
+                // not the ones in force — reading the run's rules here would name the previous
+                // option for the whole countdown.
+                List<String> names = new ArrayList<>(shift.flags().size());
+                for (RuleFlag flag : shift.flags()) {
+                    names.add(flag.name());
+                }
+                publish(new GameEvent.RuleShift(names));
+                banner.announce(shift);
+            } else if (fact instanceof TickFact.LightningWarning) {
+                publish(new GameEvent.LightningWarning());
+            } else if (fact instanceof TickFact.PistonTelegraph) {
+                publish(new GameEvent.PistonTelegraph());
+            } else if (fact instanceof TickFact.AmbientFlash) {
+                // E8: cosmetic. The renderer lights the sky, the audio manager rolls the thunder.
+                renderer.ambientFlash();
+                publish(new GameEvent.AmbientFlash());
             }
         }
         if (crashed) {
@@ -653,20 +788,6 @@ public final class GameScreen implements Screen {
     private int remaining(StatId stat, int used) {
         int granted = (int) Math.round(run.simulation().stats().resolve(stat));
         return Math.max(0, granted - used);
-    }
-
-    /**
-     * The rule flags in force, as the names the event carries.
-     *
-     * @return the names, in the enum's order
-     */
-    private List<String> activeRuleFlags() {
-        Set<RuleFlag> flags = run.simulation().rules().flags();
-        List<String> names = new ArrayList<>(flags.size());
-        for (RuleFlag flag : flags) {
-            names.add(flag.name());
-        }
-        return names;
     }
 
     private static String causeOf(TickReport report) {
@@ -821,6 +942,7 @@ public final class GameScreen implements Screen {
     @Override
     public void render(Graphics2D g, double alpha) {
         renderer.render(g, alpha, run, seedText, screens.isDebugOverlayVisible());
+        banner.render(g, renderer.palette());
         if (toasts != null) {
             toasts.render(g);
         }

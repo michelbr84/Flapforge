@@ -1,5 +1,6 @@
 package io.github.michelbr84.flapforge.audio;
 
+import io.github.michelbr84.flapforge.content.defs.SfxSet;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import java.util.List;
 import java.util.Map;
@@ -28,10 +29,14 @@ import java.util.Random;
  *       headroom for the mixer to sum several voices.</li>
  * </ul>
  *
- * <p>The {@code variant} argument is the forward hook for {@code worlds.json.sfxSet} (E31.g):
- * variant {@code 0} is the canonical timbre used everywhere today, and a non-zero variant
- * transposes and re-seeds the same spec so a world can have its own flavour of the same cue
- * without new ids. Callers that do not care pass {@link #DEFAULT_VARIANT}.
+ * <p>The {@code variant} argument is the numeric hook for {@code worlds.json.sfxSet} (E31.g):
+ * variant {@code 0} is the canonical timbre, and a non-zero variant transposes and re-seeds the
+ * same spec. From M7 the sets are named: {@link #render(String, SfxSet)} gives every id one
+ * flavour per {@link SfxSet} — {@code FIELDS} is the canonical sound, {@code CANYON} is wider
+ * and airier (detuned, longer tail), {@code FACTORY} harder and more percussive (square-ish
+ * waves, more noise, lower), {@code STORM} sharper and noisier (higher, darker noise) and
+ * {@code VOID} hollow and detuned (lower, wide detune, slow vibrato). A set is a deterministic
+ * recipe on top of the id's spec, so the bytes stay a pure function of {@code (id, set)}.
  */
 public final class ToneSynth {
 
@@ -74,11 +79,19 @@ public final class ToneSynth {
     public static final String SYNERGY = "synergy";
     /** The player levelled up. */
     public static final String LEVEL_UP = "level_up";
+    /** A lightning column started its warning (M7). */
+    public static final String LIGHTNING_WARNING = "lightning_warning";
+    /** The sky flashed: the cosmetic storm thunder (M7, E8). */
+    public static final String THUNDER = "thunder";
+    /** A piston started its telegraph (M7). */
+    public static final String PISTON_TELEGRAPH = "piston_telegraph";
+    /** The bird flew into a wind zone (M7). */
+    public static final String WIND = "wind";
 
     /** Every id this synth knows, in a stable order (warm-up and tests iterate it). */
     public static final List<String> IDS = List.of(FLAP, SCORE, COIN, CRASH, ABILITY, SHIELD,
             REVIVE, UI_MOVE, UI_SELECT, UI_BACK, UNLOCK, BOSS_WARNING, RULE_SHIFT, STREAK, SYNERGY,
-            LEVEL_UP);
+            LEVEL_UP, LIGHTNING_WARNING, THUNDER, PISTON_TELEGRAPH, WIND);
 
     /** Shortest buffer the synth will produce, in samples (guards against degenerate specs). */
     private static final int MIN_SAMPLES = 64;
@@ -176,6 +189,25 @@ public final class ToneSynth {
             this.peak = value;
             return this;
         }
+
+        /** A detached copy, so a set can bend a recipe without touching the shared table. */
+        private Spec copy() {
+            Spec c = new Spec();
+            c.wave = wave;
+            c.notes = notes.clone();
+            c.durationMs = durationMs;
+            c.sweep = sweep;
+            c.vibratoHz = vibratoHz;
+            c.vibratoDepth = vibratoDepth;
+            c.detune = detune;
+            c.noise = noise;
+            c.noiseTone = noiseTone;
+            c.attackMs = attackMs;
+            c.releaseFraction = releaseFraction;
+            c.decayExponent = decayExponent;
+            c.peak = peak;
+            return c;
+        }
     }
 
     private static final Map<String, Spec> SPECS = Map.ofEntries(
@@ -214,7 +246,16 @@ public final class ToneSynth {
                     .peak(0.58)),
             Map.entry(LEVEL_UP, new Spec().wave(Wave.SINE)
                     .notes(523.25, 659.25, 783.99, 1046.50, 1318.51).durationMs(620.0).detune(0.004)
-                    .envelope(3.0, 0.28, 0).peak(0.65)));
+                    .envelope(3.0, 0.28, 0).peak(0.65)),
+            Map.entry(LIGHTNING_WARNING, new Spec().wave(Wave.SQUARE).notes(1318.51, 1318.51)
+                    .durationMs(260.0).vibrato(18.0, 0.012).noise(0.10, 0.6)
+                    .envelope(2.0, 0.35, 0).peak(0.5)),
+            Map.entry(THUNDER, new Spec().wave(Wave.SAW).notes(55.0).durationMs(900.0).sweep(0.6)
+                    .noise(0.7, 0.08).envelope(10.0, 0.75, 2).peak(0.7)),
+            Map.entry(PISTON_TELEGRAPH, new Spec().wave(Wave.TRIANGLE).notes(220.0, 293.66)
+                    .durationMs(200.0).noise(0.2, 0.35).envelope(2.0, 0.45, 1).peak(0.5)),
+            Map.entry(WIND, new Spec().wave(Wave.SINE).notes(180.0).durationMs(520.0).sweep(1.8)
+                    .noise(0.85, 0.05).envelope(40.0, 0.6, 1).peak(0.45)));
 
     /** Root note of the fallback blip, before the per-id transposition. */
     private static final double UNKNOWN_ROOT = 523.25;
@@ -266,7 +307,117 @@ public final class ToneSynth {
         if (spec == null) {
             spec = unknownSpec(id);
         }
-        return synthesise(spec, id, Math.max(0, variant));
+        int v = Math.max(0, variant);
+        return synthesise(spec, MathUtil.fold(MathUtil.fnv1a64(id), v), 1.0 + 0.06 * v);
+    }
+
+    /**
+     * Renders the flavour of an id in a world's sound set (E31.g, M7). {@link SfxSet#FIELDS}
+     * is the canonical timbre, byte for byte the same as {@link #render(String)}; every other set
+     * bends the recipe deterministically.
+     *
+     * @param id the sound id
+     * @param set the world's set, or {@code null} for the canonical sound
+     * @return a fresh mono buffer at {@link #SAMPLE_RATE}, in {@code [-1, 1]}
+     */
+    public float[] render(String id, SfxSet set) {
+        Objects.requireNonNull(id, "id");
+        if (set == null || set == SfxSet.FIELDS) {
+            return render(id, DEFAULT_VARIANT);
+        }
+        Spec spec = SPECS.get(id);
+        if (spec == null) {
+            spec = unknownSpec(id);
+        }
+        Spec bent = bend(spec.copy(), set);
+        long seed = MathUtil.fold(MathUtil.fnv1a64(id), MathUtil.fnv1a64(set.name()));
+        return synthesise(bent, seed, transposeOf(set));
+    }
+
+    /**
+     * Renders every set of an id, in {@link SfxSet} order (tests and tooling).
+     *
+     * @param id the sound id
+     * @return one buffer per set
+     */
+    public float[][] renderAllSets(String id) {
+        SfxSet[] sets = SfxSet.values();
+        float[][] out = new float[sets.length][];
+        for (int i = 0; i < sets.length; i++) {
+            out[i] = render(id, sets[i]);
+        }
+        return out;
+    }
+
+    /** The pitch ratio of a set: the whole set sits a little higher or lower than the fields. */
+    private static double transposeOf(SfxSet set) {
+        switch (set) {
+            case CANYON:
+                return 0.94;
+            case FACTORY:
+                return 0.86;
+            case STORM:
+                return 1.07;
+            case VOID:
+                return 0.79;
+            case FIELDS:
+            default:
+                return 1.0;
+        }
+    }
+
+    /**
+     * The set's recipe on top of an id's spec: a handful of parameter bends chosen so the cue
+     * stays recognisable (same notes, same length class) while the world's character shows.
+     */
+    private static Spec bend(Spec spec, SfxSet set) {
+        switch (set) {
+            case CANYON:
+                // Wider and airier: a detuned double, a longer tail, a breath of bright noise.
+                spec.detune = Math.max(spec.detune, 0.007);
+                spec.releaseFraction = Math.min(0.9, spec.releaseFraction + 0.15);
+                spec.noise = Math.min(1.0, spec.noise + 0.08);
+                spec.noiseTone = Math.max(spec.noiseTone, 0.5);
+                spec.decayExponent = Math.max(0, spec.decayExponent - 1);
+                break;
+            case FACTORY:
+                // Harder and more percussive: sines become squares, more mid noise, faster decay.
+                if (spec.wave == Wave.SINE) {
+                    spec.wave = Wave.SQUARE;
+                } else if (spec.wave == Wave.TRIANGLE) {
+                    spec.wave = Wave.SAW;
+                }
+                spec.noise = Math.min(1.0, spec.noise + 0.15);
+                spec.noiseTone = 0.3;
+                spec.attackMs = Math.max(0.5, spec.attackMs * 0.5);
+                spec.decayExponent = Math.min(3, spec.decayExponent + 1);
+                break;
+            case STORM:
+                // Sharper and noisier: dark noise on everything, a touch of fast vibrato.
+                spec.noise = Math.min(1.0, spec.noise + 0.22);
+                spec.noiseTone = Math.min(spec.noiseTone, 0.18);
+                if (spec.vibratoDepth == 0.0) {
+                    spec.vibratoHz = 13.0;
+                    spec.vibratoDepth = 0.006;
+                }
+                spec.releaseFraction = Math.max(0.2, spec.releaseFraction - 0.1);
+                break;
+            case VOID:
+                // Hollow and detuned: a wide double, slow vibrato, long tail, no hard edges.
+                if (spec.wave == Wave.SAW || spec.wave == Wave.SQUARE) {
+                    spec.wave = Wave.TRIANGLE;
+                }
+                spec.detune = Math.max(spec.detune, 0.014);
+                spec.vibratoHz = spec.vibratoDepth > 0.0 ? spec.vibratoHz * 0.5 : 4.5;
+                spec.vibratoDepth = Math.max(spec.vibratoDepth, 0.009);
+                spec.releaseFraction = Math.min(0.92, spec.releaseFraction + 0.2);
+                spec.durationMs = spec.durationMs * 1.2;
+                break;
+            case FIELDS:
+            default:
+                break;
+        }
+        return spec;
     }
 
     /**
@@ -303,11 +454,10 @@ public final class ToneSynth {
         return out;
     }
 
-    private static float[] synthesise(Spec spec, String id, int variant) {
+    private static float[] synthesise(Spec spec, long seed, double transpose) {
         int n = Math.max(MIN_SAMPLES, (int) Math.round(spec.durationMs / 1000.0 * SAMPLE_RATE));
-        // A variant transposes by a small, fixed ratio per step so the cue stays recognisable.
-        double transpose = 1.0 + 0.06 * variant;
-        Random random = new Random(MathUtil.fold(MathUtil.fnv1a64(id), variant));
+        // The transposition is a fixed ratio per variant or per set, so the cue stays recognisable.
+        Random random = new Random(seed);
 
         double[] body = new double[n];
         double[] envelope = new double[n];

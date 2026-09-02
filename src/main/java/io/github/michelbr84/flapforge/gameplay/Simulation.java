@@ -17,7 +17,9 @@ import io.github.michelbr84.flapforge.gameplay.difficulty.DifficultyCurve;
 import io.github.michelbr84.flapforge.gameplay.difficulty.DifficultyState;
 import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleLayer;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleSignal;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleSpawner;
+import io.github.michelbr84.flapforge.gameplay.obstacle.PatternStreamer;
 import io.github.michelbr84.flapforge.gameplay.obstacle.SpawnTable;
 import io.github.michelbr84.flapforge.gameplay.pickup.Coin;
 import io.github.michelbr84.flapforge.gameplay.pickup.PickupLayer;
@@ -30,6 +32,8 @@ import io.github.michelbr84.flapforge.gameplay.run.ShieldSystem;
 import io.github.michelbr84.flapforge.gameplay.run.StreakTracker;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.RampEffect;
+import io.github.michelbr84.flapforge.gameplay.spec.RuleCycleSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.WorldSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.SynergyEffect;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
 import io.github.michelbr84.flapforge.gameplay.stats.Layer;
@@ -46,12 +50,23 @@ import java.util.Objects;
  * difficulty. {@link #tick(SimInput)} advances the world by one 60 Hz tick and returns the facts
  * it produced; {@link #stateHash()} folds the visible state for determinism checks.
  *
- * <p>Tick order: ability timers → flap → ability activation → bird integration → ability
- * {@code onTick} → world scroll, obstacle phases and pickups (scaled by {@code TIME_SCALE}) →
- * obstacle effects on the bird → collision (and, on a lethal hit, the absorb chain) → coin
- * pickup → scoring and streak → spawning (obstacle first, then its coin trail) → difficulty
- * refresh. Scoring (D7): a scoring column is awarded once, when {@code scoreLineX ≤ hitboxLeft},
- * adding {@code 1 × SCORE_MULT} points.
+ * <p>Tick order: wind sampling (the world's ambient wind, then the zones the bird's tick-start
+ * hitbox overlaps, M7) → ability timers → flap → ability activation → bird integration (gravity
+ * plus the sampled wind) → ability {@code onTick} → world scroll (plus the sampled horizontal
+ * wind), obstacle phases and pickups (scaled by {@code TIME_SCALE}) → collision (and, on a
+ * lethal hit, the absorb chain) → coin pickup → scoring and streak (each gate also feeds the
+ * world effects: sky flashes and rule-cycle draws, M7) → spawning (obstacle first — a pattern
+ * step or a table draw — then its coin trail) → obstacle signals (piston telegraph, lightning
+ * warning) → rule-cycle countdown and landing → difficulty refresh. Scoring (D7): a scoring
+ * column is awarded once, when {@code scoreLineX ≤ hitboxLeft}, adding {@code 1 × SCORE_MULT}
+ * points; every lethal kind scores unless a pattern step turned scoring off, a wind zone never
+ * does.
+ *
+ * <p>Rules (D8, M7) are the union of three sources kept apart so one can change without the
+ * others: the base rules of the run (config, world, tier), the flags cards and synergies turned
+ * on ({@link #addRules}) and the flags of the rule-cycle option in force, which are
+ * <em>replaced</em> at every shift. A world without patterns, ambience or cycles allocates the
+ * M7 pieces but never draws from their streams and folds nothing of theirs into the hash.
  *
  * <p>Abilities sit inside that order rather than around it (D9): activation happens after the
  * flap, so a double flap pressed together with a flap is the one that lands; the
@@ -86,7 +101,11 @@ public final class Simulation implements AbilityHost, DraftWorld {
     private final RandomProvider rng;
     private final EffectStack stack = new EffectStack();
     private final StatSheet stats;
+    private final RuleSet baseRules;
+    private RuleSet draftRules = RuleSet.EMPTY;
+    private RuleSet cycleRules = RuleSet.EMPTY;
     private RuleSet rules;
+    private final WorldEffects worldEffects;
     private final BirdProfile birdProfile;
     private final Bird bird;
     private final BirdPhysics physics;
@@ -135,7 +154,8 @@ public final class Simulation implements AbilityHost, DraftWorld {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(setup, "setup");
         this.rng = new RandomProvider(config.seed());
-        this.rules = config.rules().union(setup.world().flags()).union(setup.tier().flags());
+        this.baseRules = config.rules().union(setup.world().flags()).union(setup.tier().flags());
+        this.rules = baseRules;
         this.birdProfile = setup.bird();
         this.stats = new StatSheet(birdProfile.baseStats(), stack, rules);
         stack.setLayer(Layer.BIRD, birdProfile.effects());
@@ -145,9 +165,14 @@ public final class Simulation implements AbilityHost, DraftWorld {
                 setup.tier().effects(), setup.world().effects(), setup.speedRampPerTick(), rules);
         this.bird = new Bird(birdProfile.hitbox(), Playfield.BIRD_START_Y);
         this.physics = new BirdPhysics(stats);
+        WorldSpec world = setup.world();
         this.spawner = new ObstacleSpawner(obstacles,
-                spawnTable == null ? new SpawnTable(setup.world().spawnWeights()) : spawnTable,
-                rng);
+                spawnTable == null ? new SpawnTable(world.spawnWeights()) : spawnTable, rng,
+                world.patterns().isEmpty() && setup.forcedPattern() == null ? null
+                        : new PatternStreamer(world.patterns(), setup.forcedPattern(),
+                                rng.stream(RandomProvider.PATTERNS)));
+        this.worldEffects = new WorldEffects(world.ambient(), world.ruleCycles(),
+                world.ruleCycles() == null ? null : rng.stream(RandomProvider.CYCLES));
         this.pickups = new PickupLayer(rng);
         this.streaks = new StreakTracker(setup.streakStep());
         // Order matters (D9): the loadout publishes its passive effects into the ABILITY layer
@@ -192,6 +217,7 @@ public final class Simulation implements AbilityHost, DraftWorld {
         if (invulnerableTicks > 0) {
             invulnerableTicks--;
         }
+        sampleWind();
         SimContext pre = null;
         if (!abilities.isEmpty()) {
             pre = context();
@@ -237,9 +263,6 @@ public final class Simulation implements AbilityHost, DraftWorld {
         SimContext ctx = context();
         obstacles.update(ctx);
         pickups.update(ctx);
-        for (Obstacle o : obstacles.obstacles()) {
-            o.affectBird(bird, ctx);
-        }
 
         double hitboxScale = stats.resolve(StatId.HITBOX_SCALE);
         CollisionReport report = collision.test(bird, obstacles, Playfield.NEAR_MISS_INFLATE_PX,
@@ -248,7 +271,8 @@ public final class Simulation implements AbilityHost, DraftWorld {
         if (report.lethalHit()) {
             if (!absorbLethalHit(report, ctx, facts)) {
                 bird.setState(Bird.State.DYING);
-                facts.add(new TickFact.Crashed(report.cause()));
+                facts.add(new TickFact.Crashed(report.cause(),
+                        report.obstacle() == null ? null : report.obstacle().kind()));
                 return new TickReport(tick, facts);
             }
         } else if (ghost) {
@@ -285,16 +309,25 @@ public final class Simulation implements AbilityHost, DraftWorld {
                 gateChanged = true;
                 facts.add(new TickFact.GatePassed(!o.isDirty()));
                 facts.add(new TickFact.Scored(awarded));
+                worldEffects.onGatePassed(gatesPassed, facts);
             }
         }
         resolveStreaks(box, facts);
 
-        Obstacle spawned = spawner.update(ctx);
+        Obstacle spawned = spawner.update(ctx, gatesPassed);
         if (spawned != null) {
             facts.add(new TickFact.ObstacleSpawned(spawned.kind()));
             if (spawned.isScoring()) {
                 pickups.spawnFor(spawned, ctx);
             }
+        }
+        drainSignals(facts);
+        // A shift lands only on a tick the draft is not running (D11, M7): the director's state
+        // is read before it advances for this tick, so the tick a breather starts on may still
+        // land one, and every later tick of the draft defers it.
+        boolean shifted = worldEffects.tick(modifiers.state() == ModifierDirector.State.IDLE);
+        if (shifted) {
+            applyCycle(worldEffects.activeOption());
         }
 
         if (gateChanged) {
@@ -309,7 +342,7 @@ public final class Simulation implements AbilityHost, DraftWorld {
             }
             refreshRamp();
         }
-        if (gateChanged || difficulty.needsTickRefresh()) {
+        if (gateChanged || shifted || difficulty.needsTickRefresh()) {
             difficulty.refresh(gatesPassed, tick);
         }
         // Last, after the collision test and after the spawner: a draft may only open on a tick
@@ -568,6 +601,12 @@ public final class Simulation implements AbilityHost, DraftWorld {
         h = streaks.hashState(h);
         h = obstacles.hashState(h);
         h = pickups.hashState(h);
+        // The M7 pieces fold only when the world has them (D12): a world without patterns,
+        // ambience or cycles hashes what it hashed in M6, so the published hash stands.
+        h = spawner.hashState(h);
+        if (worldEffects.isActive()) {
+            h = worldEffects.hashState(h);
+        }
         if (modifiers.isActive()) {
             // Only a run that can draft, or that already took something, folds the draft state:
             // a run without it hashes exactly what it hashed before the roguelite layer existed
@@ -575,6 +614,13 @@ public final class Simulation implements AbilityHost, DraftWorld {
             h = modifiers.hashState(h);
         }
         if (!hasRunSystems()) {
+            // A run without run systems can still carry invulnerability or a ghost (the draft
+            // resume's i-frames, a Void option that zeroed the shield mid-run), and then they
+            // are folded too; they are always zero in the classic headless run (M7).
+            if (invulnerableTicks > 0 || ghost) {
+                h = MathUtil.fold(h, invulnerableTicks);
+                h = MathUtil.fold(h, (ghost ? 1 : 0) | (ghostLatched ? 2 : 0));
+            }
             return h;
         }
         h = MathUtil.fold(h, invulnerableTicks);
@@ -617,6 +663,10 @@ public final class Simulation implements AbilityHost, DraftWorld {
     public boolean isDraftPathClear() {
         double left = bird.hitbox(stats.resolve(StatId.HITBOX_SCALE)).x();
         for (Obstacle o : obstacles.obstacles()) {
+            if (!o.lethal()) {
+                // A wind zone is sky, not a hazard: a draft may open inside it.
+                continue;
+            }
             if (o.x() + o.width() < left) {
                 // Fully behind the bird: it can never be what the freeze traps the player in.
                 continue;
@@ -632,7 +682,23 @@ public final class Simulation implements AbilityHost, DraftWorld {
 
     @Override
     public void deferSpawn(double intervals) {
-        spawner.deferNextSpawn(intervals);
+        // The D11 push plus an absolute floor (M7): the intervals alone assume a 40 px column
+        // 160 px ahead, and a 112 px gear or a pattern step 130 px on would leave the breather
+        // no window at all, so the deferred column is also placed at least the clearance the
+        // window needs behind the last column's right edge, whatever its width or the step's dx.
+        spawner.deferNextSpawn(intervals, clearancePx());
+    }
+
+    /**
+     * The clear air a breather needs behind the last column for {@link #isDraftPathClear()} to
+     * answer {@code true} at all: the distance from the bird's hitbox left edge to the right edge
+     * of the playfield, plus a margin so the window is a few ticks wide.
+     *
+     * @return the clearance in px
+     */
+    private double clearancePx() {
+        double left = bird.hitbox(stats.resolve(StatId.HITBOX_SCALE)).x();
+        return Playfield.WIDTH - left + DRAFT_CLEARANCE_MARGIN;
     }
 
     @Override
@@ -675,12 +741,43 @@ public final class Simulation implements AbilityHost, DraftWorld {
 
     @Override
     public void addRules(RuleSet extra) {
-        RuleSet merged = rules.union(extra);
-        if (merged == rules) {
+        RuleSet merged = draftRules.union(extra);
+        if (merged == draftRules) {
+            return;
+        }
+        draftRules = merged;
+        recomputeRules();
+    }
+
+    /**
+     * Rebuilds the active rules from their three sources (D8, M7) and pushes them to the sheet
+     * and the difficulty state when they changed.
+     */
+    private void recomputeRules() {
+        RuleSet merged = baseRules.union(draftRules).union(cycleRules);
+        if (merged.equals(rules)) {
             return;
         }
         rules = merged;
         stats.setRules(merged);
+        difficulty.setRules(merged);
+    }
+
+    /**
+     * Lands a rule-cycle option (M7): its flags replace the previous option's in the active
+     * rules, its effects replace the previous option's in the {@code WORLD_CYCLE} layer, and the
+     * two defensive systems follow whatever the flags did to {@code SHIELD_CHARGES} and
+     * {@code REVIVES} — in both directions, because a flag that cycles in zeroes the stat and one
+     * that cycles out gives it back (D8, E12).
+     *
+     * @param option the option in force from now on
+     */
+    private void applyCycle(RuleCycleSpec.Option option) {
+        cycleRules = option.flags();
+        recomputeRules();
+        stack.setLayer(Layer.WORLD_CYCLE, option.effects());
+        shield.syncTo((int) stats.resolve(StatId.SHIELD_CHARGES));
+        revive.syncTo((int) stats.resolve(StatId.REVIVES));
     }
 
     @Override
@@ -744,7 +841,53 @@ public final class Simulation implements AbilityHost, DraftWorld {
      * @return a fresh context
      */
     public SimContext context() {
-        return new SimContext(tick, stats.resolve(StatId.TIME_SCALE), stats, rules, rng, bird);
+        return new SimContext(tick, stats.resolve(StatId.TIME_SCALE), stats, rules, rng, bird,
+                bird.windScroll());
+    }
+
+    /**
+     * Samples the wind for this tick (D6, M7): the world's ambient wind first — the zone that
+     * never ends — then every obstacle gets {@code affectBird} with the bird's tick-start hitbox
+     * and its own tick-start box, before the flap and the integration, so a zone's
+     * {@code accelY} joins gravity in this tick's integration and its {@code scrollDelta} joins
+     * this tick's world scroll. Only wind zones do anything here; the other kinds inherit the
+     * no-op, and a world without wind and without zones samples nothing.
+     */
+    private void sampleWind() {
+        worldEffects.applyAmbientWind(bird);
+        List<Obstacle> live = obstacles.obstacles();
+        if (live.isEmpty()) {
+            return;
+        }
+        SimContext ctx = context();
+        for (int i = 0; i < live.size(); i++) {
+            live.get(i).affectBird(bird, ctx);
+        }
+    }
+
+    /**
+     * Turns the signals the obstacles raised this tick into facts (M7): a piston entering its
+     * telegraph, a lightning column starting its warning.
+     *
+     * @param facts where the facts go
+     */
+    private void drainSignals(List<TickFact> facts) {
+        List<Obstacle> live = obstacles.obstacles();
+        for (int i = 0; i < live.size(); i++) {
+            ObstacleSignal signal = live.get(i).takeSignal();
+            if (signal == null) {
+                continue;
+            }
+            switch (signal) {
+                case PISTON_TELEGRAPH:
+                    facts.add(new TickFact.PistonTelegraph());
+                    break;
+                case LIGHTNING_WARNING:
+                default:
+                    facts.add(new TickFact.LightningWarning());
+                    break;
+            }
+        }
     }
 
     /**
@@ -772,6 +915,25 @@ public final class Simulation implements AbilityHost, DraftWorld {
      */
     public ObstacleSpawner spawner() {
         return spawner;
+    }
+
+    /**
+     * The world's ambience and rule cycles (M7).
+     *
+     * @return the effects
+     */
+    public WorldEffects worldEffects() {
+        return worldEffects;
+    }
+
+    /**
+     * How much of the playfield the renderer hides (M7): {@code ambient.darkness}, read by the
+     * presentation and by nothing in the simulation.
+     *
+     * @return the darkness in {@code [0, 1]}
+     */
+    public double darkness() {
+        return worldEffects.darkness();
     }
 
     /**

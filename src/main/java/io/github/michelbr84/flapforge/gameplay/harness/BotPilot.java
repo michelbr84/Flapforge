@@ -8,12 +8,15 @@ import io.github.michelbr84.flapforge.gameplay.Simulation;
 import io.github.michelbr84.flapforge.gameplay.bird.Bird;
 import io.github.michelbr84.flapforge.gameplay.bird.BirdPhysics;
 import io.github.michelbr84.flapforge.gameplay.bird.HitboxSpec;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Gear;
 import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
-import io.github.michelbr84.flapforge.gameplay.obstacle.PipeGate;
+import io.github.michelbr84.flapforge.gameplay.obstacle.WindZone;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunInput;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Random;
 
@@ -25,10 +28,15 @@ import java.util.Random;
  * <ul>
  *   <li>the <b>current</b> column — the obstacle whose column the bird is in, or will reach within
  *       one flap arc (27 ticks of scroll) — bounds a corridor the bird must stay in
- *       ({@link #corridorOf}: the gap of a gate, shrunk by the bird's hitbox);</li>
+ *       ({@link Oracles#corridorOf}: the gap of a gate shrunk by the bird's hitbox; the free
+ *       side of a piston or a bolt and the clear side of a gear, each predicted at the crossing
+ *       tick by the per-kind oracle, M7);</li>
  *   <li>the <b>next</b> obstacle beyond it supplies the aim point: its safe band
  *       ({@link Obstacle#safeBandY}) plus {@link #AIM_OFFSET_PX} so the flap arc straddles the
- *       band centre.</li>
+ *       band centre. A gear has two bands, above and below its sweep, and the one aimed at is
+ *       the one nearer the band of the column after it ({@link Oracles#bandOf}); when the gear
+ *       is the current column its corridor is the side that leads to the aim and can still be
+ *       reached from where the bird is, the larger side only as a tie-break (M7).</li>
  * </ul>
  *
  * The aim is clamped into the corridor with room for a full flap rise, the bird is projected one
@@ -121,10 +129,6 @@ public final class BotPilot implements Pilot {
         }
     }
 
-    /** Vertical corridor the bird origin must stay in while crossing a column. */
-    record Corridor(double ceilY, double floorY) {
-    }
-
     private final Preset preset;
     private final Random rng;
     private Obstacle target;
@@ -133,6 +137,7 @@ public final class BotPilot implements Pilot {
     private int candidateSince;
     private Obstacle current;
     private double currentError;
+    private Obstacle after;
     private double lastAim = Double.NaN;
 
     /**
@@ -171,30 +176,66 @@ public final class BotPilot implements Pilot {
 
         Obstacle inWindow = null;
         Obstacle beyond = null;
+        Obstacle third = null;
+        List<WindZone> winds = null;
         for (Obstacle o : sim.obstacles().obstacles()) {
+            if (o instanceof WindZone zone && zone.x() + zone.width() > box.x()) {
+                // Sky that bends the flight (M7): kept for the projection, never a target.
+                if (winds == null) {
+                    winds = new ArrayList<>(2);
+                }
+                winds.add(zone);
+            }
             if (!o.lethal() || o.scoreLineX() <= box.x()) {
                 continue;
             }
-            if (o.x() < windowEnd) {
+            if (inWindow == null && o.x() < windowEnd) {
+                // The nearest column not yet cleared bounds the corridor (M7 fix): with the
+                // M1 gates 160 px apart at most one column was ever inside the window, so
+                // "the last one inside it" and "the first" were the same obstacle. A pattern
+                // step 130 px behind a gate, or a 112 px gear followed by anything, puts two
+                // there — and the corridor of the one the bird is still inside must not be
+                // dropped for the one after it.
                 inWindow = o;
-            } else {
+            } else if (beyond == null) {
                 beyond = o;
+            } else {
+                // The column after the target only matters when the target is a gear: it says
+                // which of the gear's two sides leads on (M7).
+                third = o;
                 break;
             }
         }
         updateCurrent(inWindow);
         acknowledge(beyond != null ? beyond : inWindow, run.tick());
+        after = beyond != null ? third : beyond;
 
-        double gravity = sim.stats().resolve(StatId.GRAVITY);
+        // The ambient wind of a world (M7) is a permanent acceleration the bird's own integrator
+        // adds to gravity every tick, so the projection adds it too — the bot models the physics,
+        // not the still air of Green Fields; every shipped world has windY 0, so this is 0 there.
+        double gravity = sim.stats().resolve(StatId.GRAVITY)
+                + sim.worldEffects().ambient().windY();
         double maxFall = sim.stats().resolve(StatId.MAX_FALL_SPEED);
-        Arc arc = flapArc(sim.stats().resolve(StatId.FLAP_VELOCITY), gravity);
+        // The flap arc under the wind the bird is in right now (D21: wind-adjusted trajectory).
+        // The simulation samples the wind at the start of every tick into the bird's
+        // accumulator, so before this tick runs the accumulator still holds the previous tick's
+        // sample — the ambient wind plus every zone the bird was inside — which is the best
+        // estimate of the air the next flap rises through. Without it an updraft of −600 px/s²
+        // turns a 42 px rise into 68 px and the bird flies into the pipe above the gap.
+        Arc arc = flapArc(sim.stats().resolve(StatId.FLAP_VELOCITY),
+                sim.stats().resolve(StatId.GRAVITY) + bird.windAccelY());
         double rise = arc.rise();
+        HitboxSpec spec = bird.hitboxSpec();
+        double flapVelocity = sim.stats().resolve(StatId.FLAP_VELOCITY);
+        // The smallest band the bot can hold: the box, a full flap arc and its own margins.
+        double room = spec.h() * scale + rise + 2 * SAFETY_MARGIN_PX;
         double aim = target == null ? Playfield.BIRD_START_Y
-                : target.safeBandY(bird.x()) + targetError + AIM_OFFSET_PX;
+                : Oracles.bandOf(target, referenceFor(target, bird, spec, scale, room), spec,
+                        scale, room) + targetError + AIM_OFFSET_PX;
 
-        Corridor corridor = current == null ? null
-                : corridorOf(current, bird.hitboxSpec(), scale,
-                        ctx.oscillationPerTick() * arc.riseTicks());
+        Oracles.Corridor corridor = current == null ? null
+                : corridorFor(current, bird, scale, ctx, arc, aim, gravity, maxFall,
+                        flapVelocity);
         double ceil = Double.NEGATIVE_INFINITY;
         double floor = Double.POSITIVE_INFINITY;
         if (corridor != null) {
@@ -210,16 +251,99 @@ public final class BotPilot implements Pilot {
         }
 
         lastAim = aim;
-        double yNext = BirdPhysics.projectY(bird.y(), bird.vy(), 1, gravity, maxFall);
+        double yNext = winds == null
+                ? BirdPhysics.projectY(bird.y(), bird.vy(), 1, gravity, maxFall)
+                : Oracles.projectY(bird.y(), bird.vy(), 1, gravity, maxFall, winds,
+                        ctx.scrollPerTick(), bird.hitboxSpec());
         boolean flap = yNext > aim;
         if (flap && bird.y() - rise < ceil + SAFETY_MARGIN_PX && yNext <= floor) {
             flap = false;
         }
         if (sim.abilities().hasReadyActive() && predictsLethalHit(bird, aim, ceil, floor, gravity,
-                maxFall, sim.stats().resolve(StatId.FLAP_VELOCITY))) {
+                maxFall, flapVelocity)) {
             return new RunInput(flap, true, RunInput.NO_CHOICE, false);
         }
         return flap ? RunInput.FLAP : RunInput.NONE;
+    }
+
+    /**
+     * Where the bird is coming from when it picks a gear's side as its aim: the band of the
+     * column after the target when there is one (so the side chosen leads on), else the bird's
+     * own y. Only a gear target reads it.
+     */
+    private double referenceFor(Obstacle wanted, Bird bird, HitboxSpec spec, double scale,
+            double room) {
+        if (!(wanted instanceof Gear)) {
+            return bird.y();
+        }
+        return after == null ? bird.y() : Oracles.bandOf(after, bird.y(), spec, scale, room);
+    }
+
+    /**
+     * The corridor of the current column: the per-kind oracle for every kind but a gear, and
+     * for a gear the side that leads to the aim among the sides a flap arc fits in and the bird
+     * can still reach before the crossing — falling to the corridor the aim is nearest to, then
+     * to the larger side, when nothing decides it.
+     */
+    private static Oracles.Corridor corridorFor(Obstacle current, Bird bird, double scale,
+            SimContext ctx, Arc arc, double aim, double gravity, double maxFall,
+            double flapVelocity) {
+        if (!(current instanceof Gear gear)) {
+            return Oracles.corridorOf(current, bird, scale,
+                    ctx.oscillationPerTick() * arc.riseTicks(), ctx.scrollPerTick(),
+                    ctx.worldDt());
+        }
+        Aabb box = bird.hitbox(scale);
+        Oracles.Window window = Oracles.crossingWindow(gear, box, ctx.scrollPerTick());
+        Oracles.GearCorridors both = Oracles.gearCorridors(gear, window,
+                gear.railSpeed() * ctx.worldDt() / Playfield.TICK_RATE, bird.hitboxSpec(), scale,
+                box, ctx.scrollPerTick());
+        if (both == null) {
+            return null;
+        }
+        double room = arc.rise() + 2 * SAFETY_MARGIN_PX;
+        Oracles.Corridor above = holdsArc(both.above(), room) ? both.above() : null;
+        Oracles.Corridor below = holdsArc(both.below(), room) ? both.below() : null;
+        if (above == null || below == null) {
+            return above != null ? above : (below != null ? below : both.larger(gear));
+        }
+        boolean aboveReachable = reachable(above, bird, window.enterTick(), gravity, maxFall,
+                flapVelocity);
+        boolean belowReachable = reachable(below, bird, window.enterTick(), gravity, maxFall,
+                flapVelocity);
+        if (aboveReachable != belowReachable) {
+            return aboveReachable ? above : below;
+        }
+        double toAbove = Oracles.distance(aim, above);
+        double toBelow = Oracles.distance(aim, below);
+        if (toAbove == toBelow) {
+            return both.larger(gear);
+        }
+        return toAbove < toBelow ? above : below;
+    }
+
+    /** Whether a corridor leaves the bird origin a flap arc plus the margins to hold. */
+    private static boolean holdsArc(Oracles.Corridor corridor, double room) {
+        return Oracles.fits(corridor) && corridor.floorY() - corridor.ceilY() >= room;
+    }
+
+    /**
+     * Whether the bird can be inside a corridor by the time the column reaches it: a free fall
+     * over the ticks left when it is above the corridor, a flap on every tick when it is below.
+     */
+    private static boolean reachable(Oracles.Corridor corridor, Bird bird, int ticks,
+            double gravity, double maxFall, double flapVelocity) {
+        double y = bird.y();
+        if (y < corridor.ceilY()) {
+            double fall = BirdPhysics.projectY(y, bird.vy(), ticks, gravity, maxFall) - y;
+            return fall >= corridor.ceilY() - y;
+        }
+        if (y > corridor.floorY()) {
+            double climbPerTick = (flapVelocity - gravity / Playfield.TICK_RATE)
+                    / Playfield.TICK_RATE;
+            return climbPerTick * ticks >= y - corridor.floorY();
+        }
+        return true;
     }
 
     /**
@@ -322,30 +446,6 @@ public final class BotPilot implements Pilot {
     }
 
     /**
-     * Corridor of bird-origin y values that keep the hitbox inside an obstacle's passable band
-     * while crossing its column; {@code null} when the kind has no corridor oracle yet. A moving
-     * gate's corridor is shrunk by the distance it can travel during a flap rise.
-     *
-     * @param obstacle the obstacle
-     * @param spec the bird hitbox
-     * @param scale the {@code HITBOX_SCALE} factor
-     * @param motionMargin extra clearance for moving obstacles (px travelled during a rise)
-     * @return the corridor, or {@code null}
-     */
-    static Corridor corridorOf(Obstacle obstacle, HitboxSpec spec, double scale,
-            double motionMargin) {
-        if (!(obstacle instanceof PipeGate gate)) {
-            return null;
-        }
-        double margin = CORRIDOR_MARGIN_PX + (gate.isMoving() ? motionMargin : 0);
-        double halfH = spec.h() * scale / 2;
-        double centerOffset = spec.centerOffsetY();
-        double ceilY = gate.gapTopY() - (centerOffset - halfH) + margin;
-        double floorY = gate.gapBottomY() - (centerOffset + halfH) - margin;
-        return new Corridor(ceilY, floorY);
-    }
-
-    /**
      * Shape of a flap: height gained before the bird falls again and the ticks it takes
      * (42.25 px in 13 ticks for the classic bird; the 14th tick is the apex).
      *
@@ -366,6 +466,11 @@ public final class BotPilot implements Pilot {
         double vy = -flapVelocity;
         double rise = 0;
         int ticks = 0;
+        if (gravity <= 0) {
+            // An updraft stronger than gravity: the bird never comes down on its own, so the
+            // arc is the rise over a full flap window, which is all the corridor clamp needs.
+            return new Arc(flapVelocity * ARC_TICKS / Playfield.TICK_RATE, ARC_TICKS);
+        }
         while (true) {
             vy += gravity / Playfield.TICK_RATE;
             if (vy >= 0) {
@@ -401,6 +506,15 @@ public final class BotPilot implements Pilot {
      */
     public Obstacle current() {
         return current;
+    }
+
+    /**
+     * The column after the aim target, read when the target is a gear (M7).
+     *
+     * @return the obstacle, or {@code null}
+     */
+    public Obstacle after() {
+        return after;
     }
 
     /**

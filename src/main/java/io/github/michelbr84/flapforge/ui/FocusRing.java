@@ -178,10 +178,14 @@ public final class FocusRing {
         if (input.isJustPressed(InputAction.DOWN)) {
             move(0, 1);
         }
-        if (input.isJustPressed(InputAction.LEFT)) {
+        // A focused list row steps on Left/Right itself (D17); moving the focus on the same key
+        // would take it away before the row ever saw the press, on any screen with a node to
+        // the side of the row.
+        boolean rowKeys = focused != null && focused.handlesHorizontalKeys();
+        if (input.isJustPressed(InputAction.LEFT) && !rowKeys) {
             move(-1, 0);
         }
-        if (input.isJustPressed(InputAction.RIGHT)) {
+        if (input.isJustPressed(InputAction.RIGHT) && !rowKeys) {
             move(1, 0);
         }
         if (hasRawKey(input, Keys.TAB)) {

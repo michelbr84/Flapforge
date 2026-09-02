@@ -31,6 +31,8 @@ public final class Bird {
     private double prevY;
     private double vy;
     private State state = State.ALIVE;
+    private double windAccelY;
+    private double windScroll;
 
     /**
      * Creates a bird at rest.
@@ -173,9 +175,45 @@ public final class Bird {
         this.state = Objects.requireNonNull(state, "state");
     }
 
-    /** Records the current position as the tick start (call once per tick before integrating). */
+    /**
+     * Records the current position as the tick start (call once per tick before integrating) and
+     * clears the wind sampled last tick.
+     */
     public void beginTick() {
         prevY = y;
+        windAccelY = 0;
+        windScroll = 0;
+    }
+
+    /**
+     * Adds a wind zone's push for this tick (D6, M7). Sampled by the simulation at the start of
+     * the tick from the overlapping zones; {@link #windAccelY()} joins gravity in this tick's
+     * integration and {@link #windScroll()} joins the scroll speed of this tick's world scroll.
+     *
+     * @param accelY vertical acceleration in px/s² (positive = down)
+     * @param scrollDelta change of the relative scroll speed in px/s
+     */
+    public void applyWind(double accelY, double scrollDelta) {
+        windAccelY += accelY;
+        windScroll += scrollDelta;
+    }
+
+    /**
+     * Vertical wind acceleration sampled for this tick.
+     *
+     * @return px/s², 0 outside every zone
+     */
+    public double windAccelY() {
+        return windAccelY;
+    }
+
+    /**
+     * Scroll speed change sampled for this tick.
+     *
+     * @return px/s, 0 outside every zone
+     */
+    public double windScroll() {
+        return windScroll;
     }
 
     /**

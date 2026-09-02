@@ -134,6 +134,15 @@ public final class HudRenderer {
     public static final int BUILD_MAX_ROWS = 12;
     /** Baseline of the streak-bonus line, under the streak. */
     public static final int STREAK_BONUS_BASELINE_Y = STREAK_BASELINE_Y + 15;
+    /** Baseline of the world name while the run waits for its first flap (M7). */
+    public static final int WORLD_BASELINE_Y = HINT_BASELINE_Y - 30;
+    /**
+     * Baseline of the world name once the run flies: in the top strip under the streak lines,
+     * out of the bird's lane and off the first column (M7).
+     */
+    public static final int WORLD_FLYING_BASELINE_Y = STREAK_BONUS_BASELINE_Y + 16;
+    /** Flying ticks the world name stays up after the first flap (M7). */
+    public static final int WORLD_NAME_TICKS = 120;
 
     private static final Color SEED_COLOR = new Color(0x1C, 0x3A, 0x3E, 0xB0);
     private static final Color FLAME_CORE = new Color(0xFF, 0xE1, 0x8A);
@@ -174,6 +183,8 @@ public final class HudRenderer {
     private final List<String> buildChips = new ArrayList<>();
     private final List<String> synergyChips = new ArrayList<>();
     private String readyHint;
+    private String worldName = "";
+    private int worldNameTicks;
     private String streakLabel = "";
     private String coinLabel = "";
     private String abilityName = "";
@@ -226,6 +237,38 @@ public final class HudRenderer {
      */
     public String readyHint() {
         return readyHint;
+    }
+
+    /**
+     * Names the world the run is played in (M7): shown above the READY hint while the run waits
+     * for its first flap — nothing is on the playfield yet — and, smaller, in the top strip under
+     * the streak lines for {@value #WORLD_NAME_TICKS} ticks after it starts, so the player knows
+     * where they are without a label over their lane or the first column.
+     *
+     * @param worldName the translated name, or {@code null}/empty for none
+     */
+    public void setWorldName(String worldName) {
+        this.worldName = worldName == null ? "" : worldName;
+    }
+
+    /**
+     * The world name the HUD shows.
+     *
+     * @return the name, empty when none is set
+     */
+    public String worldName() {
+        return worldName;
+    }
+
+    /**
+     * Whether the world name is on screen for a run in a phase.
+     *
+     * @param phase the run phase
+     * @return {@code true} while the name is drawn
+     */
+    public boolean worldNameVisible(RunPhase phase) {
+        return !worldName.isEmpty()
+                && (phase == RunPhase.READY || worldNameTicks < WORLD_NAME_TICKS);
     }
 
     /**
@@ -488,6 +531,9 @@ public final class HudRenderer {
         if (run == null) {
             return;
         }
+        if (run.phase() != RunPhase.READY && worldNameTicks < WORLD_NAME_TICKS) {
+            worldNameTicks++;
+        }
         int charges = run.simulation().shield().charges();
         if (shieldCharges >= 0 && charges < shieldCharges) {
             shieldFlashTicks = FLASH_TICKS;
@@ -506,6 +552,7 @@ public final class HudRenderer {
     public void reset() {
         ticks = 0;
         animTicks = 0;
+        worldNameTicks = 0;
         scoreShown = -1;
         scoreText = "";
         streakShown = -1;
@@ -606,6 +653,16 @@ public final class HudRenderer {
             g.setFont(Fonts.bold(16));
             TextPainter.drawOutlined(g, readyHint, Playfield.WIDTH / 2.0, HINT_BASELINE_Y,
                     Align.CENTER, ProceduralArt.TEXT_LIGHT,
+                    ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
+        }
+        if (worldNameVisible(run.phase())) {
+            // Steady, not blinking: the hint asks for a key, the name only says where you are.
+            // Once the run flies the label leaves the playfield for the HUD strip.
+            boolean ready = run.phase() == RunPhase.READY;
+            g.setFont(Fonts.bold(ready ? 15 : 12));
+            TextPainter.drawOutlined(g, worldName, Playfield.WIDTH / 2.0,
+                    ready ? WORLD_BASELINE_Y : WORLD_FLYING_BASELINE_Y,
+                    Align.CENTER, ProceduralArt.accentColor(palette),
                     ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
         }
 

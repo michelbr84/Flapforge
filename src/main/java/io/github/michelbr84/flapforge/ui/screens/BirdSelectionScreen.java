@@ -10,8 +10,11 @@ import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
+import io.github.michelbr84.flapforge.content.defs.WorldPaletteDef;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
@@ -54,6 +57,7 @@ import java.awt.Shape;
 import java.awt.Stroke;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -86,13 +90,20 @@ import java.util.Objects;
  * screen is previewing would strip it ({@code NO_DEFENSIVE_ABILITIES}, {@code NO_REVIVE}). A
  * greyed-out ability is not offered by any chip either: {@code Run.start()} would strip it
  * anyway, and a slot that accepted it would be lying.
+ *
+ * <p><b>The world (M7, D17).</b> Between the actions and the tier sits the world picker: the
+ * five worlds of {@code worlds.json} in order, each with a swatch of its palette and, under the
+ * name, the hazards it spawns (the kinds with a positive spawn weight) — or, for a locked one,
+ * the cheapest way to open it. Stepping to an owned world writes {@code profile.selected} through
+ * {@link SelectionManager#selectWorld}; stepping to a locked one is refused with a toast and the
+ * row snaps back, exactly like the tier picker.
  */
 public final class BirdSelectionScreen implements Screen {
 
     /** Top of the card grid. */
     public static final int GRID_TOP = 48;
     /** Height of one bird card. */
-    public static final int CARD_HEIGHT = 52;
+    public static final int CARD_HEIGHT = 46;
     /** Columns of the roster. */
     public static final int COLUMNS = 2;
     /** Side margin of everything on the screen. */
@@ -125,19 +136,23 @@ public final class BirdSelectionScreen implements Screen {
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
     private static final int TITLE_BASELINE = 34;
     private static final int WALLET_W = 130;
-    private static final int PALETTE_LABEL_BASELINE = 288;
-    private static final int SWATCH_TOP = 292;
-    private static final int ACTION_TOP = 326;
+    private static final int PALETTE_LABEL_BASELINE = 264;
+    private static final int SWATCH_TOP = 268;
+    private static final int ACTION_TOP = 302;
     private static final int ACTION_H = 30;
-    private static final int TIER_TOP = 362;
+    /** Top of the world picker row (M7). */
+    public static final int WORLD_TOP = 338;
+    /** Height of the world picker row: the name line and the hazard line. */
+    public static final int WORLD_H = 40;
+    private static final int TIER_TOP = 382;
     private static final int TIER_H = 24;
-    private static final int ABILITY_BASELINE = 402;
-    private static final int SLOT_TOP = 406;
+    private static final int ABILITY_BASELINE = 422;
+    private static final int SLOT_TOP = 426;
     private static final int SLOT_H = 22;
     private static final int SLOT_VGAP = 4;
     private static final int SLOT_HGAP = 6;
-    private static final int BREAKDOWN_LABEL_BASELINE = 474;
-    private static final int VIEW_TOP = 480;
+    private static final int BREAKDOWN_LABEL_BASELINE = 496;
+    private static final int VIEW_TOP = 502;
     private static final int VIEW_BOTTOM = Playfield.HEIGHT - 58;
     private static final int FOOTER_TOP = Playfield.HEIGHT - 52;
     private static final int FOOTER_H = 40;
@@ -164,9 +179,11 @@ public final class BirdSelectionScreen implements Screen {
     private final Tooltip tooltip = new Tooltip();
     private final Button select;
     private final Button buy;
+    private final WorldRow world;
     private final ListView tier;
     private final Button back;
     private final List<String> tierIds = new ArrayList<>();
+    private final List<String> worldIds = new ArrayList<>();
     private String currentBirdId;
     private String shownLanguage;
     private String abilityLine = "";
@@ -258,6 +275,13 @@ public final class BirdSelectionScreen implements Screen {
                 ACTION_H);
         ring.add(select);
         ring.add(buy);
+
+        world = new WorldRow("", worldOptions(), worldIndex());
+        world.setWrapping(false);
+        world.setFontSize(14);
+        world.setBounds(MARGIN, WORLD_TOP, CONTENT_W, WORLD_H);
+        world.setOnChange(this::selectWorld);
+        ring.add(world);
 
         tier = new ListView("", tierOptions(), tierIndex());
         tier.setWrapping(false);
@@ -352,6 +376,34 @@ public final class BirdSelectionScreen implements Screen {
      */
     public ListView tierList() {
         return tier;
+    }
+
+    /**
+     * The world picker (M7).
+     *
+     * @return the row
+     */
+    public WorldRow worldList() {
+        return world;
+    }
+
+    /**
+     * The world ids the picker steps through, in {@code worlds.json} order.
+     *
+     * @return an unmodifiable snapshot
+     */
+    public List<String> worldIds() {
+        return List.copyOf(worldIds);
+    }
+
+    /**
+     * The world the picker points at.
+     *
+     * @return the world id, or {@code null} when the content ships no world
+     */
+    public String currentWorldId() {
+        int index = world.selectedIndex();
+        return index >= 0 && index < worldIds.size() ? worldIds.get(index) : null;
     }
 
     /**
@@ -564,7 +616,105 @@ public final class BirdSelectionScreen implements Screen {
         tier.selectQuietly(tierIndex());
     }
 
+    /**
+     * Selects a world from the picker, refusing one the player has not unlocked (M7).
+     *
+     * @param index the index in {@link #worldIds}
+     */
+    private void selectWorld(int index) {
+        if (index < 0 || index >= worldIds.size()) {
+            return;
+        }
+        String worldId = worldIds.get(index);
+        if (selection != null && selection.selectWorld(profile, worldId, content)) {
+            refreshState();
+            return;
+        }
+        toasts.push(strings.format(StringKey.TOAST_PURCHASE_FAILED,
+                strings.get(StringKey.COMMON_LOCKED)), Toast.Kind.WARNING);
+        world.selectQuietly(worldIndex());
+        refreshWorldRow();
+    }
+
     // ------------------------------------------------------------------ building
+
+    /**
+     * The world options: every world the content ships, in order, with the locked ones marked.
+     *
+     * @return one label per world
+     */
+    private List<String> worldOptions() {
+        worldIds.clear();
+        List<String> options = new ArrayList<>();
+        if (content.has(GameContent.WORLDS)) {
+            for (WorldDef def : content.worlds()) {
+                worldIds.add(def.id());
+                String name = ProgressionText.name(strings, ContentKind.WORLD, def.id());
+                options.add(profile.isUnlocked(def.unlockableId()) ? name
+                        : name + " (" + strings.get(StringKey.COMMON_LOCKED) + ")");
+            }
+        }
+        if (options.isEmpty()) {
+            options.add(strings.get(StringKey.COMMON_NONE));
+        }
+        return options;
+    }
+
+    /**
+     * The index of the selected world.
+     *
+     * @return the index, {@code 0} when the selection names no shipped world
+     */
+    private int worldIndex() {
+        int index = worldIds.indexOf(profile.selected.worldId);
+        return index < 0 ? 0 : index;
+    }
+
+    /**
+     * Points the world row's swatch and detail line at the world it shows: the hazards for an
+     * owned world, the cheapest way in for a locked one.
+     */
+    private void refreshWorldRow() {
+        String id = currentWorldId();
+        if (id == null || !content.worlds().contains(id)) {
+            world.bind(null, "", false, "");
+            return;
+        }
+        WorldDef def = content.worlds().get(id);
+        boolean owned = profile.isUnlocked(def.unlockableId());
+        String detail = owned
+                ? strings.format(StringKey.BIRDS_WORLD_HAZARDS, hazardsOf(def))
+                : strings.format(StringKey.BIRDS_WORLD_LOCKED,
+                        ProgressionText.unlockText(strings, content, def.unlock(), profile));
+        String tip = ProgressionText.description(strings, ContentKind.WORLD, id);
+        world.bind(def.palette(), detail, !owned, owned ? tip : tip + " - " + detail);
+    }
+
+    /**
+     * The hazards a world spawns: the families with a positive spawn weight, named, in kind
+     * order.
+     *
+     * @param def the world
+     * @return the comma-separated names
+     */
+    private String hazardsOf(WorldDef def) {
+        List<String> names = new ArrayList<>();
+        for (Map.Entry<ObstacleKind, Integer> entry : def.spawnWeights().entrySet()) {
+            if (entry.getValue() != null && entry.getValue() > 0) {
+                names.add(ProgressionText.obstacleName(strings, entry.getKey()));
+            }
+        }
+        return names.isEmpty() ? strings.get(StringKey.COMMON_NONE) : String.join(", ", names);
+    }
+
+    /**
+     * The hazard or lock line under the world name, as drawn.
+     *
+     * @return the text
+     */
+    public String worldDetail() {
+        return world.detail();
+    }
 
     /**
      * The tier options: every tier the content ships, with the locked ones marked.
@@ -605,6 +755,9 @@ public final class BirdSelectionScreen implements Screen {
         tier.setLabel(strings.get(StringKey.BIRDS_TIER));
         tier.setOptions(tierOptions());
         tier.selectQuietly(tierIndex());
+        world.setLabel(strings.get(StringKey.BIRDS_WORLD));
+        world.setOptions(worldOptions());
+        world.selectQuietly(worldIndex());
         shownLanguage = strings.language();
         refreshState();
     }
@@ -640,6 +793,9 @@ public final class BirdSelectionScreen implements Screen {
         roster.select(profile.selected.birdId);
         tier.setOptions(tierOptions());
         tier.selectQuietly(tierIndex());
+        world.setOptions(worldOptions());
+        world.selectQuietly(worldIndex());
+        refreshWorldRow();
         wallet.setAmount(balance);
         // One preview run answers both questions the panels below ask: what the stats resolve to
         // and which rules the run carries (D8, D9). Building it twice could not disagree, but
@@ -1190,6 +1346,11 @@ public final class BirdSelectionScreen implements Screen {
         UiNode focusedBefore = ring.focused();
         ring.handle(input);
         tier.tick(input);
+        if (world.tick(input) && world.selectedIndex() != worldIndex()) {
+            // A step onto a world the profile does not own: onChange refused it and snapped the
+            // row back; a step onto an owned one already wrote the selection.
+            refreshWorldRow();
+        }
         UiNode focused = ring.focused();
         if (focused != focusedBefore && focused instanceof CardGrid.Card card) {
             currentBirdId = card.id();
@@ -1236,6 +1397,9 @@ public final class BirdSelectionScreen implements Screen {
         if (node instanceof AbilitySlot slot) {
             return slot.tooltip();
         }
+        if (node instanceof WorldRow row) {
+            return row.tooltip();
+        }
         return "";
     }
 
@@ -1266,8 +1430,9 @@ public final class BirdSelectionScreen implements Screen {
         }
         select.render(g);
         buy.render(g);
-        ProceduralArt.panel(g, MARGIN - 4, TIER_TOP - 4, CONTENT_W + 8,
-                SLOT_TOP + 2 * SLOT_H + SLOT_VGAP + 6 - (TIER_TOP - 4));
+        ProceduralArt.panel(g, MARGIN - 4, WORLD_TOP - 4, CONTENT_W + 8,
+                SLOT_TOP + 2 * SLOT_H + SLOT_VGAP + 6 - (WORLD_TOP - 4));
+        world.render(g);
         tier.render(g);
         g.setFont(Fonts.regular(11));
         g.setColor(ProceduralArt.TEXT_MUTED);
@@ -1527,6 +1692,137 @@ public final class BirdSelectionScreen implements Screen {
             g.setColor(blocked ? SLOT_BLOCKED
                     : (abilityId == null ? ProceduralArt.TEXT_MUTED : ProceduralArt.TEXT_LIGHT));
             TextPainter.draw(g, value, bx + 6.0, by + bh - 5.0);
+        }
+    }
+
+    /**
+     * The world picker (M7): a {@link ListView} row stepping through the worlds, with a swatch
+     * of the shown world's palette next to the label and a second line under the name — the
+     * hazards it spawns, or how it is unlocked.
+     *
+     * <p>The arrows and the value sit exactly where {@link ListView} puts them, so its click
+     * zones and its keyboard handling apply unchanged; only the drawing is this class's.
+     */
+    public static final class WorldRow extends ListView {
+
+        private static final Color ARROW_ON = new Color(0xF4, 0xF8, 0xF8);
+        private static final Color ARROW_OFF = new Color(0x6E, 0x7A, 0x7C);
+        private static final Stroke FOCUS = new BasicStroke(2f);
+        private static final int SWATCH_SIZE = 18;
+
+        private final int[] arrowX = new int[3];
+        private final int[] arrowY = new int[3];
+        private WorldPaletteDef swatch;
+        private String detail = "";
+        private String tooltip = "";
+        private boolean locked;
+        private int fontSize = 14;
+
+        WorldRow(String label, List<String> options, int selected) {
+            super(label, options, selected);
+        }
+
+        /**
+         * Points the row at the world it shows.
+         *
+         * @param palette the world's palette, or {@code null} for no swatch
+         * @param newDetail the line under the name
+         * @param isLocked whether the world is locked for the profile
+         * @param tip the hover text
+         */
+        void bind(WorldPaletteDef palette, String newDetail, boolean isLocked, String tip) {
+            this.swatch = palette;
+            this.detail = newDetail == null ? "" : newDetail;
+            this.locked = isLocked;
+            this.tooltip = tip == null ? "" : tip;
+        }
+
+        @Override
+        public void setFontSize(int size) {
+            super.setFontSize(size);
+            this.fontSize = size;
+        }
+
+        /**
+         * The line under the world name.
+         *
+         * @return the text
+         */
+        public String detail() {
+            return detail;
+        }
+
+        /**
+         * Whether the shown world is locked for the profile.
+         *
+         * @return {@code true} when locked
+         */
+        public boolean isLocked() {
+            return locked;
+        }
+
+        /**
+         * The hover text.
+         *
+         * @return the tooltip
+         */
+        public String tooltip() {
+            return tooltip;
+        }
+
+        @Override
+        public void render(Graphics2D g) {
+            double lineY = y() + 13;
+            g.setFont(Fonts.regular(fontSize));
+            g.setColor(isFocused() || isHovered() ? ProceduralArt.TEXT_LIGHT
+                    : ProceduralArt.TEXT_MUTED);
+            TextPainter.draw(g, label(), x(), TextPainter.centeredBaseline(g, lineY));
+            double labelW = TextPainter.width(g, label());
+            if (swatch != null) {
+                int sx = (int) Math.round(x() + labelW + 8);
+                int sy = (int) Math.round(lineY - SWATCH_SIZE / 2.0);
+                g.setColor(new Color(WorldPaletteDef.rgb(swatch.skyTop())));
+                g.fillRoundRect(sx, sy, SWATCH_SIZE, SWATCH_SIZE, 5, 5);
+                g.setColor(new Color(WorldPaletteDef.rgb(swatch.pipe())));
+                g.fillRect(sx + 3, sy + SWATCH_SIZE / 2, SWATCH_SIZE - 6, SWATCH_SIZE / 2 - 3);
+                g.setColor(new Color(WorldPaletteDef.rgb(swatch.accent())));
+                g.fillOval(sx + SWATCH_SIZE - 9, sy + 3, 5, 5);
+                g.setColor(new Color(WorldPaletteDef.rgb(swatch.letterbox())));
+                g.drawRoundRect(sx, sy, SWATCH_SIZE, SWATCH_SIZE, 5, 5);
+            }
+            double leftArrow = x() + width() * 0.46 + ARROW_WIDTH;
+            double rightArrow = x() + width() - ARROW_WIDTH;
+            boolean active = isEnabled() && options().size() > 1;
+            g.setColor(active ? ARROW_ON : ARROW_OFF);
+            triangle(g, leftArrow, lineY, -1);
+            triangle(g, rightArrow, lineY, 1);
+            g.setFont(Fonts.bold(fontSize));
+            g.setColor(locked ? ProceduralArt.TEXT_MUTED : ProceduralArt.TEXT_LIGHT);
+            TextPainter.draw(g, selectedOption(), (leftArrow + rightArrow) / 2,
+                    TextPainter.centeredBaseline(g, lineY), Align.CENTER);
+            if (!detail.isEmpty()) {
+                g.setFont(Fonts.regular(10));
+                g.setColor(locked ? SLOT_BLOCKED : ProceduralArt.TEXT_MUTED);
+                TextPainter.draw(g, detail, x(), y() + height() - 5);
+            }
+            if (isFocused()) {
+                Stroke old = g.getStroke();
+                g.setStroke(FOCUS);
+                g.setColor(ARROW_ON);
+                g.drawRoundRect((int) Math.round(x() + width() * 0.46), (int) Math.round(y() + 1),
+                        (int) Math.round(width() * 0.54), 24, 10, 10);
+                g.setStroke(old);
+            }
+        }
+
+        private void triangle(Graphics2D g, double tipX, double cy, int dir) {
+            arrowX[0] = (int) Math.round(tipX);
+            arrowY[0] = (int) Math.round(cy);
+            arrowX[1] = (int) Math.round(tipX - dir * 7);
+            arrowY[1] = (int) Math.round(cy - 6);
+            arrowX[2] = (int) Math.round(tipX - dir * 7);
+            arrowY[2] = (int) Math.round(cy + 6);
+            g.fillPolygon(arrowX, arrowY, 3);
         }
     }
 

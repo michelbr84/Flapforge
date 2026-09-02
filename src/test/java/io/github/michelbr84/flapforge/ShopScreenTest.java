@@ -215,9 +215,10 @@ class ShopScreenTest {
         openTab(2);
         assertEquals(4, screen.offers().size(), "the four worlds behind Green Fields");
         assertEquals("world:wind_valley", screen.offers().get(0).id());
-        assertTrue(screen.offerGrid().card("world:wind_valley").subtitle()
+        assertFalse(screen.offerGrid().card("world:wind_valley").subtitle()
                         .contains(strings.format(StringKey.COMMON_SOON, "M7")),
-                () -> screen.offerGrid().card("world:wind_valley").subtitle());
+                () -> "worlds play now (M7): "
+                        + screen.offerGrid().card("world:wind_valley").subtitle());
 
         openTab(3);
         assertEquals(7, screen.offers().size(),

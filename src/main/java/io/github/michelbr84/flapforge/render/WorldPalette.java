@@ -1,5 +1,7 @@
 package io.github.michelbr84.flapforge.render;
 
+import io.github.michelbr84.flapforge.content.defs.WorldPaletteDef;
+
 /**
  * Colour set of one world, used by {@link ProceduralArt} for every generated visual (D18).
  *
@@ -43,6 +45,19 @@ public record WorldPalette(int skyTop, int skyBottom, int ground, int pipe, int 
         check("accent", accent);
         check("fog", fog);
         check("letterbox", letterbox);
+    }
+
+    /**
+     * The palette of a {@code worlds.json} entry (M7).
+     *
+     * @param def the authored colours
+     * @return the palette
+     */
+    public static WorldPalette from(WorldPaletteDef def) {
+        return new WorldPalette(WorldPaletteDef.rgb(def.skyTop()),
+                WorldPaletteDef.rgb(def.skyBottom()), WorldPaletteDef.rgb(def.ground()),
+                WorldPaletteDef.rgb(def.pipe()), WorldPaletteDef.rgb(def.accent()),
+                WorldPaletteDef.rgb(def.fog()), WorldPaletteDef.rgb(def.letterbox()));
     }
 
     private static void check(String name, int rgb) {

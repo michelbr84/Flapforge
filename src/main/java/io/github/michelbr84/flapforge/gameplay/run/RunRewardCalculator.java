@@ -73,7 +73,7 @@ public final class RunRewardCalculator {
         long gateCoins = rewards.coinsPerGate() * gates;
         long pointCoins = rewards.coinsPerPoint() * points;
         long streakCoins = (rewards.streak().coins() + modifierStreakBonus(stats)) * steps;
-        // TODO(M7): + Σ world.boss.reward.coins over ctx.firstBossClears().
+        // TODO(M8): + Σ world.boss.reward.coins over ctx.firstBossClears() (BossEncounter lands in M8).
         long bossCoins = rewards.bossBonus() * bosses + firstBossClearCoins(ctx);
         // TODO(M8): + challenge.rewards.coins when ctx.firstChallengeCompletion().
         long challengeCoins = (stats.objectiveMet() ? rewards.challengeBonus() : 0)

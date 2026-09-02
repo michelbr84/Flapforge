@@ -272,6 +272,17 @@ public abstract class UiNode {
     }
 
     /**
+     * Whether the node steps on {@code Left}/{@code Right} itself while focused (a list row),
+     * so the {@link FocusRing} must not move the focus on those keys. The default is
+     * {@code false}: arrows navigate.
+     *
+     * @return {@code true} when the node consumes the horizontal keys
+     */
+    public boolean handlesHorizontalKeys() {
+        return false;
+    }
+
+    /**
      * Draws the node in logical coordinates.
      *
      * @param g the context

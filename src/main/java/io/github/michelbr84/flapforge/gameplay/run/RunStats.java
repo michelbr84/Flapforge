@@ -1,6 +1,7 @@
 package io.github.michelbr84.flapforge.gameplay.run;
 
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -21,6 +22,7 @@ public final class RunStats {
     private int streakSteps;
     private int ticksAlive;
     private CollisionCause deathCause;
+    private ObstacleKind deathKind;
     private final Map<String, Integer> abilitiesUsed = new LinkedHashMap<>();
     private final List<String> modifiersTaken = new ArrayList<>();
     private final List<String> synergiesActivated = new ArrayList<>();
@@ -51,6 +53,7 @@ public final class RunStats {
         c.streakSteps = streakSteps;
         c.ticksAlive = ticksAlive;
         c.deathCause = deathCause;
+        c.deathKind = deathKind;
         c.abilitiesUsed.putAll(abilitiesUsed);
         c.modifiersTaken.addAll(modifiersTaken);
         c.synergiesActivated.addAll(synergiesActivated);
@@ -196,6 +199,24 @@ public final class RunStats {
      */
     public void setDeathCause(CollisionCause value) {
         deathCause = value;
+    }
+
+    /**
+     * The family of the obstacle that killed the bird (M7).
+     *
+     * @return the kind, or {@code null} while alive or for a ground / ceiling death
+     */
+    public ObstacleKind deathKind() {
+        return deathKind;
+    }
+
+    /**
+     * Sets the obstacle family behind the death.
+     *
+     * @param value the kind, or {@code null}
+     */
+    public void setDeathKind(ObstacleKind value) {
+        deathKind = value;
     }
 
     /**

@@ -69,6 +69,27 @@ public final class ReviveSystem {
     }
 
     /**
+     * Follows a freshly resolved {@code REVIVES} in both directions (M7): a rise is
+     * {@link #raiseTo}, a drop lowers the ceiling and clips the usable charges to it — what a
+     * rule shift that cycles {@code NO_REVIVE} in does, until it cycles out again.
+     *
+     * @param resolved the {@code REVIVES} the sheet resolves now
+     * @return {@code true} when the ceiling moved either way
+     */
+    public boolean syncTo(int resolved) {
+        int target = Math.max(0, resolved);
+        if (target > maxCharges) {
+            return raiseTo(target);
+        }
+        if (target == maxCharges) {
+            return false;
+        }
+        maxCharges = target;
+        charges = Math.min(charges, target);
+        return true;
+    }
+
+    /**
      * Applies the {@code emergency_recovery} ability's level parameters (D9).
      *
      * @param invulnTicksValue invulnerability granted by a revive, in ticks

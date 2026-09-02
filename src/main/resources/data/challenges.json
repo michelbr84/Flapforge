@@ -1,5 +1,5 @@
 {
-  "_comment": "M4 stub with the FINAL unlock and reward blocks (plan A.0.1 E19). Authored now: id, world, tier, curve, allowOffers, flags, effects, forcedModifiers, objective, rewards and unlock - the rewards are unlock-graph edges (three bird palettes, ability:invulnerability and tier:nightmare are earned here), so they have to be final. M8 fills 'forcedPattern' and 'boss' in place, once patterns.json exists (M7), and ships the objective evaluator; until then GameContent.playable(CHALLENGE) is false. A challenge never requires its world to be unlocked (E6) and its own boss never clears a world (E26).",
+  "_comment": "M4 stub with the FINAL unlock and reward blocks (plan A.0.1 E19). Authored now: id, world, tier, curve, allowOffers, flags, effects, forcedModifiers, objective, rewards and unlock - the rewards are unlock-graph edges (three bird palettes, ability:invulnerability and tier:nightmare are earned here), so they have to be final. M7 filled boss_corridor_1's 'forcedPattern' (corridor_1, scoringSteps true per E14) and 'boss' block with patterns.json, so the validator's pattern checks cover the challenge references; M8 ships the objective evaluator and the boss encounter; until then GameContent.playable(CHALLENGE) is false. A challenge never requires its world to be unlocked (E6) and its own boss never clears a world (E26).",
   "challenges": [
     { "id": "no_shield_1", "world": "green_fields", "tier": "normal", "curve": "standard",
       "allowOffers": false, "flags": ["NO_DEFENSIVE_ABILITIES"], "effects": [],
@@ -59,7 +59,9 @@
       ] } },
     { "id": "boss_corridor_1", "world": "green_fields", "tier": "normal", "curve": "standard",
       "allowOffers": false, "flags": [], "effects": [],
-      "forcedModifiers": [], "forcedPattern": null, "boss": null,
+      "forcedModifiers": [], "forcedPattern": "corridor_1",
+      "boss": { "atGate": 20, "warningTicks": 120, "patterns": ["corridor_boss_p1"],
+        "surviveTicks": 900 },
       "objective": { "type": "BOSS_CLEARED", "value": 1 },
       "rewards": { "coins": 500, "unlocks": ["tier:nightmare"] },
       "unlock": { "type": "any_of", "conditions": [

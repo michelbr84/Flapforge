@@ -362,6 +362,8 @@ public enum StringKey {
     MENU_UPGRADES("menu.upgrades"),
     /** Main menu: open the shop. */
     MENU_SHOP("menu.shop"),
+    /** Main menu: the world the next run is played in, {@code {0}} its name (M7). */
+    MENU_WORLD("menu.world"),
 
     /** Make the focused entry the one the next run uses. */
     COMMON_SELECT("common.select"),
@@ -388,6 +390,12 @@ public enum StringKey {
     BIRDS_PASSIVE_SLOTS("birds.passive_slots"),
     /** Bird selection: the difficulty tier of the next run. */
     BIRDS_TIER("birds.tier"),
+    /** Bird selection: the world picker label (M7). */
+    BIRDS_WORLD("birds.world"),
+    /** Bird selection: the hazards a world spawns, {@code {0}} the list (M7). */
+    BIRDS_WORLD_HAZARDS("birds.world.hazards"),
+    /** Bird selection: how a locked world opens, {@code {0}} the condition (M7). */
+    BIRDS_WORLD_LOCKED("birds.world.locked"),
     /** Bird selection: the stat breakdown panel. */
     BIRDS_BREAKDOWN("birds.breakdown"),
     /** Bird selection: the bird's base value of a stat. */
@@ -458,6 +466,32 @@ public enum StringKey {
     RULE_NO_DEFENSIVE_ABILITIES("rule.no_defensive_abilities"),
     /** Rule flag: revives are stripped. */
     RULE_NO_REVIVE("rule.no_revive"),
+    /** Rule flag: every obstacle uses its moving variant. */
+    RULE_ALL_OBSTACLES_MOVE("rule.all_obstacles_move"),
+    /** Rule flag: the top edge kills. */
+    RULE_LETHAL_CEILING("rule.lethal_ceiling"),
+    /** Rule flag: no coins spawn. */
+    RULE_NO_COINS("rule.no_coins"),
+    /** Rule flag: the scroll speed grows with time. */
+    RULE_SPEED_RAMP("rule.speed_ramp"),
+    /** Rule-shift banner: the heading (M7). */
+    RULE_SHIFT_TITLE("rule_shift.title"),
+    /** Rule-shift banner: the countdown, {@code {0}} the rule and {@code {1}} the seconds. */
+    RULE_SHIFT_COUNTDOWN("rule_shift.countdown"),
+    /** Rule-shift banner: the countdown ran out and the shift waits for clear air, {@code {0}}. */
+    RULE_SHIFT_NOW("rule_shift.now"),
+    /** Rule-shift banner: the rule landed, {@code {0}} the rule (M7). */
+    RULE_SHIFT_IN_EFFECT("rule_shift.in_effect"),
+    /** Obstacle family: pipe gates (M7). */
+    OBSTACLE_PIPE_GATE("obstacle.pipe_gate.name"),
+    /** Obstacle family: gears. */
+    OBSTACLE_GEAR("obstacle.gear.name"),
+    /** Obstacle family: pistons. */
+    OBSTACLE_PISTON("obstacle.piston.name"),
+    /** Obstacle family: wind zones. */
+    OBSTACLE_WIND_ZONE("obstacle.wind_zone.name"),
+    /** Obstacle family: lightning columns. */
+    OBSTACLE_LIGHTNING("obstacle.lightning.name"),
 
     /** Upgrade trees: title. */
     UPGRADES_TITLE("upgrades.title"),

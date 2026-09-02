@@ -1,18 +1,30 @@
 package io.github.michelbr84.flapforge.content;
 
+import io.github.michelbr84.flapforge.content.defs.AmbientDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.CurveDef;
+import io.github.michelbr84.flapforge.content.defs.PatternDef;
+import io.github.michelbr84.flapforge.content.defs.PatternStepDef;
 import io.github.michelbr84.flapforge.content.defs.RampEffectDef;
+import io.github.michelbr84.flapforge.content.defs.RuleCycleOptionDef;
+import io.github.michelbr84.flapforge.content.defs.RuleCyclesDef;
 import io.github.michelbr84.flapforge.content.defs.StatModifierDef;
 import io.github.michelbr84.flapforge.content.defs.SynergyEffectDef;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.UpgradeDef;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleParams;
+import io.github.michelbr84.flapforge.gameplay.spec.AmbientSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.PatternSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.RampEffect;
+import io.github.michelbr84.flapforge.gameplay.spec.RuleCycleSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.SynergyEffect;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.WorldSpec;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProfileSchema;
@@ -73,6 +85,76 @@ public final class ContentAdapters {
      */
     public static TierSpec toSpec(TierDef def) {
         return def.toSpec();
+    }
+
+    /**
+     * Converts a world definition (M7): the curve is looked up, the effects become
+     * {@code WORLD}-layer modifiers with source {@code world:<id>}, the rule cycle options'
+     * effects get source {@code cycle:<index>}, and the pattern ids are resolved through
+     * {@link GameContent#patternSpec}.
+     *
+     * @param def the definition
+     * @param content the content the curve and the patterns are resolved against
+     * @return the world spec
+     * @throws UnknownIdException when the curve or a pattern id is not in the registries
+     */
+    public static WorldSpec toSpec(WorldDef def, GameContent content) {
+        String source = "world:" + def.id();
+        List<StatModifier> effects = new ArrayList<>(def.effects().size());
+        for (StatModifierDef e : def.effects()) {
+            effects.add(e.toModifier(source));
+        }
+        List<PatternSpec> patterns = new ArrayList<>(def.patterns().size());
+        for (String id : def.patterns()) {
+            patterns.add(content.patternSpec(id));
+        }
+        AmbientDef ambient = def.ambient() == null ? AmbientDef.NONE : def.ambient();
+        return new WorldSpec(def.id(), content.curveSpec(def.curve()), effects,
+                RuleSet.of(def.flags()), def.spawnWeights(), patterns,
+                new AmbientSpec(ambient.darkness(), ambient.windX(), ambient.windY(),
+                        ambient.lightningEveryGates()),
+                toSpec(def.ruleCycles()));
+    }
+
+    /**
+     * Converts a rule cycle block (M7).
+     *
+     * @param def the definition, or {@code null}
+     * @return the spec, or {@code null} for a world without cycles
+     */
+    public static RuleCycleSpec toSpec(RuleCyclesDef def) {
+        if (def == null) {
+            return null;
+        }
+        List<RuleCycleSpec.Option> options = new ArrayList<>(def.options().size());
+        for (int i = 0; i < def.options().size(); i++) {
+            RuleCycleOptionDef option = def.options().get(i);
+            String source = "cycle:" + i;
+            List<StatModifier> effects = new ArrayList<>(option.effects().size());
+            for (StatModifierDef e : option.effects()) {
+                effects.add(e.toModifier(source));
+            }
+            options.add(new RuleCycleSpec.Option(RuleSet.of(option.flags()), effects));
+        }
+        return new RuleCycleSpec(def.everyGates(), def.telegraphTicks(), options);
+    }
+
+    /**
+     * Converts a pattern definition (M7): every step's parameters are typed through
+     * {@link ObstacleParams#resolve}, which is where a {@code 0..1} fraction becomes pixels.
+     *
+     * @param def the definition
+     * @return the pattern spec
+     * @throws IllegalArgumentException when a step's parameters break the kind's contract (the
+     *     validator reports the same problems with their pointers first)
+     */
+    public static PatternSpec toSpec(PatternDef def) {
+        List<PatternSpec.Step> steps = new ArrayList<>(def.steps().size());
+        for (PatternStepDef step : def.steps()) {
+            steps.add(new PatternSpec.Step(step.dx(), step.kind(),
+                    ObstacleParams.resolve(step.kind(), step.params()), step.scores()));
+        }
+        return new PatternSpec(def.id(), def.weight(), def.minGate(), def.stepsScore(), steps);
     }
 
     /**

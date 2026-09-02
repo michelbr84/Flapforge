@@ -176,6 +176,17 @@ public class ListView extends UiNode implements Adjustable {
         this.fontSize = fontSize;
     }
 
+    /**
+     * A row with something to step through keeps {@code Left}/{@code Right} for itself; a row
+     * with a single option lets the arrows navigate as they do everywhere else.
+     *
+     * @return {@code true} when there are at least two options
+     */
+    @Override
+    public boolean handlesHorizontalKeys() {
+        return options.size() >= 2;
+    }
+
     @Override
     public boolean adjust(int steps) {
         if (steps == 0 || options.size() < 2) {

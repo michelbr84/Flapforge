@@ -3,6 +3,7 @@ package io.github.michelbr84.flapforge.gameplay.run;
 import io.github.michelbr84.flapforge.content.defs.AbilityDef;
 import io.github.michelbr84.flapforge.gameplay.difficulty.DifficultyState;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
+import io.github.michelbr84.flapforge.gameplay.spec.PatternSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.WorldSpec;
 import io.github.michelbr84.flapforge.modifier.ModifierCatalog;
@@ -27,9 +28,13 @@ import java.util.Objects;
  * @param modifiers the roguelite content of the run (M6): the offer schedule, the rarity weights,
  *     the cards the profile may be shown and the set bonuses. {@link ModifierCatalog#EMPTY} turns
  *     the whole draft layer off, which is what every seam that plays without content uses
+ * @param forcedPattern the one pattern the run streams, looped forever, instead of the world's
+ *     spawn table (D7, M7) — a challenge's {@code forcedPattern}, or {@code --pattern} in the
+ *     balancing tool; {@code null} for an ordinary run
  */
 public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double speedRampPerTick,
-        int streakStep, List<AbilityDef> abilities, ModifierCatalog modifiers) {
+        int streakStep, List<AbilityDef> abilities, ModifierCatalog modifiers,
+        PatternSpec forcedPattern) {
 
     /** Forgewing in Green Fields on the normal tier, with no ability equipped. */
     public static final RunSetup CLASSIC = new RunSetup(BirdProfile.CLASSIC, WorldSpec.GREEN_FIELDS,
@@ -45,6 +50,7 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
      * @param streakStep the streak reward step
      * @param abilities the loadout, active first
      * @param modifiers the roguelite content of the run
+     * @param forcedPattern the forced pattern or {@code null}
      */
     public RunSetup {
         Objects.requireNonNull(bird, "bird");
@@ -55,6 +61,22 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
         }
         abilities = List.copyOf(abilities);
         modifiers = modifiers == null ? ModifierCatalog.EMPTY : modifiers;
+    }
+
+    /**
+     * Builds a setup with a loadout and roguelite content and no forced pattern.
+     *
+     * @param bird the bird profile
+     * @param world the world
+     * @param tier the tier
+     * @param speedRampPerTick the speed ramp per tick
+     * @param streakStep the streak reward step
+     * @param abilities the loadout, active first
+     * @param modifiers the roguelite content of the run
+     */
+    public RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double speedRampPerTick,
+            int streakStep, List<AbilityDef> abilities, ModifierCatalog modifiers) {
+        this(bird, world, tier, speedRampPerTick, streakStep, abilities, modifiers, null);
     }
 
     /**
@@ -69,7 +91,8 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
      */
     public RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double speedRampPerTick,
             int streakStep) {
-        this(bird, world, tier, speedRampPerTick, streakStep, List.of(), ModifierCatalog.EMPTY);
+        this(bird, world, tier, speedRampPerTick, streakStep, List.of(), ModifierCatalog.EMPTY,
+                null);
     }
 
     /**
@@ -84,7 +107,8 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
      */
     public RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double speedRampPerTick,
             int streakStep, List<AbilityDef> abilities) {
-        this(bird, world, tier, speedRampPerTick, streakStep, abilities, ModifierCatalog.EMPTY);
+        this(bird, world, tier, speedRampPerTick, streakStep, abilities, ModifierCatalog.EMPTY,
+                null);
     }
 
     /**
@@ -95,7 +119,7 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
      */
     public RunSetup withAbilities(List<AbilityDef> newAbilities) {
         return new RunSetup(bird, world, tier, speedRampPerTick, streakStep, newAbilities,
-                modifiers);
+                modifiers, forcedPattern);
     }
 
     /**
@@ -106,7 +130,18 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
      */
     public RunSetup withModifiers(ModifierCatalog newModifiers) {
         return new RunSetup(bird, world, tier, speedRampPerTick, streakStep, abilities,
-                newModifiers);
+                newModifiers, forcedPattern);
+    }
+
+    /**
+     * Copy with a forced pattern (M7): the run streams it, looped, instead of the world's table.
+     *
+     * @param newForcedPattern the pattern, or {@code null} for the world's own spawns
+     * @return the copy
+     */
+    public RunSetup withForcedPattern(PatternSpec newForcedPattern) {
+        return new RunSetup(bird, world, tier, speedRampPerTick, streakStep, abilities,
+                modifiers, newForcedPattern);
     }
 
     /**
@@ -130,7 +165,7 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
      */
     public RunSetup withBird(BirdProfile newBird) {
         return new RunSetup(newBird, world, tier, speedRampPerTick, streakStep, abilities,
-                modifiers);
+                modifiers, forcedPattern);
     }
 
     /**
@@ -141,7 +176,7 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
      */
     public RunSetup withWorld(WorldSpec newWorld) {
         return new RunSetup(bird, newWorld, tier, speedRampPerTick, streakStep, abilities,
-                modifiers);
+                modifiers, forcedPattern);
     }
 
     /**
@@ -152,6 +187,6 @@ public record RunSetup(BirdProfile bird, WorldSpec world, TierSpec tier, double 
      */
     public RunSetup withTier(TierSpec newTier) {
         return new RunSetup(bird, world, newTier, speedRampPerTick, streakStep, abilities,
-                modifiers);
+                modifiers, forcedPattern);
     }
 }

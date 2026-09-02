@@ -549,7 +549,8 @@ class ContentIntegrityTest {
         assertTrue(SHIPPED.playable(ContentKind.MODIFIER), "modifiers landed in M6");
         assertTrue(SHIPPED.playable(ContentKind.SYNERGY), "and so did their set bonuses");
         assertTrue(SHIPPED.playable(ContentKind.WORLD, "green_fields"));
-        assertFalse(SHIPPED.playable(ContentKind.WORLD, "storm_sky"), "worlds land in M7");
+        assertTrue(SHIPPED.playable(ContentKind.WORLD, "storm_sky"), "worlds landed in M7");
+        assertTrue(SHIPPED.playable(ContentKind.WORLD, "void"));
         assertFalse(SHIPPED.playable(ContentKind.CHALLENGE), "challenges land in M8");
         assertFalse(SHIPPED.playable(ContentKind.ACHIEVEMENT), "achievements land in M8");
     }
@@ -578,11 +579,12 @@ class ContentIntegrityTest {
         assertTrue(ContentValidator.contentKeys(SHIPPED).contains("synergy.daredevil.desc"));
     }
 
-    /** The M6 file set is what the game loads. */
+    /** The M7 file set is what the game loads. */
     @Test
-    void theShippedFileSetIsTheM6One() {
+    void theShippedFileSetIsTheM7One() {
         assertEquals(List.of("birds", "difficulty", "economy", "upgrades", "aliases", "abilities",
-                "modifiers", "worlds", "challenges", "achievements"), ContentLoader.FILES);
+                "modifiers", "worlds", "patterns", "challenges", "achievements"),
+                ContentLoader.FILES);
         for (String file : ContentLoader.FILES) {
             assertTrue(SHIPPED.has(file), file + " was loaded");
         }
@@ -593,5 +595,14 @@ class ContentIntegrityTest {
         RunFactory factory = new RunFactory(SHIPPED);
         assertEquals("classic", factory.curveIdFor("green_fields"));
         assertEquals("standard", factory.curveIdFor("storm_sky"));
+        // M7: the answer now comes from worlds.json rather than from a two-case fallback, so
+        // every shipped world's curve is what the file says.
+        for (WorldDef world : SHIPPED.worlds()) {
+            assertEquals(world.curve(), factory.curveIdFor(world.id()), world.id());
+        }
+        // ... and the frozen fixture, which ships no worlds.json, keeps the fallback (E19).
+        RunFactory frozen = TestContent.frozenFactory();
+        assertEquals("classic", frozen.curveIdFor("green_fields"));
+        assertEquals("standard", frozen.curveIdFor("storm_sky"));
     }
 }

@@ -30,6 +30,7 @@ import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
+import io.github.michelbr84.flapforge.progression.SelectionManager;
 import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.render.AssetManager;
@@ -218,7 +219,9 @@ public final class GameApplication {
         context = new GameContext(options, clock, timeSource, threads, input, viewport, screens,
                 presenter, null, loop, limiter, null, new EventBus(), audio, strings,
                 new ToastLayer(), content, null, null, null);
-        screens.push(new MainMenuScreen(context, runFactory(content, seeds), seeds));
+        ContentRunFactory headlessRuns = runFactory(content, seeds);
+        String world = pinWorld(headlessRuns, content, null, null);
+        screens.push(new MainMenuScreen(context, headlessRuns, seeds));
         screens.applyPending();
 
         loop.start();
@@ -229,7 +232,7 @@ public final class GameApplication {
         long seed = options.seed() == null ? DEFAULT_HEADLESS_SEED : options.seed();
         System.out.println("headless-run frames=" + loop.frameCount() + " ticks=" + loop.tickCount()
                 + " presents=" + presenter.presentCount() + " seed=" + seed);
-        System.out.println(simulationHashLine(content, seed, frames));
+        System.out.println(simulationHashLine(content, seed, frames, world));
         drainSaves(threads);
     }
 
@@ -344,6 +347,44 @@ public final class GameApplication {
     }
 
     /**
+     * Applies {@code --world} (M7): the named world is pinned on the run factory for this launch.
+     * When the profile owns it the selection is written too, as the world picker would; when it
+     * does not, the profile is left alone and a line says so — the flag is a launch override, not
+     * an unlock, so the next launch without it is back to the owned selection. An id the content
+     * does not ship is reported and ignored.
+     *
+     * @param runs the factory every run comes from
+     * @param content the loaded content
+     * @param profile the live profile, or {@code null} in a launch without one
+     * @param progression the write path of the profile, or {@code null} without one
+     * @return the pinned world id, or {@code null} when the flag was absent or ignored
+     */
+    private String pinWorld(ContentRunFactory runs, GameContent content, PlayerProfile profile,
+            ProgressionManager progression) {
+        String world = options.world();
+        if (world == null) {
+            return null;
+        }
+        if (!content.worlds().contains(world)) {
+            System.err.println("--world " + world + ": no such world; playing the selected one ("
+                    + content.worlds().ids() + ")");
+            return null;
+        }
+        runs.withWorld(world);
+        if (profile != null && progression != null) {
+            SelectionManager selection = new SelectionManager(progression, null);
+            if (selection.selectWorld(profile, world, content)) {
+                System.out.println("--world " + world + ": selected");
+            } else {
+                System.out.println("--world " + world + ": not unlocked in this profile (world:"
+                        + world + "); playing it for this launch only, the selection stays "
+                        + profile.selected.worldId);
+            }
+        }
+        return world;
+    }
+
+    /**
      * The {@code aliases.json} step of the load (E21), as the save manager runs it: on the bound
      * profile, before normalisation.
      *
@@ -410,7 +451,25 @@ public final class GameApplication {
      * @return the line to print
      */
     static String simulationHashLine(GameContent content, long seed, int maxTicks) {
-        Run run = new RunFactory(content).newRun(RunConfig.classic(seed));
+        return simulationHashLine(content, seed, maxTicks, null);
+    }
+
+    /**
+     * {@link #simulationHashLine(GameContent, long, int)} in a pinned world ({@code --world}):
+     * without the flag the configuration is {@code RunConfig.classic(seed)}, so the published
+     * hash is untouched.
+     *
+     * @param content the loaded content
+     * @param seed the run seed
+     * @param maxTicks the tick budget
+     * @param worldId the world to play, or {@code null} for the classic configuration
+     * @return the line to print
+     */
+    static String simulationHashLine(GameContent content, long seed, int maxTicks,
+            String worldId) {
+        RunConfig config = worldId == null ? RunConfig.classic(seed)
+                : RunConfig.builder(seed).worldId(worldId).build();
+        Run run = new RunFactory(content).newRun(config);
         HeadlessRunner.Outcome outcome =
                 HeadlessRunner.run(run, new BotPilot(BotPilot.Preset.PERFECT, seed), maxTicks, true);
         long hash = MathUtil.fnv1a64("flapforge-headless");
@@ -504,6 +563,9 @@ public final class GameApplication {
         // The manager starts silent and the boot step hands it the real mixer: opening a line
         // costs 240 ms on a cold device, which would be 240 ms of a visible, unpainted window.
         AudioManager audio = new AudioManager(new NullAudio());
+        // The in-run cues take the sound set of the run's world (E31.g, M7).
+        audio.setSfxSetResolver(worldId -> content.worlds().contains(worldId)
+                ? content.worlds().get(worldId).sfxSet() : null);
         context = new GameContext(options, clock, timeSource, threads, input, viewport, screens,
                 presenter, window, loop, limiter, settingsStore, events, audio, strings, toasts,
                 content, save, progression, progressionRules);
@@ -524,9 +586,10 @@ public final class GameApplication {
         steps.add(new BootSequence.Step(StringKey.BOOT_AUDIO,
                 () -> openAudio(audio, assets, threads)));
         BootSequence boot = new BootSequence(threads.bootExecutor(), steps);
+        ContentRunFactory runs = runFactory(content, seeds, bootContext);
+        pinWorld(runs, content, save.profile(), progression);
         screens.push(new BootScreen(bootContext, boot,
-                () -> new MainMenuScreen(bootContext, runFactory(content, seeds, bootContext),
-                        seeds)));
+                () -> new MainMenuScreen(bootContext, runs, seeds)));
         screens.applyPending();
 
         Thread shutdownHook = new Thread(() -> drainSaves(threads), "flapforge-shutdown");

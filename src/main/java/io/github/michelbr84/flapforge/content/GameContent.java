@@ -15,6 +15,8 @@ import io.github.michelbr84.flapforge.content.defs.EconomyDef;
 import io.github.michelbr84.flapforge.content.defs.FeatureDef;
 import io.github.michelbr84.flapforge.content.defs.ModifierDef;
 import io.github.michelbr84.flapforge.content.defs.ModifiersDef;
+import io.github.michelbr84.flapforge.content.defs.PatternDef;
+import io.github.michelbr84.flapforge.content.defs.PatternsDef;
 import io.github.michelbr84.flapforge.content.defs.SynergyDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.TierGeneratorDef;
@@ -25,7 +27,9 @@ import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.content.defs.WorldsDef;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.PatternSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.WorldSpec;
 import io.github.michelbr84.flapforge.modifier.ModifierCatalog;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -74,6 +78,8 @@ public final class GameContent {
     public static final String MODIFIERS = "modifiers";
     /** Base name of the world file. */
     public static final String WORLDS = "worlds";
+    /** Base name of the obstacle pattern file (M7). */
+    public static final String PATTERNS = "patterns";
     /** Base name of the challenge file. */
     public static final String CHALLENGES = "challenges";
     /** Base name of the achievement file. */
@@ -81,9 +87,6 @@ public final class GameContent {
 
     /** The files that must be present for content to bind at all. */
     public static final List<String> REQUIRED_FILES = List.of(BIRDS, DIFFICULTY, ECONOMY);
-
-    /** The one world that is playable before M7 (E19). */
-    public static final String PLAYABLE_WORLD = "green_fields";
 
     /**
      * The milestone each declared feature's system arrives in (E19). A feature that is not listed
@@ -117,6 +120,7 @@ public final class GameContent {
     private final Registry<SynergyDef> synergies;
     private final ModifiersDef modifierBlock;
     private final Registry<WorldDef> worlds;
+    private final Registry<PatternDef> patterns;
     private final Registry<ChallengeDef> challenges;
     private final Registry<AchievementDef> achievements;
     private final AliasDef aliases;
@@ -125,6 +129,8 @@ public final class GameContent {
     private final Map<String, BirdProfile> birdProfiles = new LinkedHashMap<>();
     private final Map<String, CurveSpec> curveSpecs = new LinkedHashMap<>();
     private final Map<String, TierSpec> tierSpecs = new LinkedHashMap<>();
+    private final Map<String, PatternSpec> patternSpecs = new LinkedHashMap<>();
+    private final Map<String, WorldSpec> worldSpecs = new LinkedHashMap<>();
 
     private GameContent(Bound bound) {
         this.files = Collections.unmodifiableSet(new LinkedHashSet<>(bound.files));
@@ -141,6 +147,7 @@ public final class GameContent {
         this.modifiers = new Registry<>("modifier", modifierBlock.modifiers(), ModifierDef::id);
         this.synergies = new Registry<>("synergy", modifierBlock.synergies(), SynergyDef::id);
         this.worlds = new Registry<>("world", bound.worlds, WorldDef::id);
+        this.patterns = new Registry<>("pattern", bound.patterns, PatternDef::id);
         this.challenges = new Registry<>("challenge", bound.challenges, ChallengeDef::id);
         this.achievements = new Registry<>("achievement", bound.achievements, AchievementDef::id);
         this.aliases = bound.aliases == null ? AliasDef.EMPTY : bound.aliases;
@@ -168,6 +175,7 @@ public final class GameContent {
         List<AbilityDef> abilities = List.of();
         ModifiersDef modifiers;
         List<WorldDef> worlds = List.of();
+        List<PatternDef> patterns = List.of();
         List<ChallengeDef> challenges = List.of();
         List<AchievementDef> achievements = List.of();
         AliasDef aliases;
@@ -221,6 +229,10 @@ public final class GameContent {
         WorldsDef worlds = bind(files, WORLDS, WorldsDef.class, bound, errors);
         if (worlds != null) {
             bound.worlds = worlds.worlds();
+        }
+        PatternsDef patterns = bind(files, PATTERNS, PatternsDef.class, bound, errors);
+        if (patterns != null) {
+            bound.patterns = patterns.patterns();
         }
         ChallengesDef challenges = bind(files, CHALLENGES, ChallengesDef.class, bound, errors);
         if (challenges != null) {
@@ -312,18 +324,17 @@ public final class GameContent {
     }
 
     /**
-     * Whether one entry of a kind is playable (E19). Two kinds differ per id: Green Fields plays
-     * today and the other four worlds are authored for M7, and a feature plays only once the
-     * system behind it exists ({@link #featureMilestone}).
+     * Whether one entry of a kind is playable (E19). One kind differs per id: a feature plays
+     * only once the system behind it exists ({@link #featureMilestone}). Worlds answered per id
+     * from M4 to M6 — Green Fields alone — and every world plays from M7, so they answer per kind
+     * again; the per-id method stays because the selection and the shop ask it and a later build
+     * may stage content the same way.
      *
      * @param kind the kind
      * @param id the entry id
      * @return {@code true} when that entry can be used in a run today
      */
     public boolean playable(ContentKind kind, String id) {
-        if (kind == ContentKind.WORLD) {
-            return PLAYABLE_WORLD.equals(id);
-        }
         if (kind == ContentKind.FEATURE) {
             return featureMilestone(id) == null && playable(kind);
         }
@@ -449,6 +460,58 @@ public final class GameContent {
      */
     public Registry<WorldDef> worlds() {
         return worlds;
+    }
+
+    /**
+     * The obstacle pattern registry, in file order (M7).
+     *
+     * @return the registry, empty when {@code patterns.json} was not supplied
+     */
+    public Registry<PatternDef> patterns() {
+        return patterns;
+    }
+
+    /**
+     * The simulation spec of a world (M7): curve, effects, flags, weights, patterns, ambience and
+     * rule cycles resolved from {@code worlds.json}.
+     *
+     * <p>Resolved on first use and cached, not in the constructor: turning a pattern step's
+     * parameters into typed geometry rejects invalid values, and the validator has to report those
+     * with their pointers before any spec is built.
+     *
+     * @param id the world id
+     * @return the spec
+     * @throws UnknownIdException when no world carries the id
+     */
+    public synchronized WorldSpec worldSpec(String id) {
+        WorldSpec spec = worldSpecs.get(id);
+        if (spec == null) {
+            if (!worlds.contains(id)) {
+                throw new UnknownIdException("world", id);
+            }
+            spec = ContentAdapters.toSpec(worlds.get(id), this);
+            worldSpecs.put(id, spec);
+        }
+        return spec;
+    }
+
+    /**
+     * The simulation spec of a pattern (M7), with every step's parameters typed.
+     *
+     * @param id the pattern id
+     * @return the spec
+     * @throws UnknownIdException when no pattern carries the id
+     */
+    public synchronized PatternSpec patternSpec(String id) {
+        PatternSpec spec = patternSpecs.get(id);
+        if (spec == null) {
+            if (!patterns.contains(id)) {
+                throw new UnknownIdException("pattern", id);
+            }
+            spec = ContentAdapters.toSpec(patterns.get(id));
+            patternSpecs.put(id, spec);
+        }
+        return spec;
     }
 
     /**

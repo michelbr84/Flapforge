@@ -1,10 +1,12 @@
 package io.github.michelbr84.flapforge.audio;
 
+import io.github.michelbr84.flapforge.content.defs.SfxSet;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * Turns game events into sounds (D16, D19). It is the only thing in the game that decides which
@@ -24,6 +26,12 @@ import java.util.Objects;
  * which is a bounded, drop-on-full queue offer, so the loop thread pays a handful of nanoseconds
  * per event however busy the mixer is.
  *
+ * <p>From M7 the in-run cues come in the sound set of the run's world (E31.g): {@code RunStarted}
+ * names the world, {@link #setSfxSetResolver(Function)} maps it to its {@link SfxSet} (the
+ * application installs {@code worlds.json.sfxSet}), and every gameplay cue is then asked for
+ * under {@link SoundBank#key(String, SfxSet)}. The menu cues stay in the canonical set, so a
+ * button sounds the same on every screen.
+ *
  * <p>The backend can be replaced once, by {@link #setBackend(AudioBackend)}: opening a real line
  * takes hundreds of milliseconds, so the application starts with {@link NullAudio} and the boot
  * screen's warm-up step installs the mixer it opened on the boot thread (D19). The field is
@@ -37,6 +45,10 @@ public final class AudioManager {
     private static final float ABILITY_READY_GAIN = 0.45f;
     /** Gain for the menu-movement blip, which fires often. */
     private static final float UI_MOVE_GAIN = 0.7f;
+    /** Gain for the wind whoosh, a texture rather than a cue. */
+    private static final float WIND_GAIN = 0.55f;
+    /** Gain for the piston telegraph, which several pistons can raise at once. */
+    private static final float PISTON_GAIN = 0.6f;
 
     private volatile AudioBackend backend;
     private boolean closed;
@@ -48,6 +60,8 @@ public final class AudioManager {
     private boolean muted;
     private long played;
     private long suppressed;
+    private SfxSet sfxSet = SfxSet.FIELDS;
+    private Function<String, SfxSet> sfxSetResolver;
 
     /**
      * Creates a manager over a backend. Volumes start at the {@link Settings} defaults; call
@@ -212,6 +226,52 @@ public final class AudioManager {
     }
 
     /**
+     * Installs the world-to-set mapping (M7): called with the world id of every
+     * {@code RunStarted}; a {@code null} answer or a missing resolver keeps the canonical set.
+     *
+     * @param resolver maps a world id to its sound set, or {@code null} to always use the fields
+     */
+    public void setSfxSetResolver(Function<String, SfxSet> resolver) {
+        this.sfxSetResolver = resolver;
+    }
+
+    /**
+     * Switches the in-run cues to a world's sound set.
+     *
+     * @param set the set, or {@code null} for {@link SfxSet#FIELDS}
+     */
+    public void setSfxSet(SfxSet set) {
+        this.sfxSet = set == null ? SfxSet.FIELDS : set;
+    }
+
+    /**
+     * The sound set the in-run cues play in.
+     *
+     * @return the set
+     */
+    public SfxSet sfxSet() {
+        return sfxSet;
+    }
+
+    /**
+     * The bank key a cue would be played under right now (tests): menu cues are never
+     * flavoured, everything else carries the world's set.
+     *
+     * @param id the sound id
+     * @return the key
+     */
+    public String keyFor(String id) {
+        if (id == null) {
+            return null;
+        }
+        if (ToneSynth.UI_MOVE.equals(id) || ToneSynth.UI_SELECT.equals(id)
+                || ToneSynth.UI_BACK.equals(id)) {
+            return id;
+        }
+        return SoundBank.key(id, sfxSet);
+    }
+
+    /**
      * Plays an effect at full gain, centred.
      *
      * @param id the sound id, normally a {@link ToneSynth} constant
@@ -236,7 +296,7 @@ public final class AudioManager {
             return;
         }
         played++;
-        backend.play(id, (float) (gain * sfxVolume), pan);
+        backend.play(keyFor(id), (float) (gain * sfxVolume), pan);
     }
 
     /** Menu focus moved. */
@@ -294,6 +354,10 @@ public final class AudioManager {
             applySettings(changed.settings());
             return;
         }
+        if (event instanceof GameEvent.RunStarted started) {
+            SfxSet set = sfxSetResolver == null ? null : sfxSetResolver.apply(started.worldId());
+            setSfxSet(set);
+        }
         String id = sfxIdFor(event);
         if (id != null) {
             playSfx(id, gainFor(event), 0.0f);
@@ -339,6 +403,18 @@ public final class AudioManager {
         }
         if (event instanceof GameEvent.RuleShift) {
             return ToneSynth.RULE_SHIFT;
+        }
+        if (event instanceof GameEvent.LightningWarning) {
+            return ToneSynth.LIGHTNING_WARNING;
+        }
+        if (event instanceof GameEvent.AmbientFlash) {
+            return ToneSynth.THUNDER;
+        }
+        if (event instanceof GameEvent.PistonTelegraph) {
+            return ToneSynth.PISTON_TELEGRAPH;
+        }
+        if (event instanceof GameEvent.WindGust) {
+            return ToneSynth.WIND;
         }
         if (event instanceof GameEvent.BossWarning || event instanceof GameEvent.BossStarted) {
             return ToneSynth.BOSS_WARNING;
@@ -386,6 +462,12 @@ public final class AudioManager {
         if (event instanceof GameEvent.ModifierOffered
                 || event instanceof GameEvent.ScreenChanged) {
             return UI_MOVE_GAIN;
+        }
+        if (event instanceof GameEvent.WindGust) {
+            return WIND_GAIN;
+        }
+        if (event instanceof GameEvent.PistonTelegraph) {
+            return PISTON_GAIN;
         }
         return 1.0f;
     }

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.michelbr84.flapforge.content.defs.SfxSet;
 import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.persistence.Settings;
@@ -48,6 +49,29 @@ class AudioManagerTest {
                 AudioManager.sfxIdFor(new GameEvent.SynergyActivated("daredevil")));
         assertEquals(ToneSynth.RULE_SHIFT,
                 AudioManager.sfxIdFor(new GameEvent.RuleShift(List.of("NO_COINS"))));
+        assertEquals(ToneSynth.LIGHTNING_WARNING,
+                AudioManager.sfxIdFor(new GameEvent.LightningWarning()));
+        assertEquals(ToneSynth.THUNDER, AudioManager.sfxIdFor(new GameEvent.AmbientFlash()));
+        assertEquals(ToneSynth.PISTON_TELEGRAPH,
+                AudioManager.sfxIdFor(new GameEvent.PistonTelegraph()));
+        assertEquals(ToneSynth.WIND, AudioManager.sfxIdFor(new GameEvent.WindGust()));
+    }
+
+    @Test
+    void picksTheSoundSetOfTheRunsWorldAndLeavesTheMenuCuesAlone() {
+        assertEquals(SfxSet.FIELDS, manager.sfxSet(), "the canonical set before any run");
+        manager.setSfxSetResolver(world -> "storm_sky".equals(world) ? SfxSet.STORM : null);
+        manager.handle(new GameEvent.RunStarted("classic", "storm_sky", "normal", 1L));
+        assertEquals(SfxSet.STORM, manager.sfxSet());
+        manager.handle(new GameEvent.Flapped(false));
+        assertEquals(SoundBank.key(ToneSynth.FLAP, SfxSet.STORM), backend.lastId(),
+                "an in-run cue is asked for in the world's set");
+        manager.uiSelect();
+        assertEquals(ToneSynth.UI_SELECT, backend.lastId(), "a menu cue never is");
+        manager.handle(new GameEvent.RunStarted("classic", "green_fields", "normal", 2L));
+        assertEquals(SfxSet.FIELDS, manager.sfxSet(), "an unknown answer is the fields");
+        manager.handle(new GameEvent.GatePassed(1, true));
+        assertEquals(ToneSynth.SCORE, backend.lastId(), "the fields key is the bare id");
     }
 
     @Test

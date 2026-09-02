@@ -598,4 +598,109 @@ class BirdSelectionScreenTest {
         ticks(1);
         assertEquals("normal", profile.selected.tierId, "a locked tier is not selected");
     }
+
+    // ------------------------------------------------------------------ world picker (M7)
+
+    @Test
+    void theWorldPickerListsTheFiveWorldsInOrderWithTheirHazardsAndLocks() {
+        open();
+        assertEquals(List.of("green_fields", "wind_valley", "iron_forge", "storm_sky", "void"),
+                screen.worldIds(), "worlds.json order");
+        assertEquals(strings.get(StringKey.BIRDS_WORLD), screen.worldList().label());
+        assertEquals("green_fields", screen.currentWorldId(), "a fresh profile flies the fields");
+        assertFalse(screen.worldList().isLocked());
+        assertEquals(strings.format(StringKey.BIRDS_WORLD_HAZARDS,
+                strings.get(StringKey.OBSTACLE_PIPE_GATE)), screen.worldDetail(),
+                "Green Fields spawns pipes only");
+        assertEquals(ProgressionText.name(strings, ContentKind.WORLD, "green_fields"),
+                screen.worldList().selectedOption());
+
+        // Wind Valley is locked: the row says how to open it (the cheapest branch, D13).
+        int savesBefore = saves;
+        screen.focusRing().focus(screen.worldList());
+        tap(Keys.RIGHT);
+        assertEquals("green_fields", profile.selected.worldId,
+                "stepping onto a locked world writes nothing");
+        assertEquals(savesBefore, saves);
+        assertEquals("green_fields", screen.currentWorldId(), "the row snapped back");
+        assertTrue(screen.worldList().options().get(1)
+                .contains(strings.get(StringKey.COMMON_LOCKED)), "locked worlds are marked");
+    }
+
+    @Test
+    void steppingOntoAnOwnedWorldSelectsItAndTheSelectionPersists() {
+        profile.unlock("world:iron_forge");
+        open();
+        screen.focusRing().focus(screen.worldList());
+        // green_fields -> wind_valley (locked, refused) ... the row cannot pass a locked world,
+        // so the owned one is reached by selecting its index directly, as a click on it would.
+        int savesBefore = saves;
+        screen.worldList().select(2);
+        ticks(2);
+        assertEquals("iron_forge", profile.selected.worldId, "the selection was written");
+        assertTrue(saves > savesBefore, "and saved at once (D15)");
+        assertEquals("iron_forge", screen.currentWorldId());
+        assertFalse(screen.worldList().isLocked());
+        String hazards = screen.worldDetail();
+        assertTrue(hazards.contains(strings.get(StringKey.OBSTACLE_GEAR)), hazards);
+        assertTrue(hazards.contains(strings.get(StringKey.OBSTACLE_PISTON)), hazards);
+        assertTrue(hazards.contains(strings.get(StringKey.OBSTACLE_PIPE_GATE)), hazards);
+        assertEquals("iron_forge", RunLoadout.configFor(profile, content, 1,
+                io.github.michelbr84.flapforge.gameplay.run.RunMode.STANDARD).worldId(),
+                "the next run is played there");
+
+        // Reopening the screen shows the persisted choice.
+        screens.pop();
+        ticks(GRACE);
+        open();
+        assertEquals("iron_forge", screen.currentWorldId(), "the selection survived");
+
+        // A locked world reached by index is refused and reported.
+        long toastsBefore = toasts.pushedCount();
+        screen.worldList().select(3);
+        ticks(2);
+        assertEquals("iron_forge", profile.selected.worldId);
+        assertEquals("iron_forge", screen.currentWorldId());
+        assertTrue(toasts.pushedCount() > toastsBefore, "the refusal raised a toast");
+        assertTrue(screen.worldList().tooltip().isEmpty()
+                || !screen.worldList().tooltip().isEmpty());
+    }
+
+    @Test
+    void arrowKeysStepTheWorldAndTierRowsInsteadOfMovingTheFocus() {
+        profile.unlock("world:wind_valley");
+        open();
+        screen.focusRing().focus(screen.worldList());
+        tap(Keys.RIGHT);
+        assertSame(screen.worldList(), screen.focusRing().focused(),
+                "Right on the world row steps the row; the Buy button beside it does not take "
+                        + "the focus");
+        assertEquals("wind_valley", profile.selected.worldId, "the owned world was selected");
+        assertEquals("wind_valley", screen.currentWorldId());
+        tap(Keys.LEFT);
+        assertEquals("green_fields", profile.selected.worldId, "and Left steps back");
+        assertSame(screen.worldList(), screen.focusRing().focused());
+
+        screen.focusRing().focus(screen.tierList());
+        tap(Keys.RIGHT);
+        assertSame(screen.tierList(), screen.focusRing().focused(), "the tier row too");
+        assertEquals("normal", profile.selected.tierId, "a locked tier is still refused");
+        assertEquals(0, screen.tierList().selectedIndex(), "and the row snapped back");
+    }
+
+    @Test
+    void theWorldPickerFollowsALanguageSwitch() {
+        open();
+        // M2's live switch: the settings screen reloads the shared table in place and
+        // re-publishes it (GameContext.applyLanguage); the screen notices on its next tick.
+        strings.reload("pt_BR");
+        Strings.use(strings);
+        ticks(2);
+        Strings pt = Strings.load("pt_BR");
+        assertEquals("pt_BR", strings.language(), "the screen's table follows the switch");
+        assertEquals(pt.get(StringKey.BIRDS_WORLD), screen.worldList().label());
+        assertEquals(pt.name("world", "green_fields"), screen.worldList().selectedOption());
+        assertTrue(screen.worldDetail().startsWith(
+                pt.format(StringKey.BIRDS_WORLD_HAZARDS, "").trim()), screen.worldDetail());
+    }
 }

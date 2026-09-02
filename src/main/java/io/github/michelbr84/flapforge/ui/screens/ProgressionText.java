@@ -14,6 +14,7 @@ import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.StatModifierDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
@@ -465,6 +466,19 @@ public final class ProgressionText {
             out.append(", ");
         }
         out.append(part);
+    }
+
+    /**
+     * The name of an obstacle family, as the world picker lists the hazards a world spawns (M7).
+     *
+     * @param strings the string table
+     * @param kind the family
+     * @return the phrase
+     */
+    public static String obstacleName(Strings strings, ObstacleKind kind) {
+        StringKey key = StringKey.byKey("obstacle." + kind.name().toLowerCase(Locale.ROOT)
+                + ".name");
+        return key == null ? kind.name() : strings.get(key);
     }
 
     /**

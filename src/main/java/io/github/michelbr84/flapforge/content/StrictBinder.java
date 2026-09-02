@@ -205,8 +205,62 @@ public final class StrictBinder {
             Long n = integralValue(el, pointer);
             return n == null ? missing(raw, pointer) : n;
         }
+        if (raw == Object.class) {
+            return genericValue(el, pointer);
+        }
         error(pointer, "unsupported target type " + raw.getName());
         return null;
+    }
+
+    /**
+     * Binds a component declared as {@code Object} (or a {@code Map<String, Object>} value) to the
+     * plain shape of the JSON: a string, a boolean, a {@code LONG_OR_DOUBLE} number, an
+     * unmodifiable {@code Map<String, Object>} (comment keys dropped) or an unmodifiable
+     * {@code List<Object>}. This is how a pattern step's kind-dependent {@code params} reach
+     * {@code ObstacleParams}, which validates them against the kind's contract.
+     *
+     * @param el the element
+     * @param pointer the pointer, for errors
+     * @return the value, never {@code null} for a non-null element
+     */
+    private Object genericValue(JsonElement el, String pointer) {
+        if (el.isJsonObject()) {
+            JsonObject obj = el.getAsJsonObject();
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (String key : obj.keySet()) {
+                if (key.startsWith(COMMENT_PREFIX)) {
+                    continue;
+                }
+                JsonElement child = obj.get(key);
+                if (child == null || child.isJsonNull()) {
+                    error(pointer + "/" + key, "a null value is not allowed here");
+                    continue;
+                }
+                out.put(key, genericValue(child, pointer + "/" + key));
+            }
+            return Collections.unmodifiableMap(out);
+        }
+        if (el.isJsonArray()) {
+            JsonArray array = el.getAsJsonArray();
+            List<Object> out = new ArrayList<>(array.size());
+            for (int i = 0; i < array.size(); i++) {
+                JsonElement child = array.get(i);
+                if (child == null || child.isJsonNull()) {
+                    error(pointer + "/" + i, "a null value is not allowed here");
+                    continue;
+                }
+                out.add(genericValue(child, pointer + "/" + i));
+            }
+            return Collections.unmodifiableList(out);
+        }
+        JsonPrimitive prim = el.getAsJsonPrimitive();
+        if (prim.isBoolean()) {
+            return prim.getAsBoolean();
+        }
+        if (prim.isNumber()) {
+            return longOrDouble(prim.getAsString());
+        }
+        return prim.getAsString();
     }
 
     private Object missing(Class<?> raw, String pointer) {

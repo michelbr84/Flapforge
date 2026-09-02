@@ -212,6 +212,25 @@ public sealed interface GameEvent {
     }
 
     /**
+     * The sky flashed (M7, E8): Storm Sky's cosmetic {@code ambient.lightningEveryGates}. The
+     * renderer lights the sky, the audio manager rolls the thunder; there is no hitbox.
+     */
+    record AmbientFlash() implements GameEvent {
+    }
+
+    /** A lightning column started its warning (M7): the bolt lands in a moment. */
+    record LightningWarning() implements GameEvent {
+    }
+
+    /** A piston started its telegraph (M7): the head extends in a moment. */
+    record PistonTelegraph() implements GameEvent {
+    }
+
+    /** The bird flew into a wind zone (M7). */
+    record WindGust() implements GameEvent {
+    }
+
+    /**
      * The wallet changed.
      *
      * @param currency the currency id

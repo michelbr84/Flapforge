@@ -15,10 +15,10 @@ import java.util.Objects;
  * played with (D15's selection write trigger, D17's BirdSelection flow).
  *
  * <p>A selection is only ever set to something the player owns and the build can play: the id has
- * to be in the registry, in {@code profile.unlocked}, and — for a world — playable in this
- * milestone (E19 keeps every world but Green Fields locked to free play until M7). Changing the
- * bird also repairs the palette, because a palette belongs to one bird and the previous one
- * usually has no counterpart in the new bird's list.
+ * to be in the registry, in {@code profile.unlocked}, and playable in this milestone
+ * ({@code GameContent.playable}, E19 — every world plays from M7, so for a world the check is
+ * ownership alone now). Changing the bird also repairs the palette, because a palette belongs to
+ * one bird and the previous one usually has no counterpart in the new bird's list.
  *
  * <p>Every accepted change marks the profile dirty and asks the {@link SaveTrigger} to write it
  * immediately: a player who picks a bird and quits from the menu must find that bird selected the
@@ -101,7 +101,7 @@ public final class SelectionManager {
      * @param worldId the world id
      * @param content the loaded content
      * @return {@code true} when the selection now names that world; {@code false} for a world the
-     *     player does not own or that this build cannot play yet (E19)
+     *     player does not own (or, should a later build stage one, cannot play yet — E19)
      */
     public boolean selectWorld(PlayerProfile profile, String worldId, GameContent content) {
         Objects.requireNonNull(profile, "profile");

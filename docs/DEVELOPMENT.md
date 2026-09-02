@@ -72,6 +72,30 @@ Wrapper scripts: `scripts/build.sh` / `scripts\build.ps1` run `build fatJar`;
 `scripts/run.sh` / `scripts\run.ps1` run `run` and forward every argument to
 the game. Gradle can take a few minutes on a cold cache; keep going.
 
+### The asset validator `[M7]`
+
+`./gradlew assetValidator` (or `tools/asset-validator/run.sh` / `run.ps1`)
+reads `assets/manifest.json` and checks every entry: the file resolves on the
+classpath under `/assets/`, it carries a licence, and it starts with the
+magic number of its kind (PNG for sprites and sheets, RIFF/WAVE for audio,
+TrueType/OpenType for fonts). Parse errors count as problems. Exit status 1
+on any problem, 0 for the shipped empty manifest — run it before adding an
+art or sound pack through the manifest.
+
+### The balancing tool's world flags `[M7]`
+
+`./gradlew balancing -PtoolArgs="..."` sweeps content with the bot:
+
+| Flag | Meaning |
+| --- | --- |
+| `--world ID` / `--world all` | the world of every run, or every world of `worlds.json` in order |
+| `--tier ID` / `--tier all` | the tier, or every tier of `difficulty.json` |
+| `--pattern ID` / `--pattern all` | stream one pattern of `patterns.json` in isolation, looped from the first spawn, in the pattern's own world unless `--world` is given; `none` (default) plays the world's spawn table |
+| `--skill NAME` | `novice`, `average`, `expert`, `perfect` or `all` |
+
+The deaths line groups obstacle deaths by kind (`PIPE_GATE`, `GEAR`, `PISTON`,
+`LIGHTNING`), which is how `docs/BALANCING.md` §10 is produced.
+
 ## Launch flags
 
 All flags are parsed by `app.LaunchOptions` before anything else starts
@@ -98,7 +122,7 @@ watchdog, D4). Without a display a windowed launch prints
 | `--reset-save` | start from a fresh profile; the old save and its backup are moved aside as `save.reset-<time>.json` / `save.bak.reset-<time>.json`, never deleted | M3 |
 | `--bird ID` | start with the given bird | M4 |
 | `--tier ID` | difficulty tier (`normal`, `hard`, `nightmare`) | M4 |
-| `--world ID` | start in the given world (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`) | M7 |
+| `--world ID` | start in the given world (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`). A launch override, not an unlock: every run of this launch is played there. When the profile owns the world the selection is written too (as the world picker would); when it does not, the profile is left alone, a line on stdout says `--world <id>: not unlocked in this profile ... playing it for this launch only`, and the next launch without the flag is back to the owned selection. An unknown id is reported on stderr and ignored. With `--headless-run` the hash line is computed in that world (without the flag it is the classic configuration, so the published hash is untouched). | M7 |
 
 ### Where settings and saves live
 

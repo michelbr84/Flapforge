@@ -5,19 +5,38 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.michelbr84.flapforge.app.NullPresenter;
 import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.content.RunFactory;
+import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
+import io.github.michelbr84.flapforge.gameplay.SimContext;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Gear;
+import io.github.michelbr84.flapforge.gameplay.obstacle.LightningStrike;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
+import io.github.michelbr84.flapforge.gameplay.obstacle.PipeGate;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Piston;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Side;
+import io.github.michelbr84.flapforge.gameplay.obstacle.WindZone;
+import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
+import io.github.michelbr84.flapforge.gameplay.run.RunInput;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunResult;
 import io.github.michelbr84.flapforge.gameplay.run.RunStats;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
+import io.github.michelbr84.flapforge.gameplay.stats.StatId;
+import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
+import io.github.michelbr84.flapforge.gameplay.stats.StatOp;
 import io.github.michelbr84.flapforge.input.RawInput;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
@@ -30,11 +49,14 @@ import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.AssetManager;
 import io.github.michelbr84.flapforge.render.AssetResolver;
+import io.github.michelbr84.flapforge.render.DarknessOverlay;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
 import io.github.michelbr84.flapforge.render.Fonts;
+import io.github.michelbr84.flapforge.render.GameRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.render.WorldPalette;
+import io.github.michelbr84.flapforge.render.WorldStyle;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
@@ -51,12 +73,19 @@ import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.RunSummaryScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.SeededRunSource;
+import io.github.michelbr84.flapforge.ui.screens.RuleShiftBanner;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
 import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
 import io.github.michelbr84.flapforge.ui.screens.StatisticsScreen;
 import io.github.michelbr84.flapforge.ui.screens.UpgradeTreeScreen;
+import java.awt.Color;
 import java.awt.Font;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -64,6 +93,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -632,6 +662,17 @@ class ProceduralRenderTest {
             }
         }
 
+        /** Ticks with a flap every 25 ticks, which keeps the bird in the air (M7 tests). */
+        void fly(int n) {
+            for (int i = 0; i < n; i++) {
+                if (i % 25 == 24) {
+                    flap();
+                } else {
+                    tick(1);
+                }
+            }
+        }
+
         BufferedImage frame(double alpha) {
             presenter.present(alpha);
             BufferedImage image = presenter.image();
@@ -790,5 +831,337 @@ class ProceduralRenderTest {
             }
         }
         return colours.size();
+    }
+
+    // ------------------------------------------------------------------ worlds (M7)
+
+    /** Where the world frames are written for a reviewer to look at. */
+    private static final Path RENDER_DIR = Path.of("build", "render");
+    /** Minimum L1 distance between the colour histograms of two worlds' frames. */
+    private static final double WORLD_DISTANCE = 0.25;
+
+    @Test
+    void everyWorldRendersEveryKindInBothPosesAndLooksDifferent() throws IOException {
+        GameContent content = GameContent.load();
+        Map<String, double[]> histograms = new LinkedHashMap<>();
+        for (WorldDef world : content.worlds()) {
+            WorldRig rig = new WorldRig(content, world.id());
+            rig.placeEveryKind();
+            BufferedImage ready = copy(rig.frame(0.5));
+            assertEquals(ProceduralArt.BirdPose.NORMAL, rig.pose(), world.id() + " at READY");
+            assertTrue(distinctColours(ready, 2) >= 2, world.id() + " READY frame is uniform");
+            save(ready, world.id() + "-normal");
+
+            rig.flap();
+            assertEquals(ProceduralArt.BirdPose.UP, rig.pose(), world.id() + " after a flap");
+            BufferedImage up = copy(rig.frame(0.5));
+            assertTrue(distinctColours(up, 2) >= 2, world.id() + " UP frame is uniform");
+            assertFalse(identical(ready, up), world.id() + ": the pose must change the frame");
+            save(up, world.id() + "-up");
+            for (ObstacleKind kind : ObstacleKind.values()) {
+                assertTrue(rig.has(kind), world.id() + " lost its " + kind);
+            }
+            histograms.put(world.id(), histogram(up));
+        }
+        assertEquals(5, histograms.size(), "the five worlds of worlds.json");
+        List<String> ids = new ArrayList<>(histograms.keySet());
+        for (int i = 0; i < ids.size(); i++) {
+            for (int j = i + 1; j < ids.size(); j++) {
+                double distance = distance(histograms.get(ids.get(i)), histograms.get(ids.get(j)));
+                assertTrue(distance >= WORLD_DISTANCE, ids.get(i) + " and " + ids.get(j)
+                        + " look alike: histogram distance " + distance);
+            }
+        }
+    }
+
+    @Test
+    void theDarknessVeilKeepsTheBirdAndTheNextHazardVisible() throws IOException {
+        GameContent content = GameContent.load();
+        WorldRig rig = new WorldRig(content, "storm_sky");
+        assertEquals(0.5, rig.run.simulation().darkness(), 0.0, "storm_sky is half dark");
+        // The next hazard: a gate 200 px ahead of the bird, its body spanning x 305..345.
+        PipeGate gate = PipeGate.standard(305, 200, 128, null);
+        rig.add(gate);
+        BufferedImage frame = copy(rig.frame(0.0));
+        save(frame, "storm_sky-darkness");
+
+        DarknessOverlay veil = rig.renderer.darkness();
+        assertTrue(veil.isActive(), "the veil is drawn in a dark world");
+        double birdY = rig.run.simulation().bird().y();
+        assertEquals(0.0, veil.alphaAt(Playfield.BIRD_X, birdY, birdY), 1e-9,
+                "the bird sits in the clear");
+        assertTrue(veil.alphaAt(325, 150, birdY) > 0.2, "the far gate is under the veil");
+        assertTrue(veil.alphaAt(325, 150, birdY) <= 0.5 + 1e-9, "never darker than the world");
+
+        // The bird: its body is the world accent; inside the sprite box some pixel must still
+        // be that colour (the hole is fully clear), not a veiled version of it.
+        int accent = WorldPalette.from(content.worlds().get("storm_sky").palette()).accent();
+        int best = Integer.MAX_VALUE;
+        for (int y = (int) birdY - 16; y <= (int) birdY + 16; y++) {
+            for (int x = Playfield.BIRD_X - 19; x <= Playfield.BIRD_X + 19; x++) {
+                best = Math.min(best, colourDistance(frame.getRGB(x, y) & 0xFFFFFF, accent));
+            }
+        }
+        int nearest = best;
+        assertTrue(nearest < 24, () -> "the bird body should be the accent "
+                + Integer.toHexString(accent) + " somewhere in the sprite box; the nearest pixel"
+                + " is " + nearest + " away");
+
+        // The hazard: the upper segment of the gate at y 150 against the sky right beside it.
+        int pipe = frame.getRGB(325, 150) & 0xFFFFFF;
+        int sky = frame.getRGB(290, 150) & 0xFFFFFF;
+        assertTrue(Math.abs(luminance(pipe) - luminance(sky)) > 25,
+                () -> "the gate must stand out from the sky under the veil: pipe "
+                        + Integer.toHexString(pipe) + " sky " + Integer.toHexString(sky));
+    }
+
+    @Test
+    void theLightningWarningMarkerShowsTheBoltsSideAndExtent() throws IOException {
+        GameContent content = GameContent.load();
+        for (Side side : Side.values()) {
+            WorldRig rig = new WorldRig(content, "storm_sky");
+            // The same frame without the bolt is the reference: the veil, the rain and the
+            // clouds are identical in both (the decorations run on the renderer's clock, which
+            // does not move between the two draws), so any difference is the marker.
+            BufferedImage reference = copy(rig.frame(0.0));
+            LightningStrike bolt = new LightningStrike(180, side, 0.5, 45, 10);
+            rig.add(bolt);
+            bolt.update(rig.run.simulation().context());
+            assertEquals(LightningStrike.State.WARNING, bolt.state(), side + " bolt is warning");
+            BufferedImage frame = copy(rig.frame(0.0));
+            save(frame, "storm_sky-warning-" + side.name().toLowerCase(java.util.Locale.ROOT));
+
+            int cx = (int) Math.round(bolt.centerX());
+            int inside = side == Side.TOP ? 150 : 450;
+            int outside = side == Side.TOP ? 450 : 150;
+            int insidePixel = patch(frame, cx, inside);
+            int insideBefore = patch(reference, cx, inside);
+            int outsidePixel = patch(frame, cx, outside);
+            int outsideBefore = patch(reference, cx, outside);
+            assertTrue(colourDistance(insidePixel, insideBefore) > 30,
+                    () -> side + ": the marker must be visible over the lit span, got "
+                            + Integer.toHexString(insidePixel) + " over "
+                            + Integer.toHexString(insideBefore));
+            assertEquals(outsideBefore, outsidePixel,
+                    () -> side + ": nothing may be drawn over the safe band, got "
+                            + Integer.toHexString(outsidePixel) + " over "
+                            + Integer.toHexString(outsideBefore));
+            assertTrue(colourDistance(patch(frame, cx + 60, inside),
+                    patch(reference, cx + 60, inside)) == 0,
+                    side + ": the marker stays inside the column");
+        }
+    }
+
+    @Test
+    void theRuleShiftBannerRendersInBothLanguagesAndTheWorldPickerToo() throws IOException {
+        String original = Strings.active().language();
+        Map<String, BufferedImage> banners = new LinkedHashMap<>();
+        Map<String, BufferedImage> pickers = new LinkedHashMap<>();
+        try {
+            for (String language : Strings.LANGUAGES) {
+                Strings.use(Strings.load(language));
+                Rig rig = new Rig();
+                rig.flap();
+                rig.fly(40);
+                BufferedImage plain = copy(rig.frame(0.5));
+                rig.game.banner().announce(List.of(RuleFlag.ALL_OBSTACLES_MOVE),
+                        List.of(new StatModifier(StatId.GAP_SIZE, StatOp.MULTIPLY, 0.85, "cycle")),
+                        90);
+                assertTrue(rig.game.banner().isVisible(), "the banner is up in " + language);
+                assertTrue(rig.game.banner().line().contains(
+                        Strings.active().get(StringKey.RULE_ALL_OBSTACLES_MOVE)),
+                        () -> "the flag is named in " + language + ": "
+                                + rig.game.banner().line());
+                // The same simulation state, drawn again with the banner: everything outside
+                // the panel is untouched, so a translation that runs long is fitted (shrunk or
+                // wrapped) inside it rather than drawn over the playfield.
+                BufferedImage withBanner = copy(rig.frame(0.5));
+                assertFalse(identical(plain, withBanner), "the banner changes the frame");
+                int panelBottom = RuleShiftBanner.PANEL_Y + rig.game.banner().panelHeight();
+                assertTrue(RuleShiftBanner.PANEL_Y >= Playfield.GROUND_Y,
+                        "the banner sits in the ground strip, never over the playfield (M7)");
+                assertTrue(panelBottom <= Playfield.HEIGHT);
+                for (int y = 0; y < Playfield.HEIGHT; y++) {
+                    for (int x = 0; x < Playfield.WIDTH; x++) {
+                        boolean inside = x >= RuleShiftBanner.PANEL_X - 1
+                                && x < RuleShiftBanner.PANEL_X + RuleShiftBanner.PANEL_W + 1
+                                && y >= RuleShiftBanner.PANEL_Y - 1 && y < panelBottom + 1;
+                        if (!inside && plain.getRGB(x, y) != withBanner.getRGB(x, y)) {
+                            fail(language + ": the banner drew outside its panel at " + x + ","
+                                    + y + " (line '" + rig.game.banner().line() + "' at "
+                                    + rig.game.banner().lineFont() + " pt on "
+                                    + rig.game.banner().rows() + " row(s))");
+                        }
+                    }
+                }
+                assertTrue(rig.game.banner().rows() >= 1);
+                save(withBanner, "rule-shift-" + language);
+                banners.put(language, withBanner);
+
+                Meta meta = Meta.spent();
+                BirdSelectionScreen birds = null;
+                Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
+                ScreenManager screens = new ScreenManager(viewport);
+                NullPresenter presenter = new NullPresenter(screens, viewport, Playfield.WIDTH,
+                        Playfield.HEIGHT);
+                screens.setPresenter(presenter);
+                birds = (BirdSelectionScreen) meta.birds(screens);
+                screens.push(birds);
+                screens.applyPending();
+                screens.tick(InputFrame.EMPTY);
+                assertEquals(Strings.active().get(StringKey.BIRDS_WORLD),
+                        birds.worldList().label(), "the picker is labelled in " + language);
+                assertEquals(5, birds.worldIds().size(), "five worlds in the picker");
+                assertFalse(birds.worldDetail().isEmpty(), "the hazard line is filled in");
+                presenter.present(0.5);
+                BufferedImage picker = copy(presenter.image());
+                assertTrue(distinctColours(picker, 2) >= 2);
+                save(picker, "world-picker-" + language);
+                pickers.put(language, picker);
+            }
+        } finally {
+            Strings.use(Strings.load(original));
+        }
+        assertFalse(identical(banners.get("en"), banners.get("pt_BR")),
+                "the banner must read differently in the two languages");
+        assertFalse(identical(pickers.get("en"), pickers.get("pt_BR")),
+                "the world picker must read differently in the two languages");
+    }
+
+    /**
+     * A run in one world of {@code worlds.json} drawn by a {@link GameRenderer} set to that
+     * world, with obstacles placed by hand so every family is on screen at once.
+     */
+    private static final class WorldRig {
+        final GameContent content;
+        final Run run;
+        final GameRenderer renderer;
+        final BufferedImage image = new BufferedImage(Playfield.WIDTH, Playfield.HEIGHT,
+                BufferedImage.TYPE_INT_RGB);
+
+        WorldRig(GameContent content, String worldId) {
+            this.content = content;
+            RunConfig config = RunConfig.builder(7).worldId(worldId).build();
+            run = new RunFactory(content).newRun(config);
+            WorldDef def = content.worlds().get(worldId);
+            renderer = new GameRenderer(WorldPalette.from(def.palette()), "READY");
+            renderer.setWorld(WorldPalette.from(def.palette()), WorldStyle.fromId(def.style()));
+            renderer.setWorldName(worldId);
+            renderer.reset();
+        }
+
+        void add(Obstacle o) {
+            run.simulation().obstacles().add(o);
+        }
+
+        /**
+         * One of every family, each in the state that draws the most, added left to right so
+         * the spawner's cursor rule ({@code last.x + 160}) puts its own next gate off screen.
+         */
+        void placeEveryKind() {
+            SimContext ctx = run.simulation().context();
+            LightningStrike strike = new LightningStrike(90, Side.TOP, 0.4, 45, 10);
+            add(strike);
+            strike.update(ctx);
+            assertEquals(LightningStrike.State.STRIKE, strike.state());
+            add(new WindZone(130, 160, 300, 400, -450, 0));
+            LightningStrike warning = new LightningStrike(170, Side.BOTTOM, 0.5, 45, 10);
+            add(warning);
+            warning.update(ctx);
+            assertEquals(LightningStrike.State.WARNING, warning.state());
+            add(Piston.standard(240, Side.TOP, 220, 0));
+            add(Gear.onRail(300, 300, 36));
+            add(PipeGate.standard(380, 220, 128, null));
+        }
+
+        boolean has(ObstacleKind kind) {
+            for (Obstacle o : run.simulation().obstacles().obstacles()) {
+                if (o.kind() == kind) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        void flap() {
+            run.tick(RunInput.FLAP);
+            renderer.tick(run, true);
+        }
+
+        ProceduralArt.BirdPose pose() {
+            return io.github.michelbr84.flapforge.render.BirdRenderer.poseOf(
+                    run.simulation().bird());
+        }
+
+        BufferedImage frame(double alpha) {
+            Graphics2D g = image.createGraphics();
+            try {
+                renderer.render(g, alpha, run, null, false);
+            } finally {
+                g.dispose();
+            }
+            return image;
+        }
+    }
+
+    private static void save(BufferedImage image, String name) throws IOException {
+        Files.createDirectories(RENDER_DIR);
+        ImageIO.write(image, "png", RENDER_DIR.resolve(name + ".png").toFile());
+    }
+
+    /** A 512-bin colour histogram (3 bits per channel) normalised to sum 1. */
+    private static double[] histogram(BufferedImage image) {
+        double[] bins = new double[512];
+        int count = 0;
+        for (int y = 0; y < image.getHeight(); y += 2) {
+            for (int x = 0; x < image.getWidth(); x += 2) {
+                int rgb = image.getRGB(x, y);
+                int r = (rgb >> 21) & 7;
+                int g = (rgb >> 13) & 7;
+                int b = (rgb >> 5) & 7;
+                bins[(r << 6) | (g << 3) | b]++;
+                count++;
+            }
+        }
+        for (int i = 0; i < bins.length; i++) {
+            bins[i] /= count;
+        }
+        return bins;
+    }
+
+    private static double distance(double[] a, double[] b) {
+        double sum = 0;
+        for (int i = 0; i < a.length; i++) {
+            sum += Math.abs(a[i] - b[i]);
+        }
+        return sum;
+    }
+
+    /** The average colour of the 5x5 patch centred on a pixel. */
+    private static int patch(BufferedImage image, int cx, int cy) {
+        int r = 0;
+        int g = 0;
+        int b = 0;
+        for (int y = cy - 2; y <= cy + 2; y++) {
+            for (int x = cx - 2; x <= cx + 2; x++) {
+                int rgb = image.getRGB(x, y);
+                r += (rgb >> 16) & 0xFF;
+                g += (rgb >> 8) & 0xFF;
+                b += rgb & 0xFF;
+            }
+        }
+        return ((r / 25) << 16) | ((g / 25) << 8) | (b / 25);
+    }
+
+    private static int colourDistance(int a, int b) {
+        Color ca = new Color(a);
+        Color cb = new Color(b);
+        return Math.abs(ca.getRed() - cb.getRed()) + Math.abs(ca.getGreen() - cb.getGreen())
+                + Math.abs(ca.getBlue() - cb.getBlue());
+    }
+
+    private static double luminance(int rgb) {
+        Color c = new Color(rgb);
+        return 0.299 * c.getRed() + 0.587 * c.getGreen() + 0.114 * c.getBlue();
     }
 }

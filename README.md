@@ -506,6 +506,10 @@ A world can contain:
 - Exclusive unlocks.
 - Different difficulty curves.
 
+Worlds unlock in order: clearing a world's boss opens the next one (boss
+encounters arrive with the challenges milestone), or the next world can be
+bought in the shop. A launch can also pin any world with `--world <id>`.
+
 ---
 
 ## Difficulty
@@ -560,6 +564,10 @@ mouse buttons are fixed.
 
 `M`, `F3` and `F11` work on every screen and are remembered: each one changes
 the matching setting, so the game starts up the way you left it.
+
+The world is picked in the bird selection screen (the world row lists the
+five worlds, what each spawns and, for a locked one, the cheapest way in) or
+pinned for one launch with `--world <id>` — see [Running the Game](#running-the-game).
 
 Input is sampled per simulation tick (60 Hz), so a tap shorter than a frame
 is never lost and key auto-repeat never produces an extra flap.
@@ -645,7 +653,7 @@ Launch flags (some arrive with later milestones, see
 | Flag | Meaning |
 | --- | --- |
 | `--seed N` | fixed RNG seed for a reproducible run |
-| `--world ID` | start in a given world (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`) |
+| `--world ID` | start in a given world (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`); a locked world is played for this launch only and the profile's selection is left alone (a log line says so) |
 | `--bird ID` | start with a given bird |
 | `--tier ID` | difficulty tier (`normal`, `hard`, `nightmare`) |
 | `--scale N` | initial window scale (integer multiple of the 420×640 playfield); default: the largest scale whose window fits the screen |

@@ -195,6 +195,7 @@ public final class Run {
                 stats.addSynergyActivated(synergy.id());
             } else if (f instanceof TickFact.Crashed crashed) {
                 cause = crashed.cause();
+                stats.setDeathKind(crashed.kind());
             }
         }
         return cause;

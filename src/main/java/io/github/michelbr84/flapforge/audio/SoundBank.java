@@ -1,6 +1,8 @@
 package io.github.michelbr84.flapforge.audio;
 
+import io.github.michelbr84.flapforge.content.defs.SfxSet;
 import java.io.BufferedInputStream;
+import java.util.Locale;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashSet;
@@ -25,6 +27,12 @@ import javax.sound.sampled.UnsupportedAudioFileException;
  *   <li>the classpath resource {@code assets/audio/sfx/flap.wav};</li>
  *   <li>{@link ToneSynth}, which always answers.</li>
  * </ol>
+ *
+ * <p>From M7 a cue can be asked for in a world's sound set (E31.g): the key
+ * {@link #key(String, SfxSet)} is {@code flap@storm}, and the bank then looks for the overrides
+ * {@code sfx/storm/flap} and {@code assets/audio/sfx/storm/flap.wav} before the plain ones, and
+ * finally synthesises {@code ToneSynth.render("flap", STORM)}. The {@code FIELDS} set is the
+ * plain key, so nothing M2 built changes.
  * Because step 3 never fails, {@link #samples(String)} never returns {@code null} and no cue is
  * ever silent by accident. A {@code .wav} that exists but cannot be decoded logs one line and
  * falls through to the synth rather than taking the game down.
@@ -50,6 +58,8 @@ public final class SoundBank {
     public static final String SFX_RESOURCE_SUFFIX = ".wav";
     /** Manifest id prefix an asset opener is asked for. */
     public static final String SFX_ASSET_PREFIX = "sfx/";
+    /** Separator between a sound id and its set in a bank key (M7). */
+    public static final char SET_SEPARATOR = '@';
 
     private final ToneSynth synth;
     private final Function<String, InputStream> assetOpener;
@@ -88,15 +98,73 @@ public final class SoundBank {
     }
 
     /**
-     * The buffer for an id, decoding or synthesising it on first use.
+     * The bank key of a cue in a world's set (M7): the bare id for {@link SfxSet#FIELDS}, else
+     * {@code id@set} in lower case.
      *
      * @param id the sound id
+     * @param set the set, or {@code null} for the canonical sound
+     * @return the key {@link #samples(String)} resolves
+     */
+    public static String key(String id, SfxSet set) {
+        Objects.requireNonNull(id, "id");
+        if (set == null || set == SfxSet.FIELDS) {
+            return id;
+        }
+        return id + SET_SEPARATOR + set.name().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * The bare sound id of a bank key.
+     *
+     * @param key a key, possibly carrying a set
+     * @return the id before the separator
+     */
+    public static String idOf(String key) {
+        int at = key.indexOf(SET_SEPARATOR);
+        return at < 0 ? key : key.substring(0, at);
+    }
+
+    /**
+     * The set of a bank key.
+     *
+     * @param key a key, possibly carrying a set
+     * @return the set, {@link SfxSet#FIELDS} for a bare id or an unknown suffix
+     */
+    public static SfxSet setOf(String key) {
+        int at = key.indexOf(SET_SEPARATOR);
+        if (at < 0) {
+            return SfxSet.FIELDS;
+        }
+        String name = key.substring(at + 1).toUpperCase(Locale.ROOT);
+        for (SfxSet set : SfxSet.values()) {
+            if (set.name().equals(name)) {
+                return set;
+            }
+        }
+        return SfxSet.FIELDS;
+    }
+
+    /**
+     * The buffer for an id, decoding or synthesising it on first use.
+     *
+     * @param id the sound id, or a {@link #key(String, SfxSet) set key}
      * @return interleaved stereo samples at {@link #SAMPLE_RATE}, never {@code null} and never
      *     empty
      */
     public float[] samples(String id) {
         Objects.requireNonNull(id, "id");
         return cache.computeIfAbsent(id, this::load);
+    }
+
+    /**
+     * The buffer for a cue in a world's set (M7).
+     *
+     * @param id the sound id
+     * @param set the set
+     * @return the samples, as {@link #samples(String)}
+     */
+    public float[] samples(String id, SfxSet set) {
+        return samples(key(id, set));
     }
 
     /**
@@ -108,6 +176,20 @@ public final class SoundBank {
     public int warmUp() {
         for (String id : ToneSynth.IDS) {
             samples(id);
+        }
+        return cache.size();
+    }
+
+    /**
+     * Decodes or synthesises every id in one world's set (M7), so the first cue of a run in that
+     * world never pays for a render.
+     *
+     * @param set the set
+     * @return the number of ids in the cache afterwards
+     */
+    public int warmUp(SfxSet set) {
+        for (String id : ToneSynth.IDS) {
+            samples(id, set);
         }
         return cache.size();
     }
@@ -137,14 +219,14 @@ public final class SoundBank {
         synthesised.clear();
     }
 
-    private float[] load(String id) {
-        float[] decoded = decodeOverride(id);
+    private float[] load(String key) {
+        float[] decoded = decodeOverride(key);
         if (decoded != null) {
-            synthesised.remove(id);
+            synthesised.remove(key);
             return decoded;
         }
-        synthesised.add(id);
-        return toStereo(synth.render(id), 1, SAMPLE_RATE);
+        synthesised.add(key);
+        return toStereo(synth.render(idOf(key), setOf(key)), 1, SAMPLE_RATE);
     }
 
     /** Returns the decoded override for an id, or {@code null} when there is none or it failed. */
@@ -163,15 +245,29 @@ public final class SoundBank {
         }
     }
 
-    private InputStream openOverride(String id) {
+    private InputStream openOverride(String key) {
+        String id = idOf(key);
+        SfxSet set = setOf(key);
+        if (set != SfxSet.FIELDS) {
+            // A per-set override first: sfx/storm/flap, then assets/audio/sfx/storm/flap.wav.
+            String setDir = set.name().toLowerCase(Locale.ROOT) + "/";
+            InputStream perSet = openOverridePath(setDir + id);
+            if (perSet != null) {
+                return perSet;
+            }
+        }
+        return openOverridePath(id);
+    }
+
+    private InputStream openOverridePath(String relative) {
         if (assetOpener != null) {
-            InputStream fromManifest = assetOpener.apply(SFX_ASSET_PREFIX + id);
+            InputStream fromManifest = assetOpener.apply(SFX_ASSET_PREFIX + relative);
             if (fromManifest != null) {
                 return fromManifest;
             }
         }
         return SoundBank.class.getClassLoader()
-                .getResourceAsStream(SFX_RESOURCE_PREFIX + id + SFX_RESOURCE_SUFFIX);
+                .getResourceAsStream(SFX_RESOURCE_PREFIX + relative + SFX_RESOURCE_SUFFIX);
     }
 
     /**

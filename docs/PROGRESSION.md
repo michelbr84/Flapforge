@@ -163,10 +163,25 @@ a price.
 ### Selections
 
 `SelectionManager` writes `profile.selected`. A selection is only ever set to something the
-player owns and this build can play — E19 keeps every world but Green Fields locked to free play
-until M7 — and changing the bird repairs the palette, because a palette belongs to one bird.
+player owns and this build can play — from M7 every world plays, so for a world the gate is
+ownership alone — and changing the bird repairs the palette, because a palette belongs to one bird.
 Every accepted change marks the profile dirty and saves immediately (D15); a rejected one writes
 nothing.
+
+### Worlds (M7)
+
+A world is an unlockable like a bird: `world:green_fields` is a default, every other world is
+`any_of[world_cleared <previous world>, purchase N]` — Wind Valley 350, Iron Forge 700, Storm Sky
+1 200, the Void 2 000 coins. `world_cleared` is written only by a *world* boss (E26), and bosses
+land in M8, so today the chain is walked by purchase; the boss route pays the same edge for free
+once it exists, plus `boss.reward.coins` and, for Wind Valley, `tree:forge`. Either way the graph
+keeps a cumulative path (§5 of `docs/CONTENT.md`), so a player can never be locked out of a world.
+
+Owning a world makes it selectable: the bird selection screen's world row shows the five worlds
+in `order`, the hazards each spawns and, for a locked one, the cheapest way in; selecting writes
+`profile.selected.worldId` through `SelectionManager.selectWorld` (owned worlds only). `--world
+<id>` pins a world for one launch: an owned world is selected as the picker would, a locked one
+is played for that launch with the profile untouched.
 
 ### The loadout (M5)
 
@@ -314,7 +329,7 @@ the words the player reads and the arithmetic the run uses cannot drift apart.
 
 | Where | What it says |
 | --- | --- |
-| `ShopScreen` | worlds other than Green Fields *Arrives in M7*, challenges and achievements *M8*, and — per id, from `GameContent.featureMilestone` — `feature:seeded_runs` *M9*, which is buyable and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for it. Abilities carried the same note until M5 turned them on, and `feature:modifiers` until M6 did |
+| `ShopScreen` | challenges and achievements *Arrives in M8*, and — per id, from `GameContent.featureMilestone` — `feature:seeded_runs` *M9*, which is buyable and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for it. Abilities carried the same note until M5 turned them on, `feature:modifiers` until M6 did, and the four worlds behind Green Fields until M7 did |
 | `UpgradeTreeScreen` | nothing any more. The seven nodes whose whole effect is `ABILITY_COOLDOWN_MULT`, `ABILITY_DURATION_MULT`, `SHIELD_CHARGES` or `REVIVES`, or whose grant is `ABILITY_CAP` / `PASSIVE_SLOT`, carried *Arrives in M5* on the card and on the stat row; M5 consumes all of them and the note is gone |
 | `BirdSelectionScreen` | the ability line still names the bird's innate passives, without a milestone note: Ironbeak's −20 % `COIN_MULT` buys a shield that is live from M5 (`docs/BALANCING.md` §7.1 measures it at +96 % gates for the `average` bot) |
 

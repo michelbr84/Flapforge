@@ -8,6 +8,9 @@ import io.github.michelbr84.flapforge.content.defs.AbilityLevelDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.EconomyDef;
 import io.github.michelbr84.flapforge.content.defs.ModifierDef;
+import io.github.michelbr84.flapforge.content.defs.PatternDef;
+import io.github.michelbr84.flapforge.content.defs.TierDef;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
 import io.github.michelbr84.flapforge.gameplay.harness.HeadlessRunner;
 import io.github.michelbr84.flapforge.gameplay.run.RewardContext;
@@ -16,7 +19,9 @@ import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunResult;
 import io.github.michelbr84.flapforge.gameplay.run.RunRewardCalculator;
+import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
 import io.github.michelbr84.flapforge.gameplay.run.StreakTracker;
+import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.modifier.DraftContext;
@@ -51,7 +56,19 @@ import java.util.Map;
  * ./gradlew balancing -PtoolArgs="--seeds 200 --skill average --ticks 20000 --csv build/balancing.csv"
  * ./gradlew balancing -PtoolArgs="--seeds 50 --bird all --skill all"
  * ./gradlew balancing -PtoolArgs="--bird guardian --ability shield"
+ * ./gradlew balancing -PtoolArgs="--seeds 100 --world all --skill all"
+ * ./gradlew balancing -PtoolArgs="--seeds 50 --world iron_forge --tier all --skill expert"
+ * ./gradlew balancing -PtoolArgs="--seeds 50 --pattern forge_gear_corridor --skill expert"
  * </pre>
+ *
+ * <p>{@code --world all} and {@code --tier all} (M7) sweep every world of {@code worlds.json}
+ * and every tier of {@code difficulty.json} through {@link RunFactory}, so the per-world table
+ * of {@code docs/BALANCING.md} §10 is one command; the deaths line groups obstacle deaths by
+ * kind. {@code --pattern <id|all>} plays one pattern of {@code patterns.json} in isolation —
+ * the run streams that pattern and nothing else, looped, from the first spawn
+ * ({@link RunSetup#withForcedPattern}) in the pattern's own world (its curve, effects and
+ * ambience) unless {@code --world} was given — which is how the feasibility numbers
+ * {@code ContentFeasibilityTest} asserts are reproduced from the command line.
  *
  * <p>{@code --ability} (M5) equips one ability in the slot its kind belongs to and reports how
  * often the bot spent it, how many hits a shield absorbed and how many revives were used;
@@ -85,6 +102,8 @@ public final class BalancingSim {
     public static final String NO_ABILITY = "none";
     /** {@code --modifier} value that forces no card (the baseline of a per-card sweep). */
     public static final String NO_MODIFIER = "none";
+    /** {@code --pattern} value that streams the world's own spawns (the default). */
+    public static final String NO_PATTERN = "none";
 
     private BalancingSim() {
     }
@@ -101,7 +120,8 @@ public final class BalancingSim {
      * it Ironbeak's {@code COIN_MULT} of 0.8 is invisible and classic, Ironbeak and Oracle print
      * identical numbers.
      */
-    private record Row(String bird, String ability, String forced, String skill, long seed,
+    private record Row(String world, String tier, String pattern, String bird, String ability,
+            String forced, String skill, long seed,
             int gates, double points, int ticksAlive, boolean finished, String deathCause,
             int coinsSpawned, int coinsCollected, int streakBest, int streakSteps, long coins,
             long xp, long payout, int abilityUses, int shieldAbsorbs, int revives,
@@ -121,6 +141,8 @@ public final class BalancingSim {
         int abilityLevel = 1;
         String modifier = NO_MODIFIER;
         int modifierStacks = 1;
+        String pattern = NO_PATTERN;
+        boolean worldGiven;
         boolean drafts;
         Path csv;
         boolean help;
@@ -150,23 +172,38 @@ public final class BalancingSim {
         List<String> birds = birdsOf(content, options.bird);
         List<String> abilities = abilitiesOf(content, options.ability);
         List<BotPilot.Preset> presets = presetsOf(options.skill);
+        List<String> worlds = worldsOf(content, options.world);
+        List<String> tiers = tiersOf(content, options.tier);
+        List<String> patterns = patternsOf(content, options.pattern);
 
         System.out.println("Flapforge balancing — world=" + options.world + " tier=" + options.tier
-                + " seeds=" + options.seeds + " (from " + options.firstSeed + ") ticks="
-                + options.ticks);
+                + " pattern=" + options.pattern + " seeds=" + options.seeds + " (from "
+                + options.firstSeed + ") ticks=" + options.ticks);
         List<List<String>> forcedSets = forcedOf(content, options);
-        List<Row> rows = new ArrayList<>(
-                birds.size() * abilities.size() * presets.size() * options.seeds);
+        List<Row> rows = new ArrayList<>(worlds.size() * tiers.size() * patterns.size()
+                * birds.size() * abilities.size() * presets.size() * options.seeds);
         Map<String, List<Row>> cells = new LinkedHashMap<>();
-        for (String bird : birds) {
-            for (String ability : abilities) {
-                for (List<String> forced : forcedSets) {
-                    for (BotPilot.Preset preset : presets) {
-                        List<Row> cell =
-                                simulate(factory, content, options, bird, ability, forced, preset);
-                        rows.addAll(cell);
-                        report(bird, ability, label(forced), preset, options.ticks, cell);
-                        cells.put(label(forced) + " @ " + preset.name(), cell);
+        for (String world : worlds) {
+            for (String tier : tiers) {
+                for (String pattern : patterns) {
+                    // A pattern plays in its own world unless the sweep pinned one (M7).
+                    String playedIn = options.worldGiven || NO_PATTERN.equals(pattern) ? world
+                            : content.patterns().get(pattern).world();
+                    Cell where = new Cell(playedIn, tier, pattern);
+                    for (String bird : birds) {
+                        for (String ability : abilities) {
+                            for (List<String> forced : forcedSets) {
+                                for (BotPilot.Preset preset : presets) {
+                                    List<Row> cell = simulate(factory, content, options, where,
+                                            bird, ability, forced, preset);
+                                    rows.addAll(cell);
+                                    report(where, bird, ability, label(forced), preset,
+                                            options.ticks, cell);
+                                    cells.put(where + " " + label(forced) + " @ "
+                                            + preset.name(), cell);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -184,14 +221,30 @@ public final class BalancingSim {
         }
     }
 
+    /**
+     * Where a cell plays (M7): the world, the tier and the pattern forced on it, if any.
+     *
+     * @param world the world id
+     * @param tier the tier id
+     * @param pattern the forced pattern id, or {@link #NO_PATTERN}
+     */
+    private record Cell(String world, String tier, String pattern) {
+        @Override
+        public String toString() {
+            return "world=" + world + " tier=" + tier
+                    + (NO_PATTERN.equals(pattern) ? "" : " pattern=" + pattern);
+        }
+    }
+
     private static List<Row> simulate(RunFactory factory, GameContent content, Options options,
-            String bird, String ability, List<String> forced, BotPilot.Preset preset) {
+            Cell where, String bird, String ability, List<String> forced,
+            BotPilot.Preset preset) {
         EconomyDef economy = content.economy();
         List<Row> rows = new ArrayList<>(options.seeds);
         for (int i = 0; i < options.seeds; i++) {
             long seed = options.firstSeed + i;
             RunConfig.Builder builder = equip(RunConfig.builder(seed).birdId(bird)
-                    .worldId(options.world).tierId(options.tier), content, ability,
+                    .worldId(where.world()).tierId(where.tier()), content, ability,
                     options.abilityLevel);
             if (options.drafts) {
                 builder.allowOffers(true).availableModifiers(content.modifiers().ids());
@@ -200,12 +253,19 @@ public final class BalancingSim {
                 builder.forcedModifiers(forced);
             }
             RunConfig config = builder.build();
-            Run run = factory.newRun(config);
+            Run run = NO_PATTERN.equals(where.pattern()) ? factory.newRun(config)
+                    : new Run(config, factory.setup(config)
+                            .withForcedPattern(content.patternSpec(where.pattern())));
             HeadlessRunner.Outcome outcome = HeadlessRunner.run(run,
                     new BotPilot(preset, seed), options.ticks);
             RunResult result = outcome.result();
+            // Obstacle deaths are reported by kind (M7): a Storm Sky run that dies to a bolt and
+            // one that dies to a gate are different balance facts.
             String cause = result.stats().deathCause() == null ? "ALIVE"
-                    : result.stats().deathCause().name();
+                    : result.stats().deathCause() == CollisionCause.OBSTACLE
+                            && result.stats().deathKind() != null
+                            ? result.stats().deathKind().name()
+                            : result.stats().deathCause().name();
             RewardSummary rewards = RunRewardCalculator.compute(result, economy,
                     RewardContext.plain());
             RewardSummary paid = RunRewardCalculator.compute(result, economy,
@@ -217,7 +277,8 @@ public final class BalancingSim {
             for (int used : result.stats().abilitiesUsed().values()) {
                 uses += used;
             }
-            rows.add(new Row(bird, ability, label(forced), preset.name(), seed,
+            rows.add(new Row(where.world(), where.tier(), where.pattern(), bird, ability,
+                    label(forced), preset.name(), seed,
                     result.gatesPassed(),
                     result.stats().points(), result.stats().ticksAlive(), outcome.finished(),
                     cause, run.simulation().pickups().spawnedCount(),
@@ -231,8 +292,8 @@ public final class BalancingSim {
         return rows;
     }
 
-    private static void report(String bird, String ability, String forced, BotPilot.Preset preset,
-            int ticks, List<Row> rows) {
+    private static void report(Cell where, String bird, String ability, String forced,
+            BotPilot.Preset preset, int ticks, List<Row> rows) {
         int[] gates = new int[rows.size()];
         int[] alive = new int[rows.size()];
         int[] coins = new int[rows.size()];
@@ -273,10 +334,10 @@ public final class BalancingSim {
         Arrays.sort(streakBest);
         System.out.println();
         System.out.printf(Locale.ROOT,
-                "bird=%s ability=%s modifier=%s skill=%s (reaction %d ticks, error %.0f px)"
+                "%s bird=%s ability=%s modifier=%s skill=%s (reaction %d ticks, error %.0f px)"
                         + " runs=%d%n",
-                bird, ability, forced, preset.name(), preset.reactionTicks(), preset.errorPx(),
-                rows.size());
+                where, bird, ability, forced, preset.name(), preset.reactionTicks(),
+                preset.errorPx(), rows.size());
         System.out.printf(Locale.ROOT,
                 "  gates      p10=%d p50=%d p90=%d min=%d max=%d mean=%.2f%n",
                 percentile(gates, 10), percentile(gates, 50), percentile(gates, 90), gates[0],
@@ -445,6 +506,72 @@ public final class BalancingSim {
     }
 
     /**
+     * The worlds a sweep iterates (M7): one id, or {@code all} for every world of
+     * {@code worlds.json} in order.
+     *
+     * @param content the loaded content
+     * @param selector the {@code --world} value
+     * @return the world ids
+     */
+    private static List<String> worldsOf(GameContent content, String selector) {
+        if ("all".equalsIgnoreCase(selector)) {
+            List<String> ids = new ArrayList<>(content.worlds().size());
+            for (WorldDef def : content.worlds()) {
+                ids.add(def.id());
+            }
+            return ids;
+        }
+        if (content.has(GameContent.WORLDS)) {
+            content.worlds().get(selector);
+        }
+        return List.of(selector);
+    }
+
+    /**
+     * The tiers a sweep iterates (M7): one id, or {@code all} for every tier of
+     * {@code difficulty.json} in order.
+     *
+     * @param content the loaded content
+     * @param selector the {@code --tier} value
+     * @return the tier ids
+     */
+    private static List<String> tiersOf(GameContent content, String selector) {
+        if ("all".equalsIgnoreCase(selector)) {
+            List<String> ids = new ArrayList<>(content.tiers().size());
+            for (TierDef def : content.tiers()) {
+                ids.add(def.id());
+            }
+            return ids;
+        }
+        content.tiers().get(selector);
+        return List.of(selector);
+    }
+
+    /**
+     * The patterns a sweep forces (M7): {@code none} for the world's own spawns, one id, or
+     * {@code all} for every pattern of {@code patterns.json} — boss phases and corridors
+     * included, each looped in isolation.
+     *
+     * @param content the loaded content
+     * @param selector the {@code --pattern} value
+     * @return the pattern ids, with {@link #NO_PATTERN} standing for no forced pattern
+     */
+    private static List<String> patternsOf(GameContent content, String selector) {
+        if (NO_PATTERN.equalsIgnoreCase(selector)) {
+            return List.of(NO_PATTERN);
+        }
+        if ("all".equalsIgnoreCase(selector)) {
+            List<String> ids = new ArrayList<>(content.patterns().size());
+            for (PatternDef def : content.patterns()) {
+                ids.add(def.id());
+            }
+            return ids;
+        }
+        content.patterns().get(selector);
+        return List.of(selector);
+    }
+
+    /**
      * The abilities a sweep iterates: {@code none}, one id, or {@code all} for every ability the
      * content ships (M5).
      *
@@ -588,15 +715,14 @@ public final class BalancingSim {
                 "cell", "ticks", "gates", "payout", "coins");
         Map<String, double[]> baselines = new LinkedHashMap<>();
         for (Map.Entry<String, List<Row>> cell : cells.entrySet()) {
-            if (cell.getKey().startsWith(NO_MODIFIER + " @ ")) {
-                baselines.put(cell.getKey().substring(cell.getKey().indexOf('@')), means(
-                        cell.getValue()));
+            if (isBaselineKey(cell.getKey())) {
+                baselines.put(cell.getKey(), means(cell.getValue()));
             }
         }
         for (Map.Entry<String, List<Row>> cell : cells.entrySet()) {
             double[] m = means(cell.getValue());
-            boolean isBaseline = cell.getKey().startsWith(NO_MODIFIER + " @ ");
-            double[] base = baselines.get(cell.getKey().substring(cell.getKey().indexOf('@')));
+            boolean isBaseline = isBaselineKey(cell.getKey());
+            double[] base = baselines.get(baselineKeyOf(cell.getKey()));
             System.out.printf(Locale.ROOT, "    %-34s %9.1f %9.1f %9.1f %9.1f", cell.getKey(),
                     m[0], m[1], m[2], m[3]);
             if (base != null && !isBaseline) {
@@ -605,6 +731,18 @@ public final class BalancingSim {
             }
             System.out.println();
         }
+    }
+
+    /** Whether a cell key names the forced-nothing baseline of its world, tier and preset. */
+    private static boolean isBaselineKey(String key) {
+        return key.contains(" " + NO_MODIFIER + " @ ");
+    }
+
+    /** The key of the baseline cell a forced cell is compared with. */
+    private static String baselineKeyOf(String key) {
+        int at = key.lastIndexOf(" @ ");
+        int space = key.lastIndexOf(' ', at - 1);
+        return key.substring(0, space + 1) + NO_MODIFIER + key.substring(at);
     }
 
     /** Mean ticksAlive, gates, payout and coins of a cell. */
@@ -633,12 +771,14 @@ public final class BalancingSim {
 
     private static void writeCsv(Path path, List<Row> rows) {
         List<String> lines = new ArrayList<>(rows.size() + 1);
-        lines.add("bird,ability,forced,skill,seed,gates,points,ticksAlive,finished,deathCause,"
-                + "coinsSpawned,coinsCollected,streakBest,streakSteps,coins,xp,payout,"
-                + "abilityUses,shieldAbsorbs,revives,offers,modifiers,synergies");
+        lines.add("world,tier,pattern,bird,ability,forced,skill,seed,gates,points,ticksAlive,"
+                + "finished,deathCause,coinsSpawned,coinsCollected,streakBest,streakSteps,coins,"
+                + "xp,payout,abilityUses,shieldAbsorbs,revives,offers,modifiers,synergies");
         for (Row r : rows) {
             lines.add(String.format(Locale.ROOT,
-                    "%s,%s,%s,%s,%d,%d,%s,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%s",
+                    "%s,%s,%s,%s,%s,%s,%s,%d,%d,%s,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,"
+                            + "%s,%s",
+                    r.world(), r.tier(), r.pattern(),
                     r.bird(), r.ability(), r.forced(), r.skill(), r.seed(), r.gates(),
                     Double.toString(r.points()), r.ticksAlive(), r.finished(), r.deathCause(),
                     r.coinsSpawned(), r.coinsCollected(), r.streakBest(), r.streakSteps(),
@@ -666,7 +806,10 @@ public final class BalancingSim {
                 case "--seed0" -> options.firstSeed = Long.parseLong(next(args, ++i));
                 case "--ticks" -> options.ticks = positiveInt(arg, next(args, ++i));
                 case "--bird" -> options.bird = next(args, ++i);
-                case "--world" -> options.world = next(args, ++i);
+                case "--world" -> {
+                    options.world = next(args, ++i);
+                    options.worldGiven = true;
+                }
                 case "--tier" -> options.tier = next(args, ++i);
                 case "--skill" -> options.skill = next(args, ++i);
                 case "--ability" -> options.ability = next(args, ++i);
@@ -675,6 +818,7 @@ public final class BalancingSim {
                 case "--modifier" -> options.modifier = next(args, ++i);
                 case "--modifier-stacks" -> options.modifierStacks =
                         positiveInt(arg, next(args, ++i));
+                case "--pattern" -> options.pattern = next(args, ++i);
                 case "--drafts" -> options.drafts = true;
                 case "--csv" -> options.csv = Path.of(next(args, ++i));
                 case "--help", "-h" -> options.help = true;
@@ -712,8 +856,12 @@ public final class BalancingSim {
                 "  --ticks N     tick budget per run (default " + DEFAULT_TICKS + ")",
                 "  --bird ID     bird id, or 'all' to iterate the registry (default "
                         + RunConfig.DEFAULT_BIRD + ")",
-                "  --world ID    world id (default " + RunConfig.DEFAULT_WORLD + ")",
-                "  --tier ID     tier id (default " + RunConfig.DEFAULT_TIER + ")",
+                "  --world ID    world id, or 'all' to iterate worlds.json (default "
+                        + RunConfig.DEFAULT_WORLD + ")",
+                "  --tier ID     tier id, or 'all' to iterate difficulty.json (default "
+                        + RunConfig.DEFAULT_TIER + ")",
+                "  --pattern ID  stream one pattern of patterns.json in isolation, looped, in"
+                        + " the pattern's own world unless --world is given; 'none' or 'all' (M7)",
                 "  --skill NAME  novice | average | expert | perfect | all (default average)",
                 "  --ability ID  ability to equip, 'none' or 'all' (default " + NO_ABILITY + ")",
                 "  --ability-level N  level to play the ability at (default 1)",

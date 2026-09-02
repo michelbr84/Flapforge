@@ -67,8 +67,8 @@ import java.util.Objects;
  *
  * <p>Some of what is for sale cannot be used yet: {@link GameContent#playable} reports which kinds
  * have systems behind them today (E19), and an offer whose kind does not says so on its card
- * ("Arrives in M5"). It is still bought and still counts for the unlock graph — a world bought now
- * is a world already owned when M7 lands.
+ * ("Arrives in M8"). It is still bought and still counts for the unlock graph — a challenge bought
+ * now is a challenge already owned when M8 lands, the way a world bought before M7 was.
  */
 public final class ShopScreen implements Screen {
 
@@ -116,7 +116,6 @@ public final class ShopScreen implements Screen {
      */
     private static final Map<ContentKind, String> MILESTONES = Map.of(
             ContentKind.ABILITY, "M5",
-            ContentKind.WORLD, "M7",
             ContentKind.CHALLENGE, "M8",
             ContentKind.ACHIEVEMENT, "M8");
 

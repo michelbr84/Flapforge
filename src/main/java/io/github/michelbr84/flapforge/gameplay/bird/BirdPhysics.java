@@ -37,12 +37,14 @@ public final class BirdPhysics {
     }
 
     /**
-     * Advances the bird by one tick under gravity.
+     * Advances the bird by one tick under gravity plus the wind sampled for this tick
+     * ({@link Bird#windAccelY()}, M7); with no wind the sum is bit-identical to gravity alone.
      *
      * @param bird the bird
      */
     public void step(Bird bird) {
-        integrate(bird, stats.resolve(StatId.GRAVITY), stats.resolve(StatId.MAX_FALL_SPEED));
+        integrate(bird, stats.resolve(StatId.GRAVITY) + bird.windAccelY(),
+                stats.resolve(StatId.MAX_FALL_SPEED));
     }
 
     /**

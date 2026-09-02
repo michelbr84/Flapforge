@@ -67,6 +67,29 @@ public final class ShieldSystem {
     }
 
     /**
+     * Follows a freshly resolved {@code SHIELD_CHARGES} in both directions (M7): a rise is
+     * {@link #raiseTo}, a drop lowers the ceiling and clips the usable charges to it. A drop is
+     * what a rule shift does — the Void cycling {@code NO_DEFENSIVE_ABILITIES} in zeroes the stat
+     * (D8) and the bird has no shield until the shift cycles out again, when the ceiling comes
+     * back and the charges with it.
+     *
+     * @param resolved the {@code SHIELD_CHARGES} the sheet resolves now
+     * @return {@code true} when the ceiling moved either way
+     */
+    public boolean syncTo(int resolved) {
+        int target = Math.max(0, resolved);
+        if (target > maxCharges) {
+            return raiseTo(target);
+        }
+        if (target == maxCharges) {
+            return false;
+        }
+        maxCharges = target;
+        charges = Math.min(charges, target);
+        return true;
+    }
+
+    /**
      * Applies the {@code shield} ability's level parameters (D9).
      *
      * @param invulnTicksValue invulnerability granted by an absorb, in ticks

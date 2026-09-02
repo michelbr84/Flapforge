@@ -25,7 +25,12 @@ import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.geom.Vec2;
 import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.event.GameEvent;
+import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
+import io.github.michelbr84.flapforge.gameplay.obstacle.LightningStrike;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
+import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.input.InputAction;
@@ -34,6 +39,7 @@ import io.github.michelbr84.flapforge.input.InputQueue;
 import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.persistence.SaveManager;
 import io.github.michelbr84.flapforge.persistence.SavePaths;
@@ -48,6 +54,7 @@ import io.github.michelbr84.flapforge.render.DebugOverlay;
 import io.github.michelbr84.flapforge.render.HudRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
+import io.github.michelbr84.flapforge.render.WorldStyle;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
@@ -62,6 +69,8 @@ import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
+import io.github.michelbr84.flapforge.ui.screens.ProgressionText;
+import io.github.michelbr84.flapforge.ui.screens.RuleShiftBanner;
 import io.github.michelbr84.flapforge.ui.screens.RunSummaryScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
@@ -110,6 +119,10 @@ import org.junit.jupiter.api.Test;
  *   <li>the M5 loadout: a passive equipped in the bird selection with a real click, a run built
  *       from it and the active ability used with a real {@code X}, with the ability HUD
  *       screenshotted;</li>
+ *   <li>the M7 worlds: the world picker stepped with real arrow keys, then Iron Forge, Storm
+ *       Sky and the Void each flown for {@value #WORLD_FRAMES}+ frames on the perfect bot's
+ *       decisions delivered as queued taps, with a gear or piston, a lightning warning and the
+ *       Void's rule-shift banner captured;</li>
  *   <li>the real quit path of {@link GameApplication}: {@code CloseRequested} ends the loop
  *       thread, disposes the frame and finishes long before the exit watchdog.</li>
  * </ul>
@@ -130,7 +143,7 @@ class SmokeWindowTest {
      * {@link #DELIVERY_TIMEOUT_MS}, i.e. the event had no effect at all, so it cannot activate a
      * button or toggle a switch twice.
      */
-    private static final int DELIVERY_ATTEMPTS = 3;
+    private static final int DELIVERY_ATTEMPTS = 5;
 
     /**
      * How long a Robot event may take to come back through the toolkit. The rig drives the loop
@@ -149,6 +162,10 @@ class SmokeWindowTest {
     private static final int GRACE = ScreenManager.TRANSITION_GRACE_TICKS + 5;
     /** Gate the M6 smoke draft opens at; the shipped schedule starts at 10 (E17). */
     private static final int DRAFT_GATE = 1;
+    /** Frames each M7 world is flown for, at least, by the bot-driven smoke flight. */
+    private static final int WORLD_FRAMES = 600;
+    /** Frame budget for one capture the world flight waits for (a hazard, a warning, a shift). */
+    private static final int WORLD_WAIT_FRAMES = 7200;
 
     /**
      * Overlay recording the frames it sees, pushed on top of the menu for input checks.
@@ -1090,6 +1107,294 @@ class SmokeWindowTest {
             assertTrue(saveShot("draft-hud", rig) >= 2, "the HUD build frame is uniform");
 
             rig.requestCloseAndVerify();
+        }
+    }
+
+    /**
+     * The M7 loop through the toolkit: the world picker stepped with real arrow keys past a
+     * world the profile owns, then a run in Iron Forge, one in Storm Sky and one in the Void,
+     * each flown for at least {@value #WORLD_FRAMES} frames on the perfect bot's decisions
+     * delivered as queued Space taps. The frames a reviewer looks at go to {@code build/smoke/}:
+     * the picker with the forge selected, a gear or a piston on screen in the forge, a lightning
+     * column in its warning (the fairness cue) in the storm, and the Void's rule-shift banner
+     * over a live run — the {@code -render.png} of each is the {@link BufferedImage} the
+     * presenter painted, next to the Robot capture.
+     *
+     * <p>A bot flying through the queue is a tick behind its own decision (the tap is drained
+     * on the next tick), so it dies now and then; the flight retries on the game-over strip
+     * (D29, the next seed) and keeps counting frames, so every capture waits for the real thing
+     * rather than for one lucky seed.
+     */
+    @Test
+    void theWorldsArePickedWithTheToolkitAndPlayedWithTheirHazardsOnScreen() throws Exception {
+        requireDisplay();
+        try (Rig rig = new Rig("Flapforge smoke test (worlds)", false, true)) {
+            PlayerProfile profile = rig.save.profile();
+            // The worlds are earned by clearing bosses (M8) or bought (D13); this smoke run is
+            // about the picker and the hazards, so they are granted outright in the test's home.
+            for (String id : List.of("wind_valley", "iron_forge", "storm_sky", "void")) {
+                profile.unlock("world:" + id);
+            }
+            GameContent content = GameContent.load();
+            Strings strings = Strings.active();
+            MainMenuScreen menu = new MainMenuScreen(rig.context,
+                    new ContentRunFactory(content, RunMode.SEEDED, () -> profile),
+                    SeedSequence.of(42));
+            rig.start(menu);
+            rig.frames(30);
+            focusCanvasOrAbort(rig);
+            Driver driver = new Driver(rig);
+
+            // Menu -> Birds; the world row is stepped with real arrow keys, Wind Valley then the
+            // forge, both owned. The pointer is parked over the title first so no row takes the
+            // focus back the moment it moves.
+            driver.click(menu.birdsButton(), () -> rig.screens.top() instanceof BirdSelectionScreen);
+            BirdSelectionScreen birds = (BirdSelectionScreen) rig.screens.top();
+            rig.frames(GRACE);
+            assertEquals("green_fields", birds.currentWorldId(), "a fresh profile flies the fields");
+            driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
+            birds.focusRing().focus(birds.worldList());
+            rig.frames(3);
+            driver.tap(KeyEvent.VK_RIGHT, () -> "wind_valley".equals(profile.selected.worldId));
+            driver.tap(KeyEvent.VK_RIGHT, () -> "iron_forge".equals(profile.selected.worldId));
+            rig.frames(4);
+            assertEquals("iron_forge", birds.currentWorldId(), "the row shows the selection");
+            assertFalse(birds.worldList().isLocked(), "an owned world is not marked locked");
+            assertTrue(birds.worldDetail().contains(strings.get(StringKey.OBSTACLE_GEAR)),
+                    "the forge lists its gears: " + birds.worldDetail());
+            assertTrue(Files.exists(rig.save.file()), "the selection reached the disk");
+            assertTrue(saveShot("world-picker", rig) >= 2, "the picker frame is uniform");
+            driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+            rig.frames(GRACE);
+            String forgeName = ProgressionText.name(strings, ContentKind.WORLD, "iron_forge");
+            assertTrue(menu.worldLine().contains(forgeName),
+                    "the menu names the selected world: " + menu.worldLine());
+            assertTrue(saveShot("menu-world", rig) >= 2, "the menu frame is uniform");
+
+            // Iron Forge: fly until a gear or a piston is on screen, capture it, keep flying.
+            GameScreen forge = play(rig, driver, menu, "iron_forge", WorldStyle.FACTORY);
+            WorldFlight forgeFlight = new WorldFlight(rig, forge);
+            assertTrue(forgeFlight.fly(WORLD_WAIT_FRAMES, () -> onScreen(forge, ObstacleKind.GEAR)
+                    || onScreen(forge, ObstacleKind.PISTON)),
+                    () -> "no gear or piston reached the screen in " + forgeFlight.frames
+                            + " frames (" + forgeFlight.retries + " retries)");
+            assertTrue(saveShot("iron-forge-hazards", rig) >= 2, "the forge frame is uniform");
+            forgeFlight.fly(WORLD_FRAMES, () -> forgeFlight.frames >= WORLD_FRAMES);
+            assertTrue(forgeFlight.frames >= WORLD_FRAMES, "the forge was flown for "
+                    + forgeFlight.frames + " frames");
+            assertTrue(forgeFlight.ticks > 0, "the run advanced");
+            System.out.println("[smoke] iron_forge: " + forgeFlight);
+            leaveRun(rig, driver, menu);
+
+            // Storm Sky: the next world in the row. Fly until a lightning column is warning —
+            // the marker over its side and extent is the fairness cue — and capture it while the
+            // warning is up; the sky flash (E8) is captured too when a run lasts three gates.
+            select(rig, driver, menu, "storm_sky");
+            GameScreen storm = play(rig, driver, menu, "storm_sky", WorldStyle.STORM);
+            assertEquals(0.5, storm.run().simulation().darkness(), 0.0, "the storm is half dark");
+            WorldFlight stormFlight = new WorldFlight(rig, storm);
+            assertTrue(stormFlight.fly(WORLD_WAIT_FRAMES, () -> warningOnScreen(storm)),
+                    () -> "no lightning warning reached the screen in " + stormFlight.frames
+                            + " frames (" + stormFlight.retries + " retries)");
+            assertTrue(saveShot("storm-sky-warning", rig) >= 2, "the storm frame is uniform");
+            if (stormFlight.fly(WORLD_WAIT_FRAMES / 4, () -> storm.renderer().isFlashing())) {
+                assertTrue(saveShot("storm-sky-flash", rig) >= 2, "the flash frame is uniform");
+            } else {
+                System.out.println("[smoke] storm_sky: no ambient flash within the budget, "
+                        + "the flash capture is skipped");
+            }
+            stormFlight.fly(WORLD_FRAMES, () -> stormFlight.frames >= WORLD_FRAMES);
+            assertTrue(stormFlight.frames >= WORLD_FRAMES, "the storm was flown for "
+                    + stormFlight.frames + " frames");
+            System.out.println("[smoke] storm_sky: " + stormFlight);
+            leaveRun(rig, driver, menu);
+
+            // The Void: its rule shift is announced five gates in; capture the banner over the
+            // live run, telegraph first and then the "in effect" flash.
+            select(rig, driver, menu, "void");
+            GameScreen voidRun = play(rig, driver, menu, "void", WorldStyle.VOID);
+            WorldFlight voidFlight = new WorldFlight(rig, voidRun);
+            assertTrue(voidFlight.fly(WORLD_WAIT_FRAMES, () -> voidRun.banner().isVisible()),
+                    () -> "no rule shift was announced in " + voidFlight.frames + " frames ("
+                            + voidFlight.retries + " retries, best "
+                            + voidFlight.bestGates + " gates)");
+            assertEquals(RuleShiftBanner.Phase.TELEGRAPH, voidRun.banner().phase());
+            assertFalse(voidRun.banner().line().isEmpty(), "the banner names the rule");
+            assertTrue(saveShot("void-rule-shift", rig) >= 2, "the banner frame is uniform");
+            if (voidFlight.fly(RuleShiftBanner.IN_EFFECT_TICKS + 90 + 300,
+                    () -> voidRun.banner().phase() == RuleShiftBanner.Phase.IN_EFFECT)) {
+                assertTrue(saveShot("void-rule-in-effect", rig) >= 2,
+                        "the in-effect frame is uniform");
+            }
+            voidFlight.fly(WORLD_FRAMES, () -> voidFlight.frames >= WORLD_FRAMES);
+            assertTrue(voidFlight.frames >= WORLD_FRAMES, "the void was flown for "
+                    + voidFlight.frames + " frames");
+            System.out.println("[smoke] void: " + voidFlight);
+            leaveRun(rig, driver, menu);
+
+            rig.requestCloseAndVerify();
+        }
+    }
+
+    /**
+     * Steps the world row to a world with real arrow keys: menu → Birds, one {@code Right} per
+     * world from the selected one, back to the menu.
+     */
+    private static void select(Rig rig, Driver driver, MainMenuScreen menu, String worldId) {
+        driver.click(menu.birdsButton(), () -> rig.screens.top() instanceof BirdSelectionScreen);
+        BirdSelectionScreen birds = (BirdSelectionScreen) rig.screens.top();
+        rig.frames(GRACE);
+        driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
+        birds.focusRing().focus(birds.worldList());
+        rig.frames(3);
+        List<String> ids = birds.worldIds();
+        int target = ids.indexOf(worldId);
+        assertTrue(target >= 0, worldId + " is in the picker: " + ids);
+        while (ids.indexOf(birds.currentWorldId()) < target) {
+            String next = ids.get(ids.indexOf(birds.currentWorldId()) + 1);
+            driver.tap(KeyEvent.VK_RIGHT, () -> next.equals(birds.currentWorldId()));
+        }
+        assertEquals(worldId, birds.currentWorldId());
+        driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+        rig.frames(GRACE);
+    }
+
+    /**
+     * Menu → game with a real click on Play (the menu keeps its focus on the Birds button the
+     * test just came back from, so Enter would open the bird selection again) and checks the run
+     * is in the world with the world's look.
+     */
+    private static GameScreen play(Rig rig, Driver driver, MainMenuScreen menu, String worldId,
+            WorldStyle style) {
+        driver.click(menu.playButton(), () -> rig.screens.top() instanceof GameScreen);
+        GameScreen game = (GameScreen) rig.screens.top();
+        assertEquals(worldId, game.run().config().worldId(), "the run is played in the world");
+        assertEquals(style, game.renderer().style(), "the renderer took the world's style");
+        assertTrue(game.renderer().hud().worldNameVisible(game.run().phase()),
+                "the HUD names the world on the READY screen");
+        rig.frames(HudRenderer.BLINK_HALF_TICKS + 10);
+        return game;
+    }
+
+    /** Pauses the run with a real {@code Esc}, then leaves it for the menu with a second one. */
+    private static void leaveRun(Rig rig, Driver driver, MainMenuScreen menu) {
+        focusCanvasOrAbort(rig);
+        if (rig.screens.top() instanceof GameOverOverlay) {
+            driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+        } else {
+            if (!(rig.screens.top() instanceof PauseOverlay)) {
+                driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() instanceof PauseOverlay);
+            }
+            driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+        }
+        rig.frames(GRACE);
+    }
+
+    /** Whether an obstacle of a kind is wholly inside the playfield. */
+    private static boolean onScreen(GameScreen game, ObstacleKind kind) {
+        for (Obstacle o : game.run().simulation().obstacles().obstacles()) {
+            if (o.kind() == kind && o.x() >= 0 && o.x() + o.width() <= Playfield.WIDTH) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a lightning column is in its warning inside the playfield. */
+    private static boolean warningOnScreen(GameScreen game) {
+        for (Obstacle o : game.run().simulation().obstacles().obstacles()) {
+            if (o instanceof LightningStrike bolt
+                    && bolt.state() == LightningStrike.State.WARNING
+                    && bolt.x() < Playfield.WIDTH - 24) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Flies one game screen on the perfect bot's decisions, delivered as queued Space taps: one
+     * decision per simulation tick the screen has advanced, a tap to start a READY run, a tap to
+     * resume after a stolen focus, and a tap on the game-over strip to retry with the next seed
+     * (D29). A fresh bot per attempt, so no target from a dead run survives into the next.
+     */
+    private static final class WorldFlight {
+        private final Rig rig;
+        private final GameScreen game;
+        private BotPilot pilot;
+        private long stamp = 1;
+        private int decidedTick = -1;
+        private int lastStartFrame = -1000;
+        int frames;
+        int ticks;
+        int retries;
+        int bestGates;
+
+        WorldFlight(Rig rig, GameScreen game) {
+            this.rig = rig;
+            this.game = game;
+            this.pilot = new BotPilot(BotPilot.Preset.PERFECT, 42);
+        }
+
+        /**
+         * Runs frames until {@code until} holds or the budget is spent.
+         *
+         * @return whether {@code until} holds
+         */
+        boolean fly(int maxFrames, BooleanSupplier until) {
+            for (int i = 0; i < maxFrames && !until.getAsBoolean(); i++) {
+                step();
+            }
+            return until.getAsBoolean();
+        }
+
+        private void step() {
+            Screen top = rig.screens.top();
+            if (top instanceof PauseOverlay) {
+                System.out.println("[smoke] focus was stolen mid-flight; resuming the run");
+                focusCanvasOrAbort(rig);
+                tap();
+            } else if (top instanceof GameOverOverlay) {
+                if (frames - lastStartFrame > 10) {
+                    retries++;
+                    lastStartFrame = frames;
+                    decidedTick = -1;
+                    pilot = new BotPilot(BotPilot.Preset.PERFECT, 42 + retries);
+                    tap();
+                }
+            } else if (top == game) {
+                Run run = game.run();
+                bestGates = Math.max(bestGates, run.stats().gatesPassed());
+                if (run.phase() == RunPhase.READY) {
+                    if (frames - lastStartFrame > 10) {
+                        lastStartFrame = frames;
+                        tap();
+                    }
+                } else if (run.phase() == RunPhase.FLYING && run.tick() != decidedTick) {
+                    decidedTick = run.tick();
+                    if (pilot.decide(run).flap()) {
+                        tap();
+                    }
+                }
+            }
+            int before = game.run().tick();
+            rig.loop.frame();
+            frames++;
+            if (rig.screens.top() == game && game.run().tick() > before) {
+                ticks += game.run().tick() - before;
+            }
+        }
+
+        private void tap() {
+            rig.input.offer(new RawInput.KeyDown(Keys.SPACE, stamp++));
+            rig.input.offer(new RawInput.KeyUp(Keys.SPACE, stamp++));
+        }
+
+        @Override
+        public String toString() {
+            return "frames " + frames + ", ticks " + ticks + ", retries " + retries
+                    + ", best gates " + bestGates + ", now " + game.run().phase() + " at gate "
+                    + game.run().stats().gatesPassed();
         }
     }
 

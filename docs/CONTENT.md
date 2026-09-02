@@ -25,7 +25,8 @@ silently ineffective effect.
 | `aliases.json` | the id reconciliation table applied to old saves (E21) | M4 (empty) |
 | `abilities.json` | the eight abilities: kind, tags, level costs, unlocks | stub in M4, completed in M5 |
 | `modifiers.json` | the draft: offer schedule, offer width, rarity weights, the seventeen modifiers and the four synergies | M6 |
-| `worlds.json` | the five worlds: order, curve, palette, ambience, spawn weights, boss and boss reward | stub in M4, completed in M7 |
+| `worlds.json` | the five worlds: order, curve, palette, ambience, spawn weights, patterns, rule cycles, boss and boss reward | stub in M4, completed in M7 (music in M8) |
+| `patterns.json` | the twenty-one obstacle set pieces: world patterns, boss phases and the corridors of `boss_corridor_1` | M7 |
 | `challenges.json` | the seven challenges: world, rules, objective, rewards, unlocks | stub in M4, completed in M8 |
 | `achievements.json` | the forty-one achievements: condition, reward | stub in M4, completed in M8 |
 | `strings/en.json`, `strings/pt_BR.json` | every display string, including `<kind>.<id>.name` and `.desc` | M2 |
@@ -45,10 +46,9 @@ was supplied, and cross-reference rules that point into a file that was not supp
 shipped set is checked in full.
 
 `GameContent.playable(kind)` is the other half: content can be authored, validated and visible
-before its system exists. Abilities became playable in M5; challenges and achievements do in M8. Two
-kinds answer per id instead of per kind: `playable(WORLD, id)` is true only for `green_fields`
-until M7, and `playable(FEATURE, id)` is false while `GameContent.featureMilestone(id)` names a
-milestone — `modifiers` named M6 until the draft overlay shipped and is live now, `seeded_runs`
+before its system exists. Abilities became playable in M5, worlds in M7; challenges and
+achievements do in M8. One kind answers per id: `playable(FEATURE, id)` is false while
+`GameContent.featureMilestone(id)` names a milestone — `modifiers` named M6 until the draft overlay shipped and is live now, `seeded_runs`
 names M9. A feature is *buyable* before that, which is what the plan asks for, so the shop labels
 it with the milestone rather than presenting a switch that does nothing. The UI asks these to show
 content as locked by milestone rather than offering something that cannot happen yet.
@@ -299,6 +299,90 @@ only place `{"type": "prestige"}` and `{"type": "counter", "counter": …}` are 
 the only unlockables exempt from the cumulative-path rule: a trophy palette is allowed to require
 the boss that pays it.
 
+### A world (M7)
+
+One entry of `worlds.json`. Every field:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `order` | the id (`world:<id>` in the unlock graph) and the position in the picker |
+| `curve` | a curve of `difficulty.json` (`classic` for Green Fields, `standard` elsewhere; D20) |
+| `style` | the parallax style the renderer draws: `hills`, `canyon`, `factory`, `storm`, `void` (`WorldStyle`) |
+| `unlock` | the unlock condition; every world but the first is `any_of[world_cleared <previous>, purchase N]` |
+| `palette` | seven `#RRGGBB` colours: `skyTop`, `skyBottom`, `ground`, `pipe`, `accent`, `fog`, `letterbox` |
+| `effects`, `flags` | the `WORLD` layer and the world's rule flags for every run played there |
+| `spawnWeights` | the spawn table: weight per obstacle kind (`pipe_gate`, `gear`, `piston`, `wind_zone`, `lightning`); at least one positive weight |
+| `patterns` | the ids of the set pieces the world draws (each must belong to the world and have a positive weight) |
+| `ambient` | `darkness` in `[0, 1]` (what the renderer hides around the bird — Storm Sky alone is dark), `windX` in `[-60, 60]` px/s (a permanent change of the relative scroll: Wind Valley's −20 pushes the bird back), `windY` in `[-900, 900]` px/s² (a permanent vertical acceleration), `lightningEveryGates` (a cosmetic sky flash every N gates, E8: no hitbox) |
+| `ruleCycles` | `null`, or `{everyGates, telegraphTicks, options[]}` with each option `{flags[], effects[]}`; every `everyGates` gates the next option is drawn (never the same twice in a row) and lands `telegraphTicks` flying ticks later, replacing the previous option's flags and effects; at least two non-empty options, none touching `MOVING_CHANCE` |
+| `boss` | `atGate`, `warningTicks`, `patterns[]` (weight-0 phases of `patterns.json`, ≥ 480 px each), `surviveTicks`, `reward {coins, unlocks[]}` — the reward is an edge of the unlock graph (M8 plays it) |
+| `music`, `sfxSet` | `music` is M8's; `sfxSet` is one of `FIELDS, CANYON, FACTORY, STORM, VOID` and flavours every sound cue (E31.g) |
+
+**How the spawn table plays.** The first column of a run is always a static standard gate
+(upstream's rule). Afterwards the kind is drawn from `spawnWeights` (the `spawn` stream), the
+moving flag or a gear's rail against the resolved `MOVING_CHANCE` (`spawn`), and the geometry from
+the `obstacle` stream — gates as upstream, gears with a radius in `[24, 56]` and a sweep centre
+clear of the edges, pistons `[120, 300]` px long from either edge with a random phase offset, wind
+zones `[100, 200]` × `[200, 320]` px in the middle band pushing ∓500 px/s² or ∓40 px/s, bolts
+from either edge lighting 35–65 % of the height. A spawned lightning column is always reachable
+from the column before it: its side is the one whose unlit band is nearer that column's band and
+its lit fraction is shortened until the travel fits 80 px (`SpawnTable.LIGHTNING_MAX_TRAVEL_PX`),
+and it warns from 75 ticks of scroll out. The cursor measures the 160 px interval from where a
+pipe body's right edge would be, so a 112 px gear or a 200 px zone pushes the next column out by
+its extra width. `ALL_OBSTACLES_MOVE` is applied when a decision becomes an obstacle, per kind: a
+gate oscillates, a gear rides the default rail, a piston's telegraph drops to 25 ticks, bolts and
+zones are unchanged.
+
+**Scoring rule.** Every lethal column — gate, gear, piston, lightning — scores one gate when the
+bird's hitbox left edge passes its right edge (`Obstacle.scoreLineX`), so the gate-keyed curve
+advances in a gear-heavy world; a wind zone never scores. The coin trail (E2) is laid along each
+scoring column's safe band (`Obstacle.safeBandY`: gap centre, a gear's larger free side, a
+piston's free side, a bolt's unlit side).
+
+### A pattern (M7)
+
+One entry of `patterns.json`: `{id, world, weight, minGate, scoringSteps, steps[]}`. A world
+pattern has `weight > 0` and is listed by its world; between chunks the streamer starts one at a
+free spawn with probability `Σ eligible weights / (Σ weights + 100)` among the patterns whose
+`minGate ≤ gatesPassed`, then picks one weighted; one plain spawn separates two chunks. A boss
+phase or a challenge's `forcedPattern` has `weight 0` and is streamed on demand (a forced pattern
+loops from the first spawn). `scoringSteps: false`, or `"scoring": false` on a step, spawns a
+column that awards no gate and gets no coins (E14: a challenge with a boss needs a scoring forced
+pattern).
+
+Each step is `{dx, kind, params, scoring?}`: the column lands `dx` px after the previous column's
+left edge (`dx ≥ 100`), and `params` follow the kind's `ParamSpec` (`ObstacleParams`; fractions
+are of the 598 px playable height):
+
+| Kind | Params | Ranges |
+| --- | --- | --- |
+| `pipe_gate` | `layout` (`STANDARD`/`FLOATING`), `gapCenter` (`0..1` or `"random"`), `gapSize`, `oscillate`, `amplitude`, `speed` | `gapSize` is a base value the run scales by its gap multiplier (tier ×0.9/×0.8, the curve's ramp, a cycle option, a card) and keeps centred; `"random"` draws upstream's geometry from the `obstacle` stream; `speed` 0 uses the `OSCILLATION_SPEED` stat |
+| `gear` | `cy`, `radius`, `rail {amplitude, speed}` | `radius` 24–56; the rail is a triangle wave of `amplitude` px at `speed` px/s of world time |
+| `piston` | `side` (`TOP`/`BOTTOM`), `length`, `telegraphTicks`, `extendTicks`, `holdTicks`, `retractTicks`, `phaseOffset` | `length` 80–360, `telegraphTicks ≥ 15`; defaults 40/12/30/20 |
+| `wind_zone` | `width`, `cy`, `height`, `accelY`, `scrollDelta` | `width` 60–240, `accelY` −900..900 px/s² (negative lifts), `scrollDelta` −60..60 px/s (positive scrolls faster) |
+| `lightning` | `side`, `lengthFrac`, `warningTicks`, `strikeTicks` | `lengthFrac` 0.3–0.7 (a safe band always exists), `warningTicks ≥ 30`, `strikeTicks` 6–16 |
+
+**Feasibility rules** (the validator, §4): `dx ≥ 100`; a gate's `gapSize × (tightest tier
+multiplier) × 0.9 ≥ 54.5`, i.e. `gapSize ≥ 76` with the nightmare tier's ×0.8; `telegraphTicks ≥
+15`; `lengthFrac ≤ 0.7`; a gate right after a bolt has an authored `gapCenter` on the bolt's unlit
+side (`≤ 0.5` after a `BOTTOM` bolt, `≥ 0.5` after a `TOP` one, never `"random"`); a bolt's safe
+band is no further from the previous lethal column's band than the scroll between them
+(`dx − that column's width − 5` px: the bird climbs about one px per px of scroll at the fastest
+tier scroll); a boss phase spans `≥ 480` px.
+
+**Authoring and testing.** Write the steps, run `./gradlew contentCheck`, then measure:
+
+```bash
+./gradlew balancing -PtoolArgs="--pattern forge_gear_corridor --skill expert --seeds 50 --ticks 2400"
+./gradlew balancing -PtoolArgs="--pattern all --skill expert --seeds 50 --ticks 2400"
+./gradlew balancing -PtoolArgs="--world iron_forge --tier all --skill expert --seeds 50"
+```
+
+`--pattern` loops the pattern from the first spawn in the pattern's own world (its curve, effects
+and ambience) unless `--world` pins another; `ContentFeasibilityTest` (`simTest`) asserts the
+expert survives 2 400 ticks of every pattern in ≥ 30 % of 50 seeds and reaches `boss.atGate` in
+every world × tier at the same rate, and `docs/BALANCING.md` §10 records the table.
+
 ---
 
 ## 4. What the validator checks
@@ -322,7 +406,27 @@ silence, which is the class of failure D10 exists to prevent.
 and `UNLOCK` grants; challenge `world`, `tier`, `curve`, `forcedModifiers` and rewards; world
 `curve` and `boss.reward`; modifier `excludes`; achievement counters; level-reward unlocks; the
 daily tier pool; every namespaced id in every reward. A reference into a file that was not
-supplied is skipped (§1); pattern ids are recorded and resolved from M7.
+supplied is skipped (§1).
+
+**Patterns (M7).** Every pattern id a world lists, a boss names or a challenge forces resolves. A
+pattern a world lists belongs to that world and has a positive weight (else the world could never
+draw it); a boss phase or a forced pattern has weight 0 (else the world would also draw it at
+random) and a boss phase spans at least 480 px. A weighted pattern its world does not list is an
+error; a weight-0 pattern nothing names is a warning. Every step's `params` are checked against
+the kind's `ObstacleParams` contract — unknown keys, wrong shapes and out-of-range values are
+reported with the step's pointer — and the feasibility rules of the plan hold: `dx ≥ 100` between
+columns, a gate's `gapSize × (the tightest tier's GAP_SIZE multiplier) × 0.9 ≥ 54.5` (the
+nightmare tier's 0.8 makes that `gapSize ≥ 76`; the run scales an authored gap by the same
+multiplier, so the rule describes what the tier plays), a piston's `telegraphTicks ≥ 15`, a bolt's
+`lengthFrac ≤ 0.7`, a gate right after a bolt authored on the bolt's unlit side (never `"random"`),
+and a bolt's safe band within reach of the previous lethal column's band — no further than the
+scroll between them (`dx − width − 5` px). E14: a challenge with a boss and a forced pattern needs
+that pattern to score (`scoringSteps` true and a scoring step), or `boss.atGate` is unreachable.
+
+**Worlds (M7).** The ambient wind takes a wind zone's ranges (`windX` in `[-60, 60]` px/s,
+`windY` in `[-900, 900]` px/s²), the spawn table has a positive weight, and a `ruleCycles` block
+has at least two options, each turning on a flag or applying an effect, none touching
+`MOVING_CHANCE` (E32.d) and none carrying the contradictions a challenge is refused.
 
 **Counters (E5).** A `LIFETIME` counter is a `StatisticKey` field, a `<mapField>.<key>` entry of
 one (`bossClears.void`, `bestGatesByTier.hard`) or a profile-root scalar (`level`, `xp`,

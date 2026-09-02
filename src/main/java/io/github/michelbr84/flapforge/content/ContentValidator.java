@@ -7,6 +7,7 @@ import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.content.defs.AbilityLevelDef;
 import io.github.michelbr84.flapforge.content.defs.AchievementConditionDef;
 import io.github.michelbr84.flapforge.content.defs.AchievementDef;
+import io.github.michelbr84.flapforge.content.defs.AmbientDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.BossDef;
 import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
@@ -18,18 +19,31 @@ import io.github.michelbr84.flapforge.content.defs.GrantType;
 import io.github.michelbr84.flapforge.content.defs.LevelRewardDef;
 import io.github.michelbr84.flapforge.content.defs.ModifierDef;
 import io.github.michelbr84.flapforge.content.defs.ModifiersDef;
-import io.github.michelbr84.flapforge.content.defs.SynergyDef;
 import io.github.michelbr84.flapforge.content.defs.ObjectiveType;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
+import io.github.michelbr84.flapforge.content.defs.PatternDef;
+import io.github.michelbr84.flapforge.content.defs.PatternStepDef;
 import io.github.michelbr84.flapforge.content.defs.PrestigeDef;
+import io.github.michelbr84.flapforge.content.defs.RuleCycleOptionDef;
+import io.github.michelbr84.flapforge.content.defs.RuleCyclesDef;
 import io.github.michelbr84.flapforge.content.defs.StatModifierDef;
+import io.github.michelbr84.flapforge.content.defs.SynergyDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.TreeDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
 import io.github.michelbr84.flapforge.content.defs.UpgradeDef;
 import io.github.michelbr84.flapforge.content.defs.WorldDef;
+import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.difficulty.DifficultyCurve;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Gear;
+import io.github.michelbr84.flapforge.gameplay.obstacle.LightningStrike;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
+import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleParams;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Piston;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Side;
+import io.github.michelbr84.flapforge.gameplay.obstacle.SpawnTable;
+import io.github.michelbr84.flapforge.gameplay.obstacle.WindZone;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.TierSpec;
@@ -48,6 +62,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -63,8 +78,9 @@ import java.util.regex.Pattern;
  * <p>A cross-reference into a file that was not supplied is <em>not</em> an error
  * ({@link GameContent#has(String)}): milestones M1–M3 ship birds, difficulty and economy alone
  * and their data has to keep passing its own validator (E19), while the shipped M4 set carries
- * every file and is therefore checked in full. The same rule covers the references that point at
- * files still to come — {@code patterns.json} (M7) and {@code modifiers.json} (M6).
+ * every file and is therefore checked in full. The same rule covers {@code patterns.json}: the
+ * frozen golden fixture ships neither worlds nor patterns, so every pattern rule below is
+ * conditional on the file being there (E19), and switched on for the shipped set since M7.
  *
  * <p>The string-key rules of D25 live in {@link #checkStrings(GameContent)}: they compare the
  * content against {@code data/strings/*.json}, not against another content file, so they run on
@@ -98,6 +114,27 @@ public final class ContentValidator {
     /** The most passive slots a bird may ever have, innate slots plus grants (E3). */
     public static final int MAX_PASSIVE_SLOTS = 4;
 
+    /**
+     * Smallest distance between two pattern columns, in px (§4 feasibility): a bird needs the
+     * room to change lanes between a gate and the hazard after it.
+     */
+    public static final int MIN_STEP_DX = 100;
+    /** Smallest distance a boss phase has to span, in px (§4 feasibility). */
+    public static final int MIN_BOSS_PATTERN_DX = 480;
+    /**
+     * Slack taken off the scroll between a column and the bolt after it before the bolt's
+     * travel is checked, in px: the half-width of the bolt column and the bird box's own
+     * position inside the previous column.
+     */
+    public static final double BOLT_SCROLL_SLACK_PX = 5;
+    /**
+     * Smallest gap a pattern gate may leave on the tightest tier, in px (§4 feasibility):
+     * {@code 31 × 1.5 + 8 = 54.5}, the scaled hitbox plus a landing margin.
+     */
+    public static final double MIN_FEASIBLE_GAP = 54.5;
+    /** Safety factor on the tightest-tier gap (§4 feasibility). */
+    public static final double GAP_FEASIBILITY_FACTOR = 0.9;
+
     private static final double EPSILON = 1e-9;
     private static final String PARAM_CHARGES =
             io.github.michelbr84.flapforge.ability.AbilityInstance.PARAM_CHARGES;
@@ -108,6 +145,7 @@ public final class ContentValidator {
     private static final String ABILITIES_FILE = "abilities.json";
     private static final String MODIFIERS_FILE = "modifiers.json";
     private static final String WORLDS_FILE = "worlds.json";
+    private static final String PATTERNS_FILE = "patterns.json";
     private static final String CHALLENGES_FILE = "challenges.json";
     private static final String ACHIEVEMENTS_FILE = "achievements.json";
     private static final String ALIASES_FILE = "aliases.json";
@@ -181,6 +219,7 @@ public final class ContentValidator {
         validateAbilities(content, errors);
         validateModifiers(content, errors);
         validateWorlds(content, errors);
+        validatePatterns(content, errors);
         validateChallenges(content, errors);
         validateAchievements(content, errors);
         validateAliases(content, errors);
@@ -201,6 +240,7 @@ public final class ContentValidator {
         warnPointsSink(content, warnings);
         warnNoOpMultipliers(content, warnings);
         warnUnreachableSynergies(content, warnings);
+        warnUnreferencedPatterns(content, warnings);
         return warnings;
     }
 
@@ -741,14 +781,126 @@ public final class ContentValidator {
             checkCondition(content, errors, at + "/unlock", def.unlock(), false);
             checkContradictions(errors, at, "world '" + def.id() + "'", def.flags(), def.effects(),
                     null);
-            checkBoss(content, errors, at + "/boss", def.boss(), true);
-            if (def.ruleCycles() != null) {
-                List<io.github.michelbr84.flapforge.content.defs.RuleCycleOptionDef> options =
-                        def.ruleCycles().options();
-                if (options.isEmpty()) {
-                    errors.add(at + "/ruleCycles/options: a rule cycle needs at least one option");
-                }
+            checkSpawnWeights(errors, at + "/spawnWeights", def);
+            checkAmbient(errors, at + "/ambient", def.ambient());
+            checkRuleCycles(errors, at + "/ruleCycles", def.ruleCycles());
+            for (int p = 0; p < def.patterns().size(); p++) {
+                checkWorldPattern(content, errors, at + "/patterns/" + p, def,
+                        def.patterns().get(p));
             }
+            checkBoss(content, errors, at + "/boss", def.boss(), true);
+        }
+    }
+
+    /**
+     * A world's spawn table needs something to draw: the binder already guarantees the keys are
+     * kinds, so what is left is at least one positive weight (a {@code SpawnTable} with none
+     * throws at run start).
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the weights
+     * @param def the world
+     */
+    private static void checkSpawnWeights(List<String> errors, String at, WorldDef def) {
+        int total = 0;
+        for (Integer weight : def.spawnWeights().values()) {
+            total += weight;
+        }
+        if (total <= 0) {
+            errors.add(at + ": world '" + def.id() + "' has no positive spawn weight");
+        }
+    }
+
+    /**
+     * The ambience ranges (§4, M7): the wind is the {@code WindZone} mechanism made permanent, so
+     * it takes a zone's ranges; darkness and the flash period are checked by the record itself.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the ambient block
+     * @param ambient the block, or {@code null} for still air
+     */
+    private static void checkAmbient(List<String> errors, String at, AmbientDef ambient) {
+        if (ambient == null) {
+            return;
+        }
+        if (ambient.windX() < WindZone.MIN_SCROLL_DELTA || ambient.windX() > WindZone.MAX_SCROLL_DELTA) {
+            errors.add(at + "/windX: " + ambient.windX() + " is outside ["
+                    + WindZone.MIN_SCROLL_DELTA + ", " + WindZone.MAX_SCROLL_DELTA + "] px/s");
+        }
+        if (ambient.windY() < WindZone.MIN_ACCEL_Y || ambient.windY() > WindZone.MAX_ACCEL_Y) {
+            errors.add(at + "/windY: " + ambient.windY() + " is outside [" + WindZone.MIN_ACCEL_Y
+                    + ", " + WindZone.MAX_ACCEL_Y + "] px/s²");
+        }
+    }
+
+    /**
+     * The rule cycles of a world (§4, E31.g, M7): at least two options, because a shift never
+     * lands the option already in force and one option could never shift; every option is a set
+     * of flags and effects the run can actually apply — no {@code MOVING_CHANCE}, which the spawn
+     * decision reads (E32.d), and none of the contradictions a challenge is refused.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the block
+     * @param cycles the block, or {@code null}
+     */
+    private static void checkRuleCycles(List<String> errors, String at, RuleCyclesDef cycles) {
+        if (cycles == null) {
+            return;
+        }
+        List<RuleCycleOptionDef> options = cycles.options();
+        if (options.isEmpty()) {
+            errors.add(at + "/options: a rule cycle needs at least one option");
+            return;
+        }
+        if (options.size() < 2) {
+            errors.add(at + "/options: a rule cycle needs at least two options, because a shift"
+                    + " never lands the option already in force");
+        }
+        for (int i = 0; i < options.size(); i++) {
+            RuleCycleOptionDef option = options.get(i);
+            String optionAt = at + "/options/" + i;
+            if (option.flags().isEmpty() && option.effects().isEmpty()) {
+                errors.add(optionAt + ": a rule cycle option has to turn on a flag or apply an"
+                        + " effect");
+            }
+            checkSpawnCriticalStats(errors, optionAt + "/effects", "a rule cycle option",
+                    option.effects());
+            checkContradictions(errors, optionAt, "rule cycle option " + i, option.flags(),
+                    option.effects(), null);
+        }
+    }
+
+    /**
+     * A pattern a world lists (M7): it has to exist, belong to that world and carry a positive
+     * weight, or the world could never draw it.
+     *
+     * @param content the content to check
+     * @param errors where to append problems
+     * @param at the pointer of the reference
+     * @param world the world
+     * @param patternId the id
+     */
+    private static void checkWorldPattern(GameContent content, List<String> errors, String at,
+            WorldDef world, String patternId) {
+        if (patternId == null || patternId.isBlank()) {
+            errors.add(at + ": empty pattern id");
+            return;
+        }
+        if (!content.has(GameContent.PATTERNS)) {
+            return;
+        }
+        if (!content.patterns().contains(patternId)) {
+            errors.add(at + ": unknown pattern '" + patternId + "'");
+            return;
+        }
+        PatternDef pattern = content.patterns().get(patternId);
+        if (!pattern.world().equals(world.id())) {
+            errors.add(at + ": pattern '" + patternId + "' belongs to world '" + pattern.world()
+                    + "', not to '" + world.id() + "'");
+        }
+        if (pattern.weight() <= 0) {
+            errors.add(at + ": pattern '" + patternId + "' has weight 0, so world '" + world.id()
+                    + "' could never draw it");
         }
     }
 
@@ -767,7 +919,7 @@ public final class ContentValidator {
             checkUnlocks(content, errors, at + "/reward/unlocks", boss.reward().unlocks());
         }
         for (int p = 0; p < boss.patterns().size(); p++) {
-            checkPattern(content, errors, at + "/patterns/" + p, boss.patterns().get(p));
+            checkPattern(content, errors, at + "/patterns/" + p, boss.patterns().get(p), true);
         }
         if (boss.patterns().isEmpty()) {
             errors.add(at + "/patterns: a boss needs at least one pattern");
@@ -775,20 +927,356 @@ public final class ContentValidator {
     }
 
     /**
-     * Pattern ids are authored in M7 ({@code patterns.json}); until that registry exists the
-     * reference is recorded and left unchecked (E19).
+     * A pattern streamed on demand — a boss phase or a challenge's forced pattern (M7, E19: the
+     * check is live now that {@code patterns.json} ships). It has to exist and carry weight 0,
+     * because a pattern the world also draws by weight would double as a random set piece; a
+     * boss phase has to span {@value #MIN_BOSS_PATTERN_DX} px, so a looped phase is a fight and
+     * not a single column (§4 feasibility).
      *
      * @param content the content to check
      * @param errors where to append problems
      * @param at the pointer of the reference
      * @param patternId the id
+     * @param boss {@code true} for a boss phase, {@code false} for a forced pattern
      */
     private static void checkPattern(GameContent content, List<String> errors, String at,
-            String patternId) {
+            String patternId, boolean boss) {
         if (patternId == null || patternId.isBlank()) {
             errors.add(at + ": empty pattern id");
+            return;
         }
-        // TODO(M7): resolve against content.patterns() once patterns.json ships.
+        if (!content.has(GameContent.PATTERNS)) {
+            return;
+        }
+        if (!content.patterns().contains(patternId)) {
+            errors.add(at + ": unknown pattern '" + patternId + "'");
+            return;
+        }
+        PatternDef pattern = content.patterns().get(patternId);
+        String role = boss ? "a boss phase" : "a forced pattern";
+        if (pattern.weight() != 0) {
+            errors.add(at + ": '" + patternId + "' is " + role + " and must have weight 0 (it has "
+                    + pattern.weight() + "), or the world would also draw it at random");
+        }
+        if (boss && pattern.totalDx() < MIN_BOSS_PATTERN_DX) {
+            errors.add(at + ": boss phase '" + patternId + "' spans " + pattern.totalDx()
+                    + " px, less than the " + MIN_BOSS_PATTERN_DX + " a phase needs (§4)");
+        }
+    }
+
+    // --------------------------------------------------------------- patterns
+
+    /**
+     * The obstacle patterns (§4, D10, M7): ids, the world each belongs to, every step's
+     * parameters against its kind's {@code ParamSpec} (unknown or out-of-range values are
+     * rejected with the step's pointer), and the feasibility rules — {@code dx ≥ 100} between
+     * columns, a gate's {@code gapSize × (tightest tier gap multiplier) × 0.9 ≥ 54.5}, a
+     * piston's {@code telegraphTicks ≥ 15} and a bolt's {@code lengthFrac ≤ 0.7} (both part of
+     * the {@code ParamSpec} ranges), and a gate right after a bolt authored on the bolt's unlit
+     * side — plus the listing rule: a pattern with a positive weight has to be listed by its
+     * world, or it is content nothing can reach.
+     *
+     * @param content the content to check
+     * @param errors where to append problems
+     */
+    private static void validatePatterns(GameContent content, List<String> errors) {
+        if (!content.has(GameContent.PATTERNS)) {
+            return;
+        }
+        double tightestGap = tightestTierGapMultiplier(content);
+        Set<String> seen = new HashSet<>();
+        List<PatternDef> defs = content.patterns().all();
+        for (int i = 0; i < defs.size(); i++) {
+            PatternDef def = defs.get(i);
+            String at = PATTERNS_FILE + "#/patterns/" + i;
+            checkId(errors, at + "/id", "pattern", def.id());
+            if (!seen.add(def.id())) {
+                errors.add(at + "/id: duplicate pattern id '" + def.id() + "'");
+            }
+            WorldDef world = null;
+            if (content.has(GameContent.WORLDS)) {
+                if (!content.worlds().contains(def.world())) {
+                    errors.add(at + "/world: unknown world '" + def.world() + "'");
+                } else {
+                    world = content.worlds().get(def.world());
+                }
+            }
+            if (world != null && def.weight() > 0 && !world.patterns().contains(def.id())) {
+                errors.add(at + "/weight: pattern '" + def.id() + "' has weight " + def.weight()
+                        + " but world '" + def.world() + "' does not list it, so it is never drawn");
+            }
+            if (def.steps().isEmpty()) {
+                errors.add(at + "/steps: a pattern needs at least one step");
+            }
+            double lastLethalBand = Double.NaN;
+            double lastLethalWidth = 0;
+            double sinceLethal = 0;
+            for (int j = 0; j < def.steps().size(); j++) {
+                PatternStepDef step = def.steps().get(j);
+                checkStep(errors, at + "/steps/" + j, def, step, tightestGap);
+                if (j > 0) {
+                    checkGateAfterBolt(errors, at + "/steps/" + j, def.steps().get(j - 1), step);
+                }
+                sinceLethal += step.dx();
+                if (step.kind() == ObstacleKind.LIGHTNING && !Double.isNaN(lastLethalBand)) {
+                    checkBoltReachable(errors, at + "/steps/" + j, step, lastLethalBand,
+                            sinceLethal - lastLethalWidth - BOLT_SCROLL_SLACK_PX);
+                }
+                if (step.kind() != ObstacleKind.WIND_ZONE) {
+                    lastLethalBand = referenceBandOf(step);
+                    lastLethalWidth = columnWidthOf(step);
+                    sinceLethal = 0;
+                }
+            }
+        }
+    }
+
+    /**
+     * A lightning column is reachable from the lethal column before it (M7 fairness, the
+     * authored twin of the spawn table's rule): the vertical travel from that column's band to
+     * the bolt's safe band ({@link SpawnTable#lightningTravel}) may not exceed the scroll
+     * between the column clearing the bird and the strike — the distance between them less the
+     * column's width and a few px — because the bird climbs about one px per px of scroll at
+     * the fastest tier scroll. A previous gate with a {@code "random"} centre cannot be checked
+     * and is skipped.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the bolt step
+     * @param step the bolt step
+     * @param previousBandY the band of the lethal column before it
+     * @param scrollPx the scroll between that column clearing the bird and the strike
+     */
+    private static void checkBoltReachable(List<String> errors, String at, PatternStepDef step,
+            double previousBandY, double scrollPx) {
+        Object side = step.params().get("side");
+        Object frac = step.params().get("lengthFrac");
+        if (!(frac instanceof Number number) || side == null) {
+            return;
+        }
+        Side boltSide = "BOTTOM".equals(String.valueOf(side)) ? Side.BOTTOM : Side.TOP;
+        double travel = SpawnTable.lightningTravel(boltSide, number.doubleValue(), previousBandY);
+        if (travel > scrollPx) {
+            errors.add(String.format(Locale.ROOT, "%s/params/lengthFrac: the bolt's safe band is"
+                    + " %.0f px from the band of the column before it, more than the %.0f px of"
+                    + " scroll between them at the strike; lower the fraction, move the previous"
+                    + " column's band or widen dx (§4 feasibility)", at, travel, scrollPx));
+        }
+    }
+
+    /**
+     * The band a bird crosses a lethal pattern step in, from its authored params (the same
+     * geometry {@code SpawnDecision.referenceBandY} derives for a spawned column).
+     *
+     * @param step the step
+     * @return the band centre, or {@code NaN} when it cannot be known (a random gate centre)
+     */
+    private static double referenceBandOf(PatternStepDef step) {
+        Map<String, Object> p = step.params();
+        switch (step.kind()) {
+            case PIPE_GATE:
+                return p.get("gapCenter") instanceof Number c
+                        ? c.doubleValue() * Playfield.GROUND_Y : Double.NaN;
+            case GEAR: {
+                double cy = number(p.get("cy"), 0.5) * Playfield.GROUND_Y;
+                double radius = number(p.get("radius"), Gear.MIN_RADIUS);
+                double amplitude = p.get("rail") instanceof Map<?, ?> rail
+                        ? number(rail.get("amplitude"), 0) : 0;
+                double half = amplitude / 2 + radius;
+                double above = cy - half;
+                double below = Playfield.GROUND_Y - (cy + half);
+                return above >= below ? (cy - half) / 2 : (cy + half + Playfield.GROUND_Y) / 2;
+            }
+            case PISTON: {
+                double length = number(p.get("length"), Piston.MIN_LENGTH);
+                return "BOTTOM".equals(String.valueOf(p.get("side")))
+                        ? (Playfield.GROUND_Y - length) / 2 : (length + Playfield.GROUND_Y) / 2;
+            }
+            case LIGHTNING: {
+                double lit = number(p.get("lengthFrac"), 0.5) * Playfield.GROUND_Y;
+                return "BOTTOM".equals(String.valueOf(p.get("side")))
+                        ? (Playfield.GROUND_Y - lit) / 2 : (lit + Playfield.GROUND_Y) / 2;
+            }
+            case WIND_ZONE:
+            default:
+                return Double.NaN;
+        }
+    }
+
+    /** The lethal column width of a step: a gear's diameter, a bolt's 24 px, a pipe body. */
+    private static double columnWidthOf(PatternStepDef step) {
+        switch (step.kind()) {
+            case GEAR:
+                return 2 * number(step.params().get("radius"), Gear.MIN_RADIUS);
+            case LIGHTNING:
+                return LightningStrike.WIDTH;
+            default:
+                return Playfield.PIPE_BODY_W;
+        }
+    }
+
+    private static double number(Object value, double fallback) {
+        return value instanceof Number n ? n.doubleValue() : fallback;
+    }
+
+    /**
+     * A gate placed right after a lightning column has its gap on the bolt's unlit side (M7
+     * fairness): the bird is pinned to that side until the bolt has passed, and a {@code dx} of
+     * 100–200 px leaves no room to dive or climb across a gap that opened on the other one. So
+     * the centre is authored — never {@code "random"} — at or below {@code 0.5} after a
+     * {@code BOTTOM} bolt (which lights the lower part) and at or above it after a {@code TOP}
+     * bolt.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the gate step
+     * @param previous the step before it
+     * @param step the gate step
+     */
+    private static void checkGateAfterBolt(List<String> errors, String at, PatternStepDef previous,
+            PatternStepDef step) {
+        if (previous.kind() != ObstacleKind.LIGHTNING || step.kind() != ObstacleKind.PIPE_GATE) {
+            return;
+        }
+        Object side = previous.params().get("side");
+        Object centre = step.params().get("gapCenter");
+        boolean bottom = "BOTTOM".equals(String.valueOf(side));
+        String unlit = bottom ? "at or below 0.5 (a BOTTOM bolt lights the lower part)"
+                : "at or above 0.5 (a TOP bolt lights the upper part)";
+        if (!(centre instanceof Number number)) {
+            errors.add(at + "/params/gapCenter: a gate right after a bolt needs an authored"
+                    + " centre " + unlit + ", not '" + centre + "' (§4 feasibility)");
+            return;
+        }
+        double c = number.doubleValue();
+        if (bottom ? c > 0.5 : c < 0.5) {
+            errors.add(at + "/params/gapCenter: " + number + " is on the lit side of the bolt"
+                    + " before it; a gate right after a bolt sits " + unlit + " (§4 feasibility)");
+        }
+    }
+
+    /**
+     * One pattern step: the distance rule, the kind's parameter contract and the gate gap rule.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the step
+     * @param pattern the pattern
+     * @param step the step
+     * @param tightestGap the smallest {@code GAP_SIZE} multiplier any tier applies
+     */
+    private static void checkStep(List<String> errors, String at, PatternDef pattern,
+            PatternStepDef step, double tightestGap) {
+        if (step.dx() < MIN_STEP_DX) {
+            errors.add(at + "/dx: " + step.dx() + " px between columns is less than the "
+                    + MIN_STEP_DX + " a bird needs to change lanes (§4 feasibility)");
+        }
+        for (String problem : ObstacleParams.validate(step.kind(), step.params())) {
+            int colon = problem.indexOf(':');
+            String key = colon < 0 ? "" : "/" + problem.substring(0, colon).replace('.', '/');
+            String text = colon < 0 ? problem : problem.substring(colon + 1).trim();
+            errors.add(at + "/params" + key + ": " + text);
+        }
+        if (step.kind() == ObstacleKind.PIPE_GATE) {
+            Object gapSize = step.params().get("gapSize");
+            if (gapSize instanceof Number number) {
+                double tightest = number.doubleValue() * tightestGap * GAP_FEASIBILITY_FACTOR;
+                if (tightest < MIN_FEASIBLE_GAP) {
+                    errors.add(String.format(java.util.Locale.ROOT,
+                            "%s/params/gapSize: %s px leaves %.1f px on the tightest tier"
+                                    + " (× %.2f × %.1f), less than the %.1f a bird fits through"
+                                    + " (§4 feasibility)",
+                            at, number, tightest, tightestGap, GAP_FEASIBILITY_FACTOR,
+                            MIN_FEASIBLE_GAP));
+                }
+            }
+        }
+        if (step.kind() == ObstacleKind.PISTON
+                && step.params().get("telegraphTicks") instanceof Number telegraph
+                && telegraph.doubleValue() < Piston.MIN_TELEGRAPH_TICKS) {
+            // Also refused by the ParamSpec range; named here so the feasibility rule reads
+            // as one list (§4).
+            errors.add(at + "/params/telegraphTicks: a piston needs at least "
+                    + Piston.MIN_TELEGRAPH_TICKS + " ticks of warning (§4 feasibility)");
+        }
+        if (step.kind() == ObstacleKind.LIGHTNING
+                && step.params().get("lengthFrac") instanceof Number frac
+                && frac.doubleValue() > LightningStrike.MAX_LENGTH_FRAC) {
+            errors.add(at + "/params/lengthFrac: a bolt may light at most "
+                    + LightningStrike.MAX_LENGTH_FRAC + " of the height, so a safe band always"
+                    + " exists (§4 feasibility)");
+        }
+    }
+
+    /**
+     * The smallest {@code GAP_SIZE} multiplier any tier applies (the nightmare tier's 0.8 in the
+     * shipped set): the factor the gate feasibility rule scales an authored gap by.
+     *
+     * @param content the content to check
+     * @return the multiplier, 1 when no tier shrinks the gap
+     */
+    private static double tightestTierGapMultiplier(GameContent content) {
+        double tightest = 1.0;
+        for (TierDef tier : content.tiers()) {
+            double product = 1.0;
+            double percent = 0;
+            double flat = 0;
+            for (StatModifierDef effect : tier.effects()) {
+                if (effect.stat() != StatId.GAP_SIZE) {
+                    continue;
+                }
+                switch (effect.op()) {
+                    case MULTIPLY:
+                        product *= effect.value();
+                        break;
+                    case PERCENT_ADD:
+                        percent += effect.value();
+                        break;
+                    case FLAT_ADD:
+                    default:
+                        flat += effect.value();
+                        break;
+                }
+            }
+            double factor = (1 + flat / StatId.GAP_SIZE.defaultValue()) * (1 + percent) * product;
+            tightest = Math.min(tightest, factor);
+        }
+        return tightest;
+    }
+
+    /**
+     * A pattern with weight 0 that no boss and no challenge names is content nothing streams —
+     * a balance note rather than a broken reference, because a boss authored later may pick it
+     * up.
+     *
+     * @param content the content to check
+     * @param warnings where to append
+     */
+    private static void warnUnreferencedPatterns(GameContent content, List<String> warnings) {
+        if (!content.has(GameContent.PATTERNS)) {
+            return;
+        }
+        Set<String> referenced = new HashSet<>();
+        for (WorldDef world : content.worlds()) {
+            referenced.addAll(world.patterns());
+            if (world.boss() != null) {
+                referenced.addAll(world.boss().patterns());
+            }
+        }
+        for (ChallengeDef challenge : content.challenges()) {
+            if (challenge.forcedPattern() != null) {
+                referenced.add(challenge.forcedPattern());
+            }
+            if (challenge.boss() != null) {
+                referenced.addAll(challenge.boss().patterns());
+            }
+        }
+        List<PatternDef> defs = content.patterns().all();
+        for (int i = 0; i < defs.size(); i++) {
+            PatternDef def = defs.get(i);
+            if (def.weight() == 0 && !referenced.contains(def.id())) {
+                warnings.add(PATTERNS_FILE + "#/patterns/" + i + ": pattern '" + def.id()
+                        + "' has weight 0 and no boss or challenge names it, so nothing ever"
+                        + " streams it");
+            }
+        }
     }
 
     // -------------------------------------------------------------- modifiers
@@ -1077,9 +1565,39 @@ public final class ContentValidator {
             // exist; boss_corridor_1 is authored with its final rewards and gets its boss then.
             checkBoss(content, errors, at + "/boss", def.boss(), false);
             if (def.forcedPattern() != null) {
-                checkPattern(content, errors, at + "/forcedPattern", def.forcedPattern());
+                checkPattern(content, errors, at + "/forcedPattern", def.forcedPattern(), false);
+                checkForcedPatternScores(content, errors, at, def);
             }
             checkForcedModifiers(content, errors, at, def);
+        }
+    }
+
+    /**
+     * E14: a challenge that forces a pattern and carries a boss reaches {@code boss.atGate} only
+     * if the forced pattern scores — {@code scoringSteps} true and at least one step scoring —
+     * because a looped pattern that never advances {@code gatesPassed} makes the boss
+     * unreachable.
+     *
+     * @param content the content to check
+     * @param errors where to append problems
+     * @param at the pointer of the challenge
+     * @param def the challenge
+     */
+    private static void checkForcedPatternScores(GameContent content, List<String> errors,
+            String at, ChallengeDef def) {
+        if (def.boss() == null || !content.has(GameContent.PATTERNS)
+                || !content.patterns().contains(def.forcedPattern())) {
+            return;
+        }
+        PatternDef pattern = content.patterns().get(def.forcedPattern());
+        boolean anyStepScores = false;
+        for (PatternStepDef step : pattern.steps()) {
+            anyStepScores |= step.scores();
+        }
+        if (!pattern.stepsScore() || !anyStepScores) {
+            errors.add(at + "/forcedPattern: '" + def.forcedPattern() + "' never scores, so"
+                    + " boss.atGate " + def.boss().atGate() + " is unreachable (E14: a forced"
+                    + " pattern must have scoringSteps true and a scoring step)");
         }
     }
 

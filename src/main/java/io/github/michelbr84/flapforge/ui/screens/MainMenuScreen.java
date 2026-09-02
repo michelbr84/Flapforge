@@ -2,6 +2,8 @@ package io.github.michelbr84.flapforge.ui.screens;
 
 import io.github.michelbr84.flapforge.Flapforge;
 import io.github.michelbr84.flapforge.app.GameContext;
+import io.github.michelbr84.flapforge.content.ContentKind;
+import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.MathUtil;
@@ -72,6 +74,8 @@ public final class MainMenuScreen implements Screen {
     private static final int WALLET_W = 130;
     private static final int FOOTER_BASELINE = Playfield.HEIGHT - 14;
     private static final int BUILD_BASELINE = Playfield.HEIGHT - 28;
+    /** Baseline of the selected-world line in the top-left corner (M7). */
+    public static final int WORLD_BASELINE = 30;
 
     private final ScreenManager screens;
     private final GameContext context;
@@ -93,6 +97,8 @@ public final class MainMenuScreen implements Screen {
     private String shownLanguage;
     private String versionLine;
     private String buildLine;
+    private String worldLine = "";
+    private String shownWorldId;
     private long ticks;
     private double prevBob;
     private double bob;
@@ -271,6 +277,44 @@ public final class MainMenuScreen implements Screen {
     }
 
     /**
+     * The selected-world line, as drawn (M7).
+     *
+     * @return the text, empty when the session has no profile or no worlds
+     */
+    public String worldLine() {
+        return worldLine;
+    }
+
+    /**
+     * Rebuilds the selected-world line from the profile. Called on entry, on a language switch
+     * and from {@link #tick} whenever the selection differs from the one shown: a pop back from
+     * the bird selection does not re-enter the menu (D17), so the line has to notice on its own.
+     */
+    private void refreshWorldLine() {
+        worldLine = "";
+        shownWorldId = null;
+        if (context == null || context.profile() == null || context.content() == null
+                || !context.content().has(GameContent.WORLDS)) {
+            return;
+        }
+        String id = context.profile().selected.worldId;
+        shownWorldId = id;
+        if (context.content().worlds().contains(id)) {
+            worldLine = strings.format(StringKey.MENU_WORLD,
+                    ProgressionText.name(strings, ContentKind.WORLD, id));
+        }
+    }
+
+    /** Whether the world line names a world other than the profile's current selection. */
+    private boolean worldLineStale() {
+        if (context == null || context.profile() == null) {
+            return false;
+        }
+        String id = context.profile().selected.worldId;
+        return id == null ? shownWorldId != null : !id.equals(shownWorldId);
+    }
+
+    /**
      * The focus ring (for tests inspecting focus).
      *
      * @return the ring
@@ -303,6 +347,7 @@ public final class MainMenuScreen implements Screen {
         versionLine = strings.format(StringKey.FOOTER_VERSION, Flapforge.version());
         buildLine = strings.format(StringKey.FOOTER_BUILD, System.getProperty("java.version",
                 "17"));
+        refreshWorldLine();
         shownLanguage = strings.language();
     }
 
@@ -316,6 +361,7 @@ public final class MainMenuScreen implements Screen {
         // game screen is still up, so this is the first frame the player can see them on.
         wallet.setVisible(context != null && context.profile() != null);
         wallet.setAmount(walletBalance());
+        refreshWorldLine();
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
         }
@@ -338,6 +384,8 @@ public final class MainMenuScreen implements Screen {
         }
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
+        } else if (worldLineStale()) {
+            refreshWorldLine();
         }
     }
 
@@ -373,6 +421,11 @@ public final class MainMenuScreen implements Screen {
         panel.render(g);
         if (wallet.isVisible()) {
             wallet.render(g);
+        }
+        if (!worldLine.isEmpty()) {
+            g.setFont(Fonts.bold(13));
+            TextPainter.drawOutlined(g, worldLine, 14, WORLD_BASELINE, Align.LEFT,
+                    ProceduralArt.TEXT_LIGHT, ProceduralArt.letterboxColor(PALETTE), 2);
         }
         particles.render(g);
 

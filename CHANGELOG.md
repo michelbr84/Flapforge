@@ -937,6 +937,303 @@ is fixed here, with a test that fails without the fix.
 
 ---
 
+### Added — M7: worlds, obstacle families, patterns, ambience, rule cycles
+
+- Five playable worlds. `worlds.json` is complete: every world's `patterns`
+  list, the Void's `ruleCycles` (every 5 gates, 90-tick telegraph, four
+  `{flags, effects}` options — `ALL_OBSTACLES_MOVE`, `GAP_SIZE ×0.85`,
+  `GRAVITY ×1.3`, `LETHAL_CEILING` — never the same one twice in a row) and the
+  authored ambience (Wind Valley `windX −20`, Storm Sky darkness 0.5 with a
+  cosmetic flash every 3 gates, Iron Forge 0.15, the Void 0.35).
+  `GameContent.playable(WORLD, id)` is true for every world; `SelectionManager`
+  selects any owned world and the shop no longer labels worlds "Arrives in M7".
+- `patterns.json` (`PatternDef`, `PatternStepDef`, `PatternsDef`,
+  `GameContent.patterns()`): 21 authored set pieces — eight world patterns
+  (`wv_updraft_run`, `wv_crosswind`, `forge_gear_corridor`, `forge_piston_row`,
+  `storm_bolt_lane`, `storm_squall`, `void_mixer`, `void_gauntlet`), eleven
+  boss phases (`gf/wv/forge/storm_boss_p1/p2`, `void_boss_p1/p2/p3`) and the
+  two corridors of `boss_corridor_1` (`corridor_1`, `corridor_boss_p1`), whose
+  `forcedPattern` and `boss` blocks are filled in `challenges.json`. The file
+  is optional like `worlds.json`, so the frozen golden fixture still loads.
+- `PatternStreamer` (D7): set pieces ride the spawn cursor. A step lands at
+  `last.x + dx`, its geometry goes through `SpawnTable.decisionFor` — the
+  `obstacle` stream is read only for a `"random"` gate centre — and folds into
+  the E32.d decision hash. Selection draws from the `patterns` stream with
+  `P(start) = Σ eligible weights / (Σ weights + 100)` among the world's
+  patterns with `minGate ≤ gatesPassed`, then a weighted pick; one plain spawn
+  separates two chunks; Green Fields (no patterns) never touches the stream.
+  `RunSetup.forcedPattern` loops one pattern instead of the table (the M8
+  challenge seam and `BalancingSim --pattern`). `scoring: false` steps and
+  `scoringSteps: false` patterns spawn non-scoring columns
+  (`Obstacle.markNonScoring`) that award no gate and get no coin trail.
+- `WorldEffects` (D8, E8): the ambient wind is the `WindZone` mechanism made
+  permanent (`windX` a scroll change, `windY` an acceleration, sampled before
+  the zones every tick); `darkness` is a value the renderer reads; the cosmetic
+  flash is a `TickFact.AmbientFlash` with no hitbox; the rule cycles draw the
+  next option from the `cycles` stream, announce it with `TickFact.RuleShift`
+  (flags, effects, telegraph ticks) and land it that many flying ticks later —
+  never inside a draft (breather, choice, hold): a landing due then waits for
+  the next flying tick. The run's rules are now three sources kept apart
+  (base, drafted, cycle) so a cycle's flags replace the previous option's;
+  `ShieldSystem.syncTo` / `ReviveSystem.syncTo` follow a zeroing flag in both
+  directions. World effects and the streamer fold into `stateHash` only when
+  the world has them, so the published `--headless-run` hash is unchanged.
+- `WorldSpec` carries `patterns`, `ambient` (`AmbientSpec`) and `ruleCycles`
+  (`RuleCycleSpec`); `RunFactory.setup` reads the whole world from
+  `worlds.json` (`GameContent.worldSpec`, cached) and keeps the M1 two-case
+  fallback only for content sets without a world file. `StrictBinder` binds
+  `Object` components generically (the kind-dependent step `params`).
+- `ContentValidator` (E19: the pattern checks are live): every reference
+  (`world.patterns`, `boss.patterns`, `forcedPattern`) resolves, a listed
+  pattern belongs to its world and has weight > 0, a boss phase or forced
+  pattern has weight 0 and a boss phase spans ≥ 480 px, every step's params
+  pass the kind's `ObstacleParams` contract (pointer per key), `dx ≥ 100`,
+  `gapSize × (tightest tier gap multiplier) × 0.9 ≥ 54.5`, ambient wind in the
+  zone ranges, rule cycles with ≥ 2 non-empty options that never touch
+  `MOVING_CHANCE`, a world with a positive spawn weight, and E14 (a forced
+  pattern under a boss must score). Unreferenced weight-0 patterns warn.
+  Fixtures `content_bad/{bad_param,unknown_pattern,infeasible_pattern}.json`.
+- `BalancingSim --world all`, `--tier all` and `--pattern <id|all>` (a pattern
+  in isolation, looped); rows and the CSV carry world, tier and pattern, and
+  obstacle deaths are reported by kind (`RunStats.deathKind`,
+  `TickFact.Crashed.kind`).
+- `BotPilot`: the corridor is bounded by the nearest column not yet cleared
+  (it used to be the farthest one inside the flap window, which dropped the
+  gate the bird was still inside as soon as a pattern step 130 px behind it
+  entered the window); the flap arc is computed under the wind the bird is in
+  (D21's wind-adjusted trajectory — a −600 px/s² updraft turns a 42 px rise
+  into 68); the gear oracle keeps its clearance from the chord the circle cuts
+  through the bird's x range on each crossing tick instead of the whole
+  diameter. In Green Fields none of the three changes a decision, so every
+  M1–M6 number stands.
+- Tests: `PatternStreamerTest` (placement, params, `"random"` from the obstacle
+  stream, `minGate`, the weighted start, looping, scoring flags, the decision
+  hash, `test_flat_corridor.json` against `FixedSpawnTable` tick for tick),
+  `WorldEffectsTest` (wind, darkness, flash cadence, cycle cadence and
+  telegraph, never twice in a row, layer replacement, the shield zeroed and
+  restored, deferral during a draft, the hash), `ContentWiringTest` (every
+  world from `worlds.json`; Green Fields equals the M6 setup field by field),
+  `ContentValidatorTest.Patterns` and the three bad fixtures,
+  `DeterminismTest` on every world and E32.d on Storm Sky,
+  `ContentFeasibilityTest` (@sim: the expert reaches `boss.atGate` on every
+  world × tier and survives every pattern in isolation, 50 seeds each).
+
+### Added — M7 presentation: world art, banner, picker, sound sets, asset check
+
+- `render/ObstacleRendererRegistry` (D18): one renderer per `ObstacleKind`,
+  dispatched by kind; `ObstacleRenderer` keeps the gate art. `GearRenderer`
+  draws a toothed polygon precomputed once in unit space, scaled to the radius
+  and rotated by the obstacle's angle (turns × 2π on the render side only),
+  with a faint rail track and end stops for a gear on a rail; `PistonRenderer`
+  draws base plate, rod and head, a telegraph glow over the whole reach that
+  pulses on a triangle wave and brightens as the telegraph runs out, plus a
+  motion smear on extend; `WindZoneRenderer` fills the zone with translucent
+  stripes drifting in the wind's direction (render-side animation on the
+  registry's clock, stripe table from its own seeded `Random`), brighter while
+  the bird is inside; `LightningRenderer` shows, during `WARNING`, a tinted
+  band over exactly the bolt's side and extent with a hard bar at its far end
+  and chevrons on the anchored edge, brightening with the warning progress
+  (the fairness cue), and during `STRIKE` a jittered polyline with a local
+  glow, dimmer under `reduceFlashing`. Every kind is interpolated with the
+  frame alpha; scratch shapes and colour ramps, nothing allocated per frame.
+- Five parallax styles keyed by `worlds.json.style` (`WorldStyle`): hills
+  (Green Fields, the M1 code untouched), canyon (layered mesas under a dust
+  haze, cracked ground), factory (skyline with chimneys, girder lattice,
+  rising embers, riveted plates), storm (two cloud banks, rain streaks, a
+  distant flicker that is a tint under `reduceFlashing`, wet rock) and void
+  (a slow twinkling star field, floating shards that bob, no grass).
+  `WorldPalette.from(WorldPaletteDef)` builds the palette of any world;
+  `GameRenderer.setWorld` takes palette and style, `GameScreen` reads them
+  from the run's world and sets the letterbox tone with them.
+- `DarknessOverlay`: `ambient.darkness` drawn as one cached ARGB mask (three
+  playfields tall, blitted against the bird's y) with a fully clear radius of
+  96 px around the bird and a smooth fade to the world's darkness at 250 px,
+  capped at 0.78 so the next hazard stays readable — asserted at Storm Sky's
+  0.5 in `ProceduralRenderTest`.
+- The cosmetic sky flash (E8): `TickFact.AmbientFlash` lights
+  `GameRenderer.ambientFlash()` (a 9-tick whole-sky brightening, a 12 % tint
+  with `reduceFlashing` on, read from `ParticleSystem.defaultReduceFlashing()`
+  like the particles) and raises `GameEvent.AmbientFlash`, which the audio
+  manager plays as thunder.
+- `ui/screens/RuleShiftBanner` (D17): a non-blocking banner — not a screen on
+  the stack, so the run keeps flying and every key still reaches it — opened
+  by `GameScreen` on `TickFact.RuleShift`, naming the option in words (each
+  flag through `rule.<flag>`, each effect through the M6 effect text) with a
+  countdown in seconds over `telegraphTicks`, holding at "now" while the
+  simulation defers the landing during a draft, then flashing "in effect"
+  for 72 ticks once `WorldEffects` lands it. `GameScreen.publishFacts` maps
+  `LightningWarning`, `PistonTelegraph` and `AmbientFlash` to events and
+  raises `GameEvent.WindGust` when the bird enters a wind zone. The HUD names
+  the world above the READY hint and for 120 ticks after the first flap.
+- The world picker (D17): `BirdSelectionScreen` gains a `WorldRow` between
+  the actions and the tier — the five worlds in `worlds.json` order with a
+  palette swatch, the hazards a world spawns (the kinds with a positive spawn
+  weight, `obstacle.<kind>.name`) or, for a locked one, the cheapest way in
+  (the M4 unlock text) — selecting through `SelectionManager.selectWorld`
+  and refusing a locked world with a toast. The main menu shows the selected
+  world (`menu.world`); the shop sells worlds without the "Arrives in M7"
+  caveat. `--world <id>` pins the world for the launch
+  (`ContentRunFactory.withWorld`): an owned world is selected as the picker
+  would, a locked one is played for this launch only with a log line and the
+  profile untouched, an unknown id is reported and ignored; with
+  `--headless-run` the hash line is computed in that world.
+- Sound sets (E31.g): `ToneSynth.render(id, SfxSet)` gives every id one
+  deterministic flavour per set — FIELDS the canonical bytes, CANYON wider
+  and airier, FACTORY harder and percussive, STORM sharper and noisier, VOID
+  hollow and detuned — and four new ids: `lightning_warning`, `thunder`,
+  `piston_telegraph`, `wind`. `SoundBank` keys a flavoured cue as `id@set`
+  (with `sfx/<set>/<id>` overrides tried first) and `AudioManager` picks the
+  set from the run's world on `RunStarted` (`setSfxSetResolver`, installed by
+  the application from `worlds.json.sfxSet`); menu cues stay canonical.
+- `tools/AssetValidator` + `./gradlew assetValidator` +
+  `tools/asset-validator/{README.md,run.sh,run.ps1}`: every manifest entry
+  must resolve on the classpath under `/assets/`, carry a licence and start
+  with the magic number of its kind (PNG for sprites and sheets, RIFF/WAVE
+  for audio, TrueType/OpenType for fonts); parse errors count; status 1 on
+  any problem, the shipped empty manifest passes.
+- Strings (both languages): `menu.world`, `birds.world*`, `rule.<flag>` for
+  every flag, `rule_shift.*`, `obstacle.<kind>.name`.
+- Tests: `ProceduralRenderTest` renders every world × every kind × both bird
+  poses (frames to `build/render/`, worlds distinct by colour histogram), the
+  darkness veil keeping the bird and the next gate visible, the lightning
+  warning marker on the correct side and inside its column, the banner and
+  the picker in both languages; `RuleShiftBannerTest` (the fact, the
+  countdown, the deferred landing, both languages, no input consumed, and the
+  Void's own shift through `GameScreen`); `BirdSelectionScreenTest` world
+  section (order, hazards, locks, persistence, language switch);
+  `ToneSynthTest` every id × set audible and deterministic, sets pairwise
+  distinct; `SoundBankTest`/`AudioManagerTest` set keys; `SmokeWindowTest`
+  steps the picker with real arrow keys and flies Iron Forge, Storm Sky and
+  the Void for 600+ frames each on the bot's decisions through the queue,
+  capturing a gear/piston, a lightning warning and the rule-shift banner.
+
+### Fixed — M7 (review pass)
+
+- **A decision is what the streams drew (E32.d).** `ALL_OBSTACLES_MOVE` used to
+  be folded into every spawn decision (a gate's `moving`, a gear's rail, a
+  piston's forced telegraph), and in the Void the flag lands through a rule
+  cycle whose tick depends on the draft and the cards, so two runs of one seed
+  disagreed on the spawn it applied from (2/40 seeds, perfect and expert).
+  `SpawnTable.roll`/`rollFirst`/`decisionFor` no longer take the flag;
+  `SpawnTable.materialize(decision, x, gap, forceMoving)` applies it per kind
+  (D7) where `GAP_SIZE` already was, and a gate rolled static keeps the static
+  layout mix. `DeterminismTest` now plays the Void with offers on, four draft
+  answers and two presets over twelve seeds, asserts the decision prefixes
+  agree, that the flag landed and that it landed on different spawns.
+- **A spawn-table bolt is reachable from the column before it.** Its side is
+  the one whose unlit band is nearer the previous decision's reference band
+  (`SpawnDecision.referenceBandY`: the gap centre at the default gap, a gear's
+  larger side, a piston's free side, a bolt's unlit side — never the resolved
+  gap or the oscillator, so the decision stays seed-only) and its lit fraction
+  is shortened until the travel fits `LIGHTNING_MAX_TRAVEL_PX` (80 px; the
+  scroll between a gate clearing the bird and the strike is 115 px). The same
+  draws are consumed either way. Table bolts warn from 75 ticks out
+  (`LightningStrike.TABLE_WARNING_TICKS`; patterns keep their authored 45) and
+  `LightningRenderer` shows an idle column from spawn — a faint outline of the
+  span and an anchor plate on its edge — so a bolt is readable like any other
+  hazard before the bird commits to the gap in front of it. Bolt deaths: Storm
+  Sky perfect 4 % → 3 % (normal), expert 2 % / 0 % / 6 % (normal / hard /
+  nightmare), the Void perfect 5 % → 0 %; a gate+bolt table at ×1.5 scroll over
+  the standard ramp is flown 20/20 seeds with no bolt death (`BotOracleTest`).
+- **Wide columns keep their clear air.** The cursor measures the interval from
+  where a pipe body's right edge would be: `x = last.x + max(0, last.width −
+  40) + GATE_INTERVAL`. A 40 px gate is upstream's rule to the pixel (the
+  published hash is unchanged); a 112 px gear or a 200 px wind zone pushes the
+  next column out by its extra width, so two big gears keep 120 px between
+  them and a zone never covers the approach to the gate after it (Wind Valley
+  normal, perfect: 59 % → 66 % of runs reach the budget). Authored pattern
+  steps keep their `dx` as written.
+- **The breather always finds its window.** `Simulation.deferSpawn` passes an
+  absolute clearance (`WIDTH − hitboxLeft + 20`) with D11's 1.5 intervals, and
+  `ObstacleSpawner` places the deferred column at least that far behind the
+  last column's right edge whatever its width or a pattern step's `dx`. Iron
+  Forge and the Void had breathers of 600–2565 ticks looping on
+  `BREATHER_RETRY_TICKS`; `BreatherClearanceTest` now holds every breather in
+  every world (12 seeds × take/skip) under 300 ticks. Green Fields and the 128
+  px corridor of `ModifierDirectorTest` get the same x they got before.
+- **A gear is cleared on the side that leads on.** `Oracles.gearCorridors`
+  returns both corridors from the chord footprint; `BotPilot` aims at the gear
+  band nearer the band of the column after it (`Oracles.bandOf`) and, with the
+  gear as its current column, takes the side that holds a flap arc, is
+  reachable before the crossing and is nearest the aim — the larger side only
+  as a tie-break. A band the box fits in but a flap does not (under a gear near
+  the ground) is never chosen. Gear-only table: 14/20 → 20/20 seeds; Iron
+  Forge perfect gates p50 82 → 94; `Gear.safeBandY` (the coin trail) is
+  unchanged. Green Fields decisions are untouched (the bot's Green Fields
+  behaviour is pinned by the published hash and the golden run).
+- **A pattern gate's `gapSize` is a base value.** `materialize` scales it by
+  the run's gap multiplier (`gap / 128`: tier, curve, cycle, cards) and keeps
+  the gap centred where it was authored; the decision folds the unscaled top.
+  The validator's `gapSize × tightest tier multiplier × 0.9 ≥ 54.5` now
+  describes what the nightmare tier plays (`PatternStreamerTest`).
+- **One announcement is one landing.** `WorldEffects.onGatePassed` draws no new
+  option while one is pending, so a telegraph is never replaced mid-way (the
+  Void seed 21 timeline announced five options for one landing);
+  `WorldEffects.announcements()` counts them.
+- The rule-shift banner moved to the ground strip (`y ≥ 598`, x 14–306, alpha
+  `0x70`): it hid the bird and the column 40 px ahead of it for the whole
+  telegraph; a long line shrinks to 8 pt or wraps onto two rows in the title's
+  place. The world name leaves the playfield after the first flap and sits in
+  the top strip under the streak lines for its 120 ticks.
+- `Piston` raises its telegraph signal only while the column is on the
+  playfield, so the cue never plays for a glow the player cannot see.
+- `stateHash` folds `invulnerableTicks`/ghost when they are non-zero in a run
+  without run systems (a Void option that zeroes the shield mid-run) and a
+  pending breather deferral; `HashFoldTest` moves every M7 per-tick field
+  through reflection and asserts the hash follows;
+  `PatternStreamerTest.theStreamerStateIsPartOfTheStateHash` compares two
+  runs with identical obstacles that differ in the streamer alone.
+- `ContentValidator`: a gate right after a bolt has an authored `gapCenter` on
+  the bolt's unlit side (`≤ 0.5` after a `BOTTOM` bolt, `≥ 0.5` after a `TOP`
+  one, never `"random"`), and a bolt's safe band is no further from the
+  previous lethal column's band than the scroll between them (`dx − width −
+  5` px); fixture `content_bad/bolt_then_gate.json` pins three pointers.
+  `storm_squall` step 3 (`random` → 0.4) and `wv_crosswind` step 3 (`random` →
+  0.45) were re-authored, and the `BOTTOM` bolts of `storm_bolt_lane` (0.55 →
+  0.45) and `storm_boss_p1` (0.6 → 0.4) shortened: the first was 174 px of
+  climb in 160 px of `dx` and killed 14 of 50 expert runs on Storm Sky
+  nightmare (measured against five other authorings, BALANCING.md §10.3).
+- `BalancingSim --pattern` plays a pattern in its own world unless `--world`
+  was given, which is what `ContentFeasibilityTest` measures.
+- `BackgroundRenderer` caches the factory skyline and storm bank colours per
+  palette; `WindZoneRenderer` cuts its stripes by geometry instead of a clip
+  (both were per-frame allocations). `SmokeWindowTest` re-sends a swallowed
+  Robot event up to five times instead of three.
+- `worlds.json`: Iron Forge and the Void ship `darkness 0` — the plan's world
+  table darkens Storm Sky alone (0.5); the 0.15/0.35 were the M4 stub's
+  placeholders.
+
+### Changed — M7
+
+- `TickFact.RuleShift` carries the option (`flags`, `effects`,
+  `telegraphTicks`); `GameScreen` publishes the announced flags rather than the
+  rules in force. `TickFact.Crashed` carries the obstacle kind.
+- `ObstacleSpawner.update(ctx, gatesPassed)` (the one-argument form stays);
+  `SpawnTable.decisionFor` names its stream parameter `geometry`.
+- `ContentLoader.FILES` is the M7 set (`patterns.json` after `worlds.json`).
+- `BotOracleTest.thePerfectBotSurvivesEachKindInIsolation` measures 20 seeds
+  per kind and requires 20/20 for every kind, gears included (7/20 with the M6
+  bot, 14/20 before the review pass).
+- `SpawnTable.roll(spawn, obstacle, movingChance[, previousBandY])`,
+  `rollFirst(obstacle)`, `decisionFor(params, geometry)` and
+  `materialize(decision, x, gap, forceMoving)`; `FixedSpawnTable` overrides
+  the new shapes. `ObstacleSpawner.deferNextSpawn(intervals, clearancePx)`.
+- `DeterminismTest.anAbilityEquippedRunIsReproducible` plays seed 40 (seed 31
+  no longer needs its shield once the bot keeps the gate's corridor during a
+  dash).
+- `docs/BALANCING.md` §10 records the world × tier × preset table.
+
+### Deferred — M7
+
+- D21's crossing-tick prediction for *moving gates* (the gate oracle uses the
+  gate where it is, shrunk by the travel during a flap rise) stays as it is:
+  any change to the bot's Green Fields decisions moves the published
+  `--headless-run` hash and the golden run, which D12 pins across milestones.
+  Green Fields nightmare clears the 30 % bar without it (32 %, up from 22 %,
+  once the tier's flag stopped bending the layout roll) and the
+  `ContentFeasibilityTest` floor is gone; the oracle is re-measured when the
+  baseline is re-recorded on purpose (M9 tier balance).
+
 ## Inherited upstream history (kingyuluk/FlappyBird)
 
 The entries below are the original release notes of

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.support.TestContent;
 import java.util.LinkedHashMap;
@@ -860,6 +861,196 @@ class ContentValidatorTest {
         }
     }
 
+    /** M7: {@code patterns.json}, {@code worlds.json} ambience and cycles, and E14. */
+    @Nested
+    class Patterns {
+
+        private Map<String, JsonElement> edited(String file, Consumer<JsonObject> edit) {
+            Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.shippedJson());
+            JsonElement root = files.get(file).deepCopy();
+            edit.accept(root.getAsJsonObject());
+            files.put(file, root);
+            return files;
+        }
+
+        private List<String> errorsOf(String file, Consumer<JsonObject> edit) {
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(edited(file, edit)));
+            return e.errors();
+        }
+
+        private JsonObject pattern(JsonObject root, String id) {
+            for (JsonElement p : root.getAsJsonArray("patterns")) {
+                if (id.equals(p.getAsJsonObject().get("id").getAsString())) {
+                    return p.getAsJsonObject();
+                }
+            }
+            throw new IllegalArgumentException("no pattern " + id);
+        }
+
+        private JsonObject world(JsonObject root, String id) {
+            for (JsonElement w : root.getAsJsonArray("worlds")) {
+                if (id.equals(w.getAsJsonObject().get("id").getAsString())) {
+                    return w.getAsJsonObject();
+                }
+            }
+            throw new IllegalArgumentException("no world " + id);
+        }
+
+        private JsonObject challenge(JsonObject root, String id) {
+            for (JsonElement c : root.getAsJsonArray("challenges")) {
+                if (id.equals(c.getAsJsonObject().get("id").getAsString())) {
+                    return c.getAsJsonObject();
+                }
+            }
+            throw new IllegalArgumentException("no challenge " + id);
+        }
+
+        private void assertHasError(List<String> errors, String prefix) {
+            assertTrue(errors.stream().anyMatch(error -> error.startsWith(prefix)),
+                    () -> "expected an error starting with\n  " + prefix + "\nbut got\n  "
+                            + String.join("\n  ", errors));
+        }
+
+        @Test
+        void theShippedPatternsAreValidAndEveryReferenceResolves() {
+            GameContent content = GameContent.load();
+            assertEquals(List.of(), ContentValidator.errorsOf(content));
+            assertEquals(List.of(), ContentValidator.warningsOf(content));
+            assertEquals(21, content.patterns().size());
+            for (WorldDef world : content.worlds()) {
+                for (String id : world.patterns()) {
+                    assertTrue(content.patterns().get(id).weight() > 0, id);
+                }
+                for (String id : world.boss().patterns()) {
+                    assertEquals(0, content.patterns().get(id).weight(), id);
+                    assertTrue(content.patterns().get(id).totalDx() >= 480, id);
+                }
+            }
+            assertEquals("corridor_1", content.challenges().get("boss_corridor_1").forcedPattern());
+            assertTrue(content.patterns().get("corridor_1").stepsScore(), "E14");
+        }
+
+        @Test
+        void aPatternOfAnotherWorldCannotBeListed() {
+            assertHasError(errorsOf("worlds", root -> {
+                JsonArray patterns = new JsonArray();
+                patterns.add("forge_gear_corridor");
+                world(root, "wind_valley").add("patterns", patterns);
+            }), "worlds.json#/worlds/1/patterns/0: pattern 'forge_gear_corridor' belongs to world"
+                    + " 'iron_forge', not to 'wind_valley'");
+        }
+
+        @Test
+        void aWeightedPatternListedNowhereAndABossPhaseWithWeightAreRejected() {
+            assertHasError(errorsOf("patterns", root ->
+                            pattern(root, "gf_boss_p1").addProperty("weight", 5)),
+                    "worlds.json#/worlds/0/boss/patterns/0: 'gf_boss_p1' is a boss phase and"
+                            + " must have weight 0 (it has 5)");
+            assertHasError(errorsOf("patterns", root ->
+                            pattern(root, "corridor_1").addProperty("weight", 5)),
+                    "challenges.json#/challenges/6/forcedPattern: 'corridor_1' is a forced"
+                            + " pattern and must have weight 0 (it has 5)");
+        }
+
+        @Test
+        void aPatternWithNoStepsIsRejected() {
+            assertHasError(errorsOf("patterns", root ->
+                            pattern(root, "void_mixer").add("steps", new JsonArray())),
+                    "patterns.json#/patterns/6/steps: a pattern needs at least one step");
+        }
+
+        @Test
+        void anUnreferencedBossPhaseIsWarnedAbout() {
+            GameContent content = GameContent.fromJson(edited("worlds", root -> {
+                JsonArray patterns = new JsonArray();
+                patterns.add("gf_boss_p1");
+                world(root, "green_fields").getAsJsonObject("boss").add("patterns", patterns);
+            }));
+            assertEquals(List.of(), ContentValidator.errorsOf(content));
+            assertTrue(ContentValidator.warningsOf(content).stream().anyMatch(w -> w.startsWith(
+                    "patterns.json#/patterns/9: pattern 'gf_boss_p2' has weight 0 and no boss"
+                            + " or challenge names it")),
+                    () -> ContentValidator.warningsOf(content).toString());
+        }
+
+        /** E14: a forced pattern that never scores makes the challenge's boss unreachable. */
+        @Test
+        void aForcedPatternThatNeverScoresIsRejected() {
+            assertHasError(errorsOf("patterns", root ->
+                            pattern(root, "corridor_1").addProperty("scoringSteps", false)),
+                    "challenges.json#/challenges/6/forcedPattern: 'corridor_1' never scores, so"
+                            + " boss.atGate 20 is unreachable (E14");
+        }
+
+        @Test
+        void theAmbientWindTakesAZonesRanges() {
+            assertHasError(errorsOf("worlds", root -> world(root, "wind_valley")
+                            .getAsJsonObject("ambient").addProperty("windX", -80)),
+                    "worlds.json#/worlds/1/ambient/windX: -80.0 is outside [-60.0, 60.0] px/s");
+            assertHasError(errorsOf("worlds", root -> world(root, "wind_valley")
+                            .getAsJsonObject("ambient").addProperty("windY", 1000)),
+                    "worlds.json#/worlds/1/ambient/windY: 1000.0 is outside [-900.0, 900.0]");
+            assertHasError(errorsOf("worlds", root -> world(root, "storm_sky")
+                            .getAsJsonObject("ambient").addProperty("darkness", 1.5)),
+                    "worlds.json#/worlds/3/ambient");
+        }
+
+        @Test
+        void aRuleCycleNeedsTwoRealOptionsAndMayNotTouchTheSpawnDecision() {
+            assertHasError(errorsOf("worlds", root -> {
+                JsonArray options = world(root, "void").getAsJsonObject("ruleCycles")
+                        .getAsJsonArray("options");
+                while (options.size() > 1) {
+                    options.remove(options.size() - 1);
+                }
+            }), "worlds.json#/worlds/4/ruleCycles/options: a rule cycle needs at least two"
+                    + " options");
+            assertHasError(errorsOf("worlds", root -> {
+                JsonObject empty = new JsonObject();
+                empty.add("flags", new JsonArray());
+                empty.add("effects", new JsonArray());
+                world(root, "void").getAsJsonObject("ruleCycles").getAsJsonArray("options")
+                        .add(empty);
+            }), "worlds.json#/worlds/4/ruleCycles/options/4: a rule cycle option has to turn on"
+                    + " a flag or apply an effect");
+            assertHasError(errorsOf("worlds", root -> {
+                JsonObject effect = new JsonObject();
+                effect.addProperty("stat", "MOVING_CHANCE");
+                effect.addProperty("op", "FLAT_ADD");
+                effect.addProperty("value", 0.5);
+                world(root, "void").getAsJsonObject("ruleCycles").getAsJsonArray("options")
+                        .get(1).getAsJsonObject().getAsJsonArray("effects").add(effect);
+            }), "worlds.json#/worlds/4/ruleCycles/options/1/effects/1: a rule cycle option may"
+                    + " not change MOVING_CHANCE");
+        }
+
+        @Test
+        void aWorldWithNoPositiveSpawnWeightIsRejected() {
+            assertHasError(errorsOf("worlds", root -> {
+                JsonObject weights = new JsonObject();
+                weights.addProperty("pipe_gate", 0);
+                world(root, "green_fields").add("spawnWeights", weights);
+            }), "worlds.json#/worlds/0/spawnWeights: world 'green_fields' has no positive spawn"
+                    + " weight");
+        }
+
+        @Test
+        void aStepWithAnUnknownKindIsRejectedAtBindTime() {
+            assertHasError(errorsOf("patterns", root -> pattern(root, "void_mixer")
+                            .getAsJsonArray("steps").get(1).getAsJsonObject()
+                            .addProperty("kind", "saw")),
+                    "patterns.json#/patterns/6/steps/1/kind: not a valid ObstacleKind: 'saw'");
+        }
+
+        @Test
+        void theChallengeWithABossNeedsItsForcedPatternToResolve() {
+            assertHasError(errorsOf("challenges", root -> challenge(root, "boss_corridor_1")
+                            .addProperty("forcedPattern", "corridor_9")),
+                    "challenges.json#/challenges/6/forcedPattern: unknown pattern 'corridor_9'");
+        }
+    }
+
     @Nested
     class BadFixtures {
 
@@ -952,6 +1143,60 @@ class ContentValidatorTest {
         void aCosmeticOnlyConditionElsewhereIsRejected() {
             assertHasError(errorsOfFixture("worlds", "cosmetic_only_condition"),
                     "worlds.json#/worlds/4/unlock/type: 'prestige' is allowed only on a cosmetic");
+        }
+
+        /** M7: a step parameter outside its kind's {@code ParamSpec}, and one the kind never reads. */
+        @Test
+        void aBadPatternParameterIsRejectedWithItsPointer() {
+            List<String> errors = errorsOfFixture("patterns", "bad_param");
+            assertHasError(errors, "patterns.json#/patterns/0/steps/0/params/accelY: 1500.0 is"
+                    + " outside [-900.0, 900.0]");
+            assertHasError(errors, "patterns.json#/patterns/0/steps/1/params/spin: pipe_gate"
+                    + " reads no such parameter; it reads [layout, gapCenter, gapSize,"
+                    + " oscillate, amplitude, speed]");
+        }
+
+        /** M7: a world or a boss naming a pattern that does not exist. */
+        @Test
+        void anUnknownPatternReferenceIsRejectedWithItsPointer() {
+            List<String> errors = errorsOfFixture("worlds", "unknown_pattern");
+            assertHasError(errors, "worlds.json#/worlds/1/patterns/1: unknown pattern"
+                    + " 'wv_tornado'");
+            assertHasError(errors, "worlds.json#/worlds/1/boss/patterns/1: unknown pattern"
+                    + " 'wv_boss_p9'");
+            // The pattern the world no longer lists is unreachable content, which is an error
+            // for a weighted pattern.
+            assertHasError(errors, "patterns.json#/patterns/1/weight: pattern 'wv_crosswind' has"
+                    + " weight 20 but world 'wind_valley' does not list it, so it is never drawn");
+        }
+
+        /** M7, §4 feasibility: the gap, the step distance and the boss phase length. */
+        @Test
+        void anInfeasiblePatternIsRejectedWithEveryRuleItBreaks() {
+            List<String> errors = errorsOfFixture("patterns", "infeasible_pattern");
+            assertHasError(errors, "patterns.json#/patterns/2/steps/0/params/gapSize: 74 px"
+                    + " leaves 53.3 px on the tightest tier (× 0.80 × 0.9), less than the 54.5"
+                    + " a bird fits through (§4 feasibility)");
+            assertHasError(errors, "patterns.json#/patterns/2/steps/1/dx: 60 px between columns"
+                    + " is less than the 100 a bird needs to change lanes (§4 feasibility)");
+            assertHasError(errors, "worlds.json#/worlds/0/boss/patterns/0: boss phase"
+                    + " 'gf_boss_p1' spans 450 px, less than the 480 a phase needs (§4)");
+        }
+
+        /** M7 fairness: the gate right after a bolt sits on the bolt's unlit side, authored. */
+        @Test
+        void aGateOnTheLitSideOfTheBoltBeforeItIsRejected() {
+            List<String> errors = errorsOfFixture("patterns", "bolt_then_gate");
+            assertHasError(errors, "patterns.json#/patterns/4/steps/1/params/gapCenter: 0.3 is on"
+                    + " the lit side of the bolt before it; a gate right after a bolt sits at or"
+                    + " above 0.5 (a TOP bolt lights the upper part) (§4 feasibility)");
+            assertHasError(errors, "patterns.json#/patterns/4/steps/3/params/gapCenter: a gate"
+                    + " right after a bolt needs an authored centre at or below 0.5 (a BOTTOM bolt"
+                    + " lights the lower part), not 'random' (§4 feasibility)");
+            assertHasError(errors, "patterns.json#/patterns/6/steps/2/params/lengthFrac: the"
+                    + " bolt's safe band is 130 px from the band of the column before it, more"
+                    + " than the 71 px of scroll between them at the strike; lower the fraction,"
+                    + " move the previous column's band or widen dx (§4 feasibility)");
         }
 
         /**

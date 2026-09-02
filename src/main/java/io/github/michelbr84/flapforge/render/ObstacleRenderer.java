@@ -16,8 +16,9 @@ import java.awt.geom.RoundRectangle2D;
 import java.util.List;
 
 /**
- * Draws the obstacles of a run (D18). M1 only has {@link PipeGate}; M7 splits this into an
- * {@code ObstacleRendererRegistry} with one renderer per family.
+ * Draws the pipe gates of a run (D18). M1 had only {@link PipeGate}; from M7 the
+ * {@link ObstacleRendererRegistry} dispatches every family to its own renderer and this class
+ * keeps the gate art, exposed as {@link #drawGate(Graphics2D, double, PipeGate, WorldPalette)}.
  *
  * <p>A gate is a {@link Playfield#PIPE_BODY_W} px body — the lethal width — with a
  * {@link Playfield#PIPE_CAP_W}x{@link Playfield#PIPE_CAP_H} decorative cap at each end that faces
@@ -78,7 +79,15 @@ public final class ObstacleRenderer {
         }
     }
 
-    private void drawGate(Graphics2D g, double alpha, PipeGate gate, WorldPalette palette) {
+    /**
+     * Draws one gate: both segments with their caps, interpolated with the frame alpha.
+     *
+     * @param g the context in logical coordinates
+     * @param alpha the interpolation factor in {@code [0, 1)}
+     * @param gate the gate
+     * @param palette the world palette
+     */
+    public void drawGate(Graphics2D g, double alpha, PipeGate gate, WorldPalette palette) {
         double x = MathUtil.lerp(gate.prevX(), gate.x(), alpha);
         double dy = gate.offsetYAt(alpha);
         double gapTop = gate.baseGapTopY() + dy;

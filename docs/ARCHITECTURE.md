@@ -421,8 +421,8 @@ Run.result()  ──►  RunRewardCalculator.compute(result, EconomyDef, RewardC
   transliteration of the upstream integer code.
 - Obstacles: abstract `Obstacle` + sealed `core.geom.Hitbox` (`Aabb`,
   `Circle`); `PipeGate` (+`Oscillator`) replaces the three upstream pipe
-  classes; `Gear`, `Piston`, `WindZone`, `LightningStrike` arrive with their
-  worlds. Bosses, corridors and rule cycles are data.
+  classes; `Gear`, `Piston`, `WindZone`, `LightningStrike` arrived with their
+  worlds in M7 (next section). Bosses, corridors and rule cycles are data.
 - Stats: one commutative pipeline
   `clamp((base + ΣFLAT) × (1 + ΣPCT) × ΠMUL)` with layered
   `[{stat, op, value}]` lists from birds, upgrades, world, tier, challenge,
@@ -440,6 +440,60 @@ Run.result()  ──►  RunRewardCalculator.compute(result, EconomyDef, RewardC
 - Presentation is procedural-first: `ProceduralArt` draws everything from a
   `WorldPalette` and style; `AssetManager` + `assets/manifest.json` is the
   optional per-id override path for future art packs and the bundled font.
+
+## Worlds and obstacle families `[M7]`
+
+**The obstacle model (D6).** `gameplay.obstacle.Obstacle` is a column at `x` scrolling left with
+the world; a subclass owns its geometry and phases and answers three questions the rest of the
+engine asks: `hitboxesAt(t)` (the lethal boxes interpolated over the tick, which
+`CollisionSystem` sub-steps through when `maxDisplacement()` says the column moved far),
+`safeBandY(x)` (the y a bird crosses it in — the coin trail of E2 and the harness oracles both
+read it, E32.c) and `hashGeometry` (every per-tick field, D12). Five kinds:
+
+| Kind | Geometry | Per-tick state |
+| --- | --- | --- |
+| `PipeGate` | two `Aabb` segments with a gap, standard or floating, optionally on an `Oscillator` (triangle wave, no trig) | the oscillator phase |
+| `Gear` | a `Circle` of radius 24–56, optionally sweeping a vertical rail (another triangle wave), 2×radius wide, scores | the rail phase, the cosmetic angle in turns |
+| `Piston` | an `Aabb` head extending from the top or the ground: `TELEGRAPH → EXTEND → HOLD → RETRACT` from spawn, advanced by `worldDt`; raises `PISTON_TELEGRAPH` while on the playfield | the phase clock and the extension |
+| `WindZone` | a non-lethal `Aabb`; `affectBird` adds `accelY` to the bird's gravity and `scrollDelta` to the world scroll while the box overlaps it (the bird's x is fixed, so horizontal wind is a scroll change) | whether it is acting on the bird |
+| `LightningStrike` | a 24 px column, `IDLE` until `warningTicks` of scroll from the bird, `WARNING` (no hitbox, `LIGHTNING_WARNING` once), `STRIKE` for `strikeTicks` when its centre reaches the bird, then `SPENT`; the bolt lights `lengthFrac` of the height from one edge, so a safe band always exists | the state and the strike clock |
+
+**Spawning (D7, E32.d).** `SpawnTable` draws a `SpawnDecision` — what the streams decided and
+nothing else: kind, layout, the *rolled* moving flag, the geometry (`KindParams` per kind). Rules
+are applied when the decision is materialised (`materialize(decision, x, gap, forceMoving)`):
+`GAP_SIZE`, a pattern gate's scaled `gapSize`, `ALL_OBSTACLES_MOVE` per kind. That split is what
+makes the decision hash — the sequence `ObstacleSpawner.decisionHashes()` — depend on the seed
+alone whatever the pilot does, even in the Void where a rule cycle lands the flag on a tick that
+depends on the draft. `ObstacleSpawner` runs upstream's cursor (`x = last.x + (last.width − 40)
++ 160`, the next column when the last one is fully inside the playfield) and the two M7 fairness
+rules: a lightning column is drawn reachable from the previous decision's reference band
+(`SpawnDecision.referenceBandY`), and a breather's deferral is an absolute clearance behind the
+last column. `PatternStreamer` rides the same cursor with authored set pieces
+(`patterns.json`), drawing only from the `patterns` stream; a step's geometry goes through
+`SpawnTable.decisionFor` and the `obstacle` stream like any other spawn.
+
+**`WorldEffects` (D8, E8).** What a world does beyond its columns: the ambient wind (the
+`WindZone` mechanism made permanent), the darkness the renderer reads, the cosmetic sky flash
+(`TickFact.AmbientFlash`, no hitbox) and the rule cycles — every `everyGates` gates the next
+option is drawn from the `cycles` stream, announced with `TickFact.RuleShift` and landed
+`telegraphTicks` flying ticks later, never inside a draft and never while another option is
+pending; its flags replace the previous option's in the run's rules (three sources kept apart:
+base, drafted, cycle) and its effects the `WORLD_CYCLE` layer. A world with none of it draws
+nothing and folds nothing, which is what keeps the published hash where M6 left it.
+
+**Renderer registry (D18).** `render.ObstacleRendererRegistry` dispatches by `ObstacleKind` to
+one renderer per family — `ObstacleRenderer` (gates), `GearRenderer`, `PistonRenderer`,
+`WindZoneRenderer`, `LightningRenderer` — each interpolating with the frame alpha, keeping its
+shapes and colour ramps, and allocating nothing per frame. `BackgroundRenderer` draws the five
+parallax styles keyed by `worlds.json.style`, `DarknessOverlay` the veil, `GameRenderer` the
+sky flash; the rule-shift banner (`ui.screens.RuleShiftBanner`) is a non-blocking panel in the
+ground strip, not a screen on the stack.
+
+**The pilot's oracles (D21).** `gameplay.harness.Oracles` predicts each kind at the crossing
+tick — a piston's head over the ticks the column overlaps the bird, a bolt's unlit side from the
+moment it is in the window, both sides of a gear from the chord its circle cuts through the
+bird's x range — and `BotPilot` picks a gear's side by where the column after it leads and what
+a flap arc fits in. Production never imports `harness`.
 
 ## Package tree with milestone tags
 

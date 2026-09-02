@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.michelbr84.flapforge.content.defs.SfxSet;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -51,6 +52,24 @@ class SoundBankTest {
         assertSame(bank.samples(ToneSynth.COIN), bank.samples(ToneSynth.COIN));
         bank.clear();
         assertEquals(0, bank.loadedIds().size());
+    }
+
+    @Test
+    void resolvesASetKeyToTheSetsRenderAndKeepsTheBareIdCanonical() {
+        SoundBank bank = new SoundBank();
+        assertEquals("flap", SoundBank.key(ToneSynth.FLAP, SfxSet.FIELDS));
+        assertEquals("flap@storm", SoundBank.key(ToneSynth.FLAP, SfxSet.STORM));
+        assertEquals("flap", SoundBank.idOf("flap@storm"));
+        assertEquals(SfxSet.STORM, SoundBank.setOf("flap@storm"));
+        assertEquals(SfxSet.FIELDS, SoundBank.setOf("flap"));
+        assertEquals(SfxSet.FIELDS, SoundBank.setOf("flap@nowhere"));
+        float[] storm = bank.samples("flap@storm");
+        float[] fields = bank.samples("flap");
+        assertTrue(bank.isSynthesised("flap@storm"));
+        assertFalse(java.util.Arrays.equals(storm, fields), "the set changes the samples");
+        assertSame(storm, bank.samples(ToneSynth.FLAP, SfxSet.STORM), "one buffer per key");
+        assertEquals(ToneSynth.IDS.size() + 2, bank.warmUp(SfxSet.VOID),
+                "warming a set adds its ids to the cache");
     }
 
     @Test

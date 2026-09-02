@@ -20,14 +20,20 @@ import java.util.Set;
  * registries and hands {@link Run} the {@link RunSetup} it needs. Everything that plays the game
  * — the game screen, the headless hash, the bot harness, the balancing tool — goes through here,
  * so they all read the same data.
+ *
+ * <p>From M7 the world comes from {@code worlds.json} whole: curve, effects, flags, spawn
+ * weights, patterns, ambience and rule cycles ({@link GameContent#worldSpec}). A content set
+ * that ships no {@code worlds.json} — the frozen golden fixture, an M1-shaped test set — still
+ * builds runs: Green Fields on the classic curve with a gate-only table, any other id on the
+ * standard curve, which is the M1 shape those fixtures were recorded against (E19).
  */
 public final class RunFactory {
 
-    /** Curve of Green Fields: pure upstream (D20). */
+    /** Curve of Green Fields when no {@code worlds.json} is supplied: pure upstream (D20). */
     public static final String GREEN_FIELDS_CURVE = "classic";
-    /** Curve of every other world until {@code worlds.json} ships in M7 (D20). */
+    /** Curve of every other world when no {@code worlds.json} is supplied (D20). */
     public static final String DEFAULT_CURVE = "standard";
-    /** Gates are the only obstacle family Green Fields spawns (D6). */
+    /** Gates are the only obstacle family the world-less fallback spawns (D6). */
     public static final int PIPE_GATE_WEIGHT = 100;
 
     private final GameContent content;
@@ -55,17 +61,30 @@ public final class RunFactory {
      *
      * @param config the configuration
      * @return the setup
-     * @throws UnknownIdException when the bird, tier or curve id is not in the registries
+     * @throws UnknownIdException when the bird, world, tier or curve id is not in the registries
      */
     public RunSetup setup(RunConfig config) {
         Objects.requireNonNull(config, "config");
-        WorldSpec world = new WorldSpec(config.worldId(),
-                content.curveSpec(curveIdFor(config.worldId())), List.of(),
-                RuleSet.EMPTY, Map.of(ObstacleKind.PIPE_GATE, PIPE_GATE_WEIGHT));
-        return new RunSetup(content.birdProfile(config.birdId()), world,
+        return new RunSetup(content.birdProfile(config.birdId()), worldSpec(config.worldId()),
                 content.tierSpec(config.tierId()), content.speedRampPerTick(),
                 content.economy().rewards().streak().step(), loadout(config),
                 content.modifierCatalog(draftableModifiers(config)));
+    }
+
+    /**
+     * The world a run plays in: {@code worlds.json} when the content ships it, else the M1
+     * fallback shape (see the class comment).
+     *
+     * @param worldId the world id
+     * @return the spec
+     * @throws UnknownIdException when the content ships worlds and none carries the id
+     */
+    public WorldSpec worldSpec(String worldId) {
+        if (content.has(GameContent.WORLDS)) {
+            return content.worldSpec(worldId);
+        }
+        return new WorldSpec(worldId, content.curveSpec(curveIdFor(worldId)), List.of(),
+                RuleSet.EMPTY, Map.of(ObstacleKind.PIPE_GATE, PIPE_GATE_WEIGHT));
     }
 
     /**
@@ -141,16 +160,17 @@ public final class RunFactory {
     }
 
     /**
-     * The curve a world uses.
-     *
-     * <p>M1 has no {@code worlds.json}: Green Fields is the classic curve and anything else falls
-     * back to {@code standard}. From M7 the mapping comes from {@code WorldDef.curve}.
+     * The curve a world uses: {@code WorldDef.curve} when the content ships worlds, else the M1
+     * two-case fallback — Green Fields is the classic curve and anything else is {@code standard}
+     * (E19: the frozen golden fixture carries no {@code worlds.json}).
      *
      * @param worldId the world id
      * @return the curve id
      */
     public String curveIdFor(String worldId) {
-        // TODO(M7): read the curve from worlds.json instead of this two-case fallback.
+        if (content.has(GameContent.WORLDS) && content.worlds().contains(worldId)) {
+            return content.worlds().get(worldId).curve();
+        }
         return RunConfig.DEFAULT_WORLD.equals(worldId) ? GREEN_FIELDS_CURVE : DEFAULT_CURVE;
     }
 }

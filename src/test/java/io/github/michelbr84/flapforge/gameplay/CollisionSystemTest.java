@@ -15,10 +15,15 @@ import io.github.michelbr84.flapforge.gameplay.bird.HitboxSpec;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionReport;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionSystem;
+import io.github.michelbr84.flapforge.core.RandomProvider;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Gear;
 import io.github.michelbr84.flapforge.gameplay.obstacle.Obstacle;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleLayer;
 import io.github.michelbr84.flapforge.gameplay.obstacle.PipeGate;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Piston;
+import io.github.michelbr84.flapforge.gameplay.obstacle.Side;
+import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import java.util.List;
@@ -195,5 +200,62 @@ class CollisionSystemTest {
         Bar still = new Bar(100, 100, 400, 40, 10);
         assertFalse(system.test(bird, layerOf(still), 0).lethalHit());
         assertEquals(CollisionReport.NONE, system.test(bird, layerOf(), 6));
+    }
+
+    private static SimContext simContext() {
+        return new SimContext(1, 1.0, StatSheet.defaults(), RuleSet.EMPTY, new RandomProvider(1),
+                Bird.classic());
+    }
+
+    @Test
+    void railGearCannotTunnelThroughTheBird() {
+        // A gear whose rail jumps 100 px in one tick: the circle sits above the bird box before
+        // the tick and below it after, and only the sub-stepped path crosses the box.
+        Bird bird = birdAt(320);
+        Gear gear = new Gear(80, 370, 20, 200, 6000);
+        gear.update(simContext());
+        assertFalse(gear.hitboxesAt(0).get(0).intersects(bird.hitbox()), "clear before");
+        assertFalse(gear.hitboxes().get(0).intersects(bird.hitbox()), "clear after");
+        assertEquals(100, gear.maxDisplacement(), 1e-9);
+        assertEquals(9, CollisionSystem.substeps(0, gear.maxDisplacement()));
+        CollisionReport report = system.test(bird, layerOf(gear), 0);
+        assertTrue(report.lethalHit());
+        assertSame(gear, report.obstacle());
+    }
+
+    @Test
+    void extendingPistonIsSubSteppedAndHitsOnTheTickTheHeadReachesTheBird() {
+        // The longest spawn-table head moves 300 px in 12 ticks = 25 px per tick, above the
+        // 12 px sub-step rule; a half-scale bird sitting where the head arrives is hit on the
+        // first tick the head reaches its box, not one tick late.
+        Piston piston = Piston.standard(100, Side.TOP, 300, 40);
+        Bird bird = new Bird(HitboxSpec.CLASSIC, 300);
+        bird.beginTick();
+        SimContext ctx = simContext();
+        piston.update(ctx);
+        assertEquals(25, piston.maxDisplacement(), 1e-9);
+        assertEquals(3, CollisionSystem.substeps(0, piston.maxDisplacement()));
+        int hitTick = -1;
+        for (int t = 1; t <= 12 && hitTick < 0; t++) {
+            if (system.test(bird, layerOf(piston), 0, 0.5, RuleSet.EMPTY).lethalHit()) {
+                hitTick = t;
+            } else {
+                piston.update(ctx);
+            }
+        }
+        // Half-scale box top = 300 + 3.5 − 7.75 = 295.75; the head passes it on tick 12 (300).
+        assertEquals(12, hitTick, "hit the moment the head crosses the box top");
+        assertTrue(piston.extension() > 295.75 && piston.extensionAt(0) < 295.75,
+                "the previous state was still clear: " + piston.extensionAt(0));
+    }
+
+    @Test
+    void windZonesAreIgnoredByTheLethalAndTheNearMissTests() {
+        Bird bird = birdAt(320);
+        io.github.michelbr84.flapforge.gameplay.obstacle.WindZone zone =
+                new io.github.michelbr84.flapforge.gameplay.obstacle.WindZone(60, 120, 320, 200,
+                        -500, 0);
+        assertTrue(zone.hitboxes().get(0).intersects(bird.hitbox()), "sanity: overlapping");
+        assertEquals(CollisionReport.NONE, system.test(bird, layerOf(zone), 6));
     }
 }
