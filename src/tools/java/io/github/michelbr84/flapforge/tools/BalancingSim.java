@@ -2,6 +2,8 @@ package io.github.michelbr84.flapforge.tools;
 
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.EconomyDef;
 import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
@@ -38,7 +40,13 @@ import java.util.Map;
  * <pre>
  * ./gradlew balancing -PtoolArgs="--seeds 200 --skill average --ticks 20000 --csv build/balancing.csv"
  * ./gradlew balancing -PtoolArgs="--seeds 50 --bird all --skill all"
+ * ./gradlew balancing -PtoolArgs="--bird guardian --ability shield"
  * </pre>
+ *
+ * <p>{@code --ability} (M5) equips one ability in the slot its kind belongs to and reports how
+ * often the bot spent it, how many hits a shield absorbed and how many revives were used;
+ * {@code --ability all} sweeps the ability-free baseline plus every ability, which is how the
+ * per-ability table in {@code docs/BALANCING.md} is produced.
  */
 public final class BalancingSim {
 
@@ -48,6 +56,8 @@ public final class BalancingSim {
     public static final int DEFAULT_TICKS = 20_000;
     /** Default first seed; run {@code i} uses {@code seed0 + i}. */
     public static final long DEFAULT_FIRST_SEED = 1;
+    /** {@code --ability} value that equips nothing (the default, and the M1–M4 baseline). */
+    public static final String NO_ABILITY = "none";
 
     private BalancingSim() {
     }
@@ -64,10 +74,10 @@ public final class BalancingSim {
      * it Ironbeak's {@code COIN_MULT} of 0.8 is invisible and classic, Ironbeak and Oracle print
      * identical numbers.
      */
-    private record Row(String bird, String skill, long seed, int gates, double points,
-            int ticksAlive, boolean finished, String deathCause, int coinsSpawned,
-            int coinsCollected, int streakBest, int streakSteps, long coins, long xp,
-            long payout) {
+    private record Row(String bird, String ability, String skill, long seed, int gates,
+            double points, int ticksAlive, boolean finished, String deathCause, int coinsSpawned,
+            int coinsCollected, int streakBest, int streakSteps, long coins, long xp, long payout,
+            int abilityUses, int shieldAbsorbs, int revives) {
     }
 
     /** Command-line options. */
@@ -79,6 +89,8 @@ public final class BalancingSim {
         String world = RunConfig.DEFAULT_WORLD;
         String tier = RunConfig.DEFAULT_TIER;
         String skill = BotPilot.Preset.AVERAGE.name();
+        String ability = NO_ABILITY;
+        int abilityLevel = 1;
         Path csv;
         boolean help;
     }
@@ -105,17 +117,21 @@ public final class BalancingSim {
         GameContent content = GameContent.load();
         RunFactory factory = new RunFactory(content);
         List<String> birds = birdsOf(content, options.bird);
+        List<String> abilities = abilitiesOf(content, options.ability);
         List<BotPilot.Preset> presets = presetsOf(options.skill);
 
         System.out.println("Flapforge balancing — world=" + options.world + " tier=" + options.tier
                 + " seeds=" + options.seeds + " (from " + options.firstSeed + ") ticks="
                 + options.ticks);
-        List<Row> rows = new ArrayList<>(birds.size() * presets.size() * options.seeds);
+        List<Row> rows = new ArrayList<>(
+                birds.size() * abilities.size() * presets.size() * options.seeds);
         for (String bird : birds) {
-            for (BotPilot.Preset preset : presets) {
-                List<Row> cell = simulate(factory, content.economy(), options, bird, preset);
-                rows.addAll(cell);
-                report(bird, preset, options.ticks, cell);
+            for (String ability : abilities) {
+                for (BotPilot.Preset preset : presets) {
+                    List<Row> cell = simulate(factory, content, options, bird, ability, preset);
+                    rows.addAll(cell);
+                    report(bird, ability, preset, options.ticks, cell);
+                }
             }
         }
         if (options.csv != null) {
@@ -125,13 +141,14 @@ public final class BalancingSim {
         }
     }
 
-    private static List<Row> simulate(RunFactory factory, EconomyDef economy, Options options,
-            String bird, BotPilot.Preset preset) {
+    private static List<Row> simulate(RunFactory factory, GameContent content, Options options,
+            String bird, String ability, BotPilot.Preset preset) {
+        EconomyDef economy = content.economy();
         List<Row> rows = new ArrayList<>(options.seeds);
         for (int i = 0; i < options.seeds; i++) {
             long seed = options.firstSeed + i;
-            RunConfig config = RunConfig.builder(seed).birdId(bird).worldId(options.world)
-                    .tierId(options.tier).build();
+            RunConfig config = equip(RunConfig.builder(seed).birdId(bird).worldId(options.world)
+                    .tierId(options.tier), content, ability, options.abilityLevel).build();
             Run run = factory.newRun(config);
             HeadlessRunner.Outcome outcome = HeadlessRunner.run(run,
                     new BotPilot(preset, seed), options.ticks);
@@ -145,16 +162,22 @@ public final class BalancingSim {
                             run.simulation().stats().resolve(StatId.COIN_MULT),
                             run.simulation().stats().resolve(StatId.XP_MULT),
                             run.setup().tier().rewardMult(), 1));
-            rows.add(new Row(bird, preset.name(), seed, result.gatesPassed(),
+            int uses = 0;
+            for (int used : result.stats().abilitiesUsed().values()) {
+                uses += used;
+            }
+            rows.add(new Row(bird, ability, preset.name(), seed, result.gatesPassed(),
                     result.stats().points(), result.stats().ticksAlive(), outcome.finished(),
                     cause, run.simulation().pickups().spawnedCount(),
                     result.stats().coinsCollected(), result.stats().streakBest(),
-                    result.stats().streakSteps(), rewards.coins(), rewards.xp(), paid.coins()));
+                    result.stats().streakSteps(), rewards.coins(), rewards.xp(), paid.coins(),
+                    uses, result.stats().shieldAbsorbs(), result.stats().revives()));
         }
         return rows;
     }
 
-    private static void report(String bird, BotPilot.Preset preset, int ticks, List<Row> rows) {
+    private static void report(String bird, String ability, BotPilot.Preset preset, int ticks,
+            List<Row> rows) {
         int[] gates = new int[rows.size()];
         int[] alive = new int[rows.size()];
         int[] coins = new int[rows.size()];
@@ -194,8 +217,10 @@ public final class BalancingSim {
         Arrays.sort(payout);
         Arrays.sort(streakBest);
         System.out.println();
-        System.out.printf(Locale.ROOT, "bird=%s skill=%s (reaction %d ticks, error %.0f px) runs=%d%n",
-                bird, preset.name(), preset.reactionTicks(), preset.errorPx(), rows.size());
+        System.out.printf(Locale.ROOT,
+                "bird=%s ability=%s skill=%s (reaction %d ticks, error %.0f px) runs=%d%n",
+                bird, ability, preset.name(), preset.reactionTicks(), preset.errorPx(),
+                rows.size());
         System.out.printf(Locale.ROOT,
                 "  gates      p10=%d p50=%d p90=%d min=%d max=%d mean=%.2f%n",
                 percentile(gates, 10), percentile(gates, 50), percentile(gates, 90), gates[0],
@@ -223,6 +248,19 @@ public final class BalancingSim {
                 StreakTracker.DEFAULT_STEP);
         System.out.printf(Locale.ROOT, "  reached the %d-tick budget: %d/%d (%.1f %%)%n", ticks,
                 survived, rows.size(), 100.0 * survived / rows.size());
+        if (!NO_ABILITY.equals(ability)) {
+            int[] uses = new int[rows.size()];
+            int[] absorbs = new int[rows.size()];
+            int[] revives = new int[rows.size()];
+            for (int i = 0; i < rows.size(); i++) {
+                uses[i] = rows.get(i).abilityUses();
+                absorbs[i] = rows.get(i).shieldAbsorbs();
+                revives[i] = rows.get(i).revives();
+            }
+            System.out.printf(Locale.ROOT,
+                    "  ability    uses mean=%.2f  shield absorbs mean=%.2f  revives mean=%.2f%n",
+                    mean(uses), mean(absorbs), mean(revives));
+        }
         StringBuilder deaths = new StringBuilder("  deaths     ");
         for (Map.Entry<String, Integer> e : causes.entrySet()) {
             deaths.append(e.getKey()).append('=').append(e.getValue()).append("  ");
@@ -256,6 +294,49 @@ public final class BalancingSim {
         return List.of(selector);
     }
 
+    /**
+     * The abilities a sweep iterates: {@code none}, one id, or {@code all} for every ability the
+     * content ships (M5).
+     *
+     * @param content the loaded content
+     * @param selector the {@code --ability} value
+     * @return the ability ids, with {@link #NO_ABILITY} standing for an empty loadout
+     */
+    private static List<String> abilitiesOf(GameContent content, String selector) {
+        if (NO_ABILITY.equalsIgnoreCase(selector)) {
+            return List.of(NO_ABILITY);
+        }
+        if ("all".equalsIgnoreCase(selector)) {
+            List<String> ids = new ArrayList<>(content.abilities().size() + 1);
+            ids.add(NO_ABILITY);
+            ids.addAll(content.abilities().ids());
+            return ids;
+        }
+        content.abilities().get(selector);
+        return List.of(selector);
+    }
+
+    /**
+     * Equips one ability in the slot its kind belongs to (D9), at the requested level.
+     *
+     * @param builder the configuration being built
+     * @param content the loaded content
+     * @param ability the ability id, or {@link #NO_ABILITY}
+     * @param level the level to play it at
+     * @return the same builder
+     */
+    private static RunConfig.Builder equip(RunConfig.Builder builder, GameContent content,
+            String ability, int level) {
+        if (NO_ABILITY.equals(ability)) {
+            return builder;
+        }
+        AbilityDef def = content.abilities().get(ability);
+        builder.abilityLevels(Map.of(ability, level));
+        return def.kind() == AbilityKind.ACTIVE
+                ? builder.activeAbilityId(ability)
+                : builder.passiveAbilityIds(List.of(ability));
+    }
+
     private static List<BotPilot.Preset> presetsOf(String selector) {
         if ("all".equalsIgnoreCase(selector)) {
             return List.of(BotPilot.Preset.NOVICE, BotPilot.Preset.AVERAGE, BotPilot.Preset.EXPERT,
@@ -266,14 +347,17 @@ public final class BalancingSim {
 
     private static void writeCsv(Path path, List<Row> rows) {
         List<String> lines = new ArrayList<>(rows.size() + 1);
-        lines.add("bird,skill,seed,gates,points,ticksAlive,finished,deathCause,coinsSpawned,"
-                + "coinsCollected,streakBest,streakSteps,coins,xp,payout");
+        lines.add("bird,ability,skill,seed,gates,points,ticksAlive,finished,deathCause,"
+                + "coinsSpawned,coinsCollected,streakBest,streakSteps,coins,xp,payout,"
+                + "abilityUses,shieldAbsorbs,revives");
         for (Row r : rows) {
-            lines.add(String.format(Locale.ROOT, "%s,%s,%d,%d,%s,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d",
-                    r.bird(), r.skill(), r.seed(), r.gates(), Double.toString(r.points()),
-                    r.ticksAlive(), r.finished(), r.deathCause(), r.coinsSpawned(),
-                    r.coinsCollected(), r.streakBest(), r.streakSteps(), r.coins(), r.xp(),
-                    r.payout()));
+            lines.add(String.format(Locale.ROOT,
+                    "%s,%s,%s,%d,%d,%s,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+                    r.bird(), r.ability(), r.skill(), r.seed(), r.gates(),
+                    Double.toString(r.points()), r.ticksAlive(), r.finished(), r.deathCause(),
+                    r.coinsSpawned(), r.coinsCollected(), r.streakBest(), r.streakSteps(),
+                    r.coins(), r.xp(), r.payout(), r.abilityUses(), r.shieldAbsorbs(),
+                    r.revives()));
         }
         try {
             Path parent = path.toAbsolutePath().getParent();
@@ -298,6 +382,9 @@ public final class BalancingSim {
                 case "--world" -> options.world = next(args, ++i);
                 case "--tier" -> options.tier = next(args, ++i);
                 case "--skill" -> options.skill = next(args, ++i);
+                case "--ability" -> options.ability = next(args, ++i);
+                case "--ability-level" -> options.abilityLevel =
+                        positiveInt(arg, next(args, ++i));
                 case "--csv" -> options.csv = Path.of(next(args, ++i));
                 case "--help", "-h" -> options.help = true;
                 default -> throw new IllegalArgumentException("Unknown option: " + arg);
@@ -337,6 +424,8 @@ public final class BalancingSim {
                 "  --world ID    world id (default " + RunConfig.DEFAULT_WORLD + ")",
                 "  --tier ID     tier id (default " + RunConfig.DEFAULT_TIER + ")",
                 "  --skill NAME  novice | average | expert | perfect | all (default average)",
+                "  --ability ID  ability to equip, 'none' or 'all' (default " + NO_ABILITY + ")",
+                "  --ability-level N  level to play the ability at (default 1)",
                 "  --csv PATH    write one row per run",
                 "  --help        this text");
     }

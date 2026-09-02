@@ -1,5 +1,8 @@
 package io.github.michelbr84.flapforge.gameplay;
 
+import io.github.michelbr84.flapforge.ability.AbilityHost;
+import io.github.michelbr84.flapforge.ability.AbilityManager;
+import io.github.michelbr84.flapforge.ability.BehaviorRegistry;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.RandomProvider;
@@ -17,8 +20,10 @@ import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleSpawner;
 import io.github.michelbr84.flapforge.gameplay.obstacle.SpawnTable;
 import io.github.michelbr84.flapforge.gameplay.pickup.Coin;
 import io.github.michelbr84.flapforge.gameplay.pickup.PickupLayer;
+import io.github.michelbr84.flapforge.gameplay.run.ReviveSystem;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
+import io.github.michelbr84.flapforge.gameplay.run.ShieldSystem;
 import io.github.michelbr84.flapforge.gameplay.run.StreakTracker;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
 import io.github.michelbr84.flapforge.gameplay.spec.RampEffect;
@@ -38,16 +43,30 @@ import java.util.Objects;
  * difficulty. {@link #tick(SimInput)} advances the world by one 60 Hz tick and returns the facts
  * it produced; {@link #stateHash()} folds the visible state for determinism checks.
  *
- * <p>Tick order: flap → bird integration → world scroll, obstacle phases and pickups (scaled by
- * {@code TIME_SCALE}) → obstacle effects on the bird → collision → coin pickup → scoring and
- * streak → spawning (obstacle first, then its coin trail) → difficulty refresh. Scoring (D7): a
- * scoring column is awarded once, when {@code scoreLineX ≤ hitboxLeft}, adding
- * {@code 1 × SCORE_MULT} points.
+ * <p>Tick order: ability timers → flap → ability activation → bird integration → ability
+ * {@code onTick} → world scroll, obstacle phases and pickups (scaled by {@code TIME_SCALE}) →
+ * obstacle effects on the bird → collision (and, on a lethal hit, the absorb chain) → coin
+ * pickup → scoring and streak → spawning (obstacle first, then its coin trail) → difficulty
+ * refresh. Scoring (D7): a scoring column is awarded once, when {@code scoreLineX ≤ hitboxLeft},
+ * adding {@code 1 × SCORE_MULT} points.
+ *
+ * <p>Abilities sit inside that order rather than around it (D9): activation happens after the
+ * flap, so a double flap pressed together with a flap is the one that lands; the
+ * {@code onTick} hook runs <em>after</em> the integration, so the dash can undo the gravity step
+ * of the tick it is holding (E24); and the absorb chain runs at the collision, so a shield or a
+ * revive cancels the death before any fact about it exists. A run with nothing equipped skips
+ * every ability call and hashes exactly what it hashed before abilities existed, which is what
+ * keeps the published cross-platform hash comparable across milestones (D12).
+ *
+ * <p>Lethal hits go through {@link #absorbLethalHit}: invulnerability ticks or the ghost state
+ * cancel the hit outright, then the behaviours get a chance, then the {@link ShieldSystem}, then
+ * the {@link ReviveSystem}. The two systems are stat-driven, so an upgrade node that grants
+ * {@code SHIELD_CHARGES} or {@code REVIVES} works with no ability equipped (D9).
  *
  * <p>Hold-to-flap (D2): while {@link SimInput#autoFlapHeld()} is set a synthetic flap is issued
  * whenever {@link Playfield#AUTO_FLAP_PERIOD_TICKS} ticks passed since the last flap.
  */
-public final class Simulation {
+public final class Simulation implements AbilityHost {
 
     private static final long HASH_SEED = MathUtil.fnv1a64("flapforge-sim");
     private static final String RAMP_SOURCE_PREFIX = "ramp:";
@@ -66,6 +85,13 @@ public final class Simulation {
     private final StreakTracker streaks;
     private final CollisionSystem collision = new CollisionSystem();
     private final DifficultyState difficulty;
+    private final AbilityManager abilities;
+    private final ShieldSystem shield;
+    private final ReviveSystem revive;
+    private int invulnerableTicks;
+    private boolean ghost;
+    private Obstacle ghostAgainst;
+    private boolean ghostLatched;
     private int tick;
     private int gatesPassed;
     private double points;
@@ -99,6 +125,14 @@ public final class Simulation {
                 rng);
         this.pickups = new PickupLayer(rng);
         this.streaks = new StreakTracker(setup.streakStep());
+        // Order matters (D9): the loadout publishes its passive effects into the ABILITY layer
+        // first, so SHIELD_CHARGES and REVIVES already carry them when the two run systems read
+        // their charges; only then may a behaviour's onEquip configure those systems.
+        this.abilities = AbilityManager.create(setup.abilities(), config.abilityLevels(), rules,
+                this, stack, BehaviorRegistry.DEFAULT);
+        this.shield = new ShieldSystem((int) stats.resolve(StatId.SHIELD_CHARGES));
+        this.revive = new ReviveSystem((int) stats.resolve(StatId.REVIVES));
+        abilities.equip();
         refreshRamp();
         difficulty.refresh(0, 0);
     }
@@ -125,12 +159,29 @@ public final class Simulation {
             return new TickReport(tick, facts);
         }
 
+        if (invulnerableTicks > 0) {
+            invulnerableTicks--;
+        }
+        SimContext pre = null;
+        if (!abilities.isEmpty()) {
+            pre = context();
+            abilities.beginTick(facts);
+        }
+
         ticksSinceLastFlap++;
-        boolean flapRequested = input.flap() || (input.autoFlapHeld()
-                && ticksSinceLastFlap >= Playfield.AUTO_FLAP_PERIOD_TICKS);
+        // A behaviour that pins the bird (the dash) would undo this tick's flap a few lines
+        // below, so the flap is not accepted at all: an eaten flap still restarted the wing
+        // animation, played the sound and counted in the statistics for a bird that never moved.
+        // ticksSinceLastFlap is left running, so hold-to-flap resumes on the tick the burst ends.
+        boolean flapRequested = !abilities.holdsBird() && (input.flap() || (input.autoFlapHeld()
+                && ticksSinceLastFlap >= Playfield.AUTO_FLAP_PERIOD_TICKS));
         if (flapRequested) {
             ticksSinceLastFlap = 0;
-            if (physics.flap(bird)) {
+            double flapVelocity = stats.resolve(StatId.FLAP_VELOCITY);
+            if (pre != null) {
+                flapVelocity = abilities.onFlap(pre, flapVelocity);
+            }
+            if (BirdPhysics.flap(bird, flapVelocity)) {
                 flaps++;
                 facts.add(new TickFact.Flapped());
             } else {
@@ -138,7 +189,20 @@ public final class Simulation {
                 facts.add(new TickFact.FlapRefused());
             }
         }
+        if (pre != null && input.ability() && abilities.activate(pre, facts)) {
+            // After the flap of the same tick, not before: pressing both is one deliberate rescue
+            // and the ability is the deliberate half of it, so a double flap that lands together
+            // with an ordinary flap is worth its charge instead of being overwritten by it.
+            // The activation may also have changed TIME_SCALE or SCROLL_SPEED, and the hooks that
+            // follow read the tick context, so it is rebuilt here.
+            pre = context();
+        }
         physics.step(bird);
+        if (pre != null) {
+            // After the integration on purpose (E24): a dash undoes this tick's gravity step here
+            // and the collision test below sees the y the burst is holding.
+            abilities.onTick(pre, facts);
+        }
 
         SimContext ctx = context();
         obstacles.update(ctx);
@@ -151,9 +215,15 @@ public final class Simulation {
         CollisionReport report = collision.test(bird, obstacles, Playfield.NEAR_MISS_INFLATE_PX,
                 hitboxScale, rules);
         if (report.lethalHit()) {
-            bird.setState(Bird.State.DYING);
-            facts.add(new TickFact.Crashed(report.cause()));
-            return new TickReport(tick, facts);
+            if (!absorbLethalHit(report, ctx, facts)) {
+                bird.setState(Bird.State.DYING);
+                facts.add(new TickFact.Crashed(report.cause()));
+                return new TickReport(tick, facts);
+            }
+        } else if (ghost) {
+            // Ghost until clear (D9): nothing lethal overlaps any more, so the bird is solid
+            // again even if its invulnerability ticks are still running.
+            clearGhost();
         }
         if (report.nearMiss()) {
             Obstacle grazed = report.obstacle();
@@ -166,6 +236,9 @@ public final class Simulation {
         }
 
         Aabb box = bird.hitbox(hitboxScale);
+        if (abilities.routesCoins()) {
+            routeCoinsNearBird(ctx, box);
+        }
         for (Coin coin : pickups.collect(box)) {
             coinsCollected += coin.value();
             facts.add(new TickFact.CoinCollected(coin.value()));
@@ -194,6 +267,15 @@ public final class Simulation {
         }
 
         if (gateChanged) {
+            if (shield.onGatePassed(gatesPassed)) {
+                // The shield coming back is the most important defensive state change of a run;
+                // it is announced on the same fact a restored ability charge is, so the HUD pip
+                // and the ready cue treat the two alike.
+                facts.add(new TickFact.AbilityReady(ShieldSystem.ABILITY_ID));
+            }
+            if (!abilities.isEmpty()) {
+                abilities.onGatePassed(gatesPassed, facts);
+            }
             refreshRamp();
         }
         if (gateChanged || difficulty.needsTickRefresh()) {
@@ -272,8 +354,173 @@ public final class Simulation {
     }
 
     /**
+     * The absorb chain of a lethal hit (D9), in the order a run resolves it:
+     *
+     * <ol>
+     *   <li>invulnerability ticks or the ghost state cancel the hit for free;</li>
+     *   <li>the equipped behaviours get the hit ({@code onLethalHit}), and the first one that
+     *       takes it cancels it;</li>
+     *   <li>the {@link ShieldSystem} spends a charge, grants its invulnerability and ghosts the
+     *       bird until nothing overlaps it any more;</li>
+     *   <li>the {@link ReviveSystem} spends a revive, sets the velocity (zero, or the recovery
+     *       ability's auto-flap kick) and grants its invulnerability.</li>
+     * </ol>
+     *
+     * <p><b>One rule for the ground.</b> Every save that cancels a {@code GROUND} hit — i-frames,
+     * ghost, shield or revive alike — lifts the bird back above the ground line
+     * ({@link ReviveSystem#safeY}) and zeroes its velocity, because the M1 ground rule kills
+     * anything at or below that line at the start of the next tick: without the lift the save
+     * would buy exactly one tick. Nothing lifts the bird in mid-air, where the fall itself is not
+     * the danger; a mid-air revive gets only its velocity kick. The ground is therefore not an
+     * exception to invulnerability (the shipped string promises "nothing touches you"), and a
+     * shield charge does save a bird that dives into the ground — it costs a charge, it plays the
+     * shield cue and it is measured in {@code docs/BALANCING.md}.
+     *
+     * <p><b>The ghost is granted against one hazard, not against the world.</b> A ghost cancels
+     * hits from the obstacle it was granted for (or, when it was granted with none in sight — the
+     * dash leaving its burst inside a column — the first one it meets) and is dropped the moment
+     * a different obstacle hits the bird, so one charge can never turn into open-ended immunity
+     * in a dense pattern.
+     *
+     * <p>Whatever cancels the hit, the column that caused it is marked dirty, so the gate it
+     * belongs to is not a clean one for the streak (D26).
+     *
+     * @param report the lethal collision report
+     * @param ctx the tick context
+     * @param facts where {@code ShieldAbsorbed} / {@code Revived} are appended
+     * @return {@code true} when the bird survives the hit
+     */
+    private boolean absorbLethalHit(CollisionReport report, SimContext ctx, List<TickFact> facts) {
+        Obstacle hit = report.obstacle();
+        boolean onGround = report.cause() == CollisionCause.GROUND;
+        if (invulnerableTicks > 0 || ghostCovers(hit)) {
+            liftOffTheGround(onGround);
+            markHit(hit);
+            return true;
+        }
+        if (!abilities.isEmpty() && abilities.onLethalHit(ctx, hit, facts)) {
+            markHit(hit);
+            return true;
+        }
+        if (shield.absorb()) {
+            grantIFrames(shield.invulnTicks());
+            startGhost(hit);
+            liftOffTheGround(onGround);
+            markHit(hit);
+            facts.add(new TickFact.ShieldAbsorbed());
+            return true;
+        }
+        if (revive.consume()) {
+            liftOffTheGround(onGround);
+            bird.setVy(revive.reviveVelocity(stats.resolve(StatId.FLAP_VELOCITY)));
+            grantIFrames(revive.invulnTicks());
+            startGhost(hit);
+            markHit(hit);
+            facts.add(new TickFact.Revived());
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Puts a saved bird back above the ground band, so the unconditional ground rule of the next
+     * tick does not undo the save.
+     *
+     * @param onGround whether the hit that was cancelled was a ground hit
+     */
+    private void liftOffTheGround(boolean onGround) {
+        if (onGround) {
+            bird.setY(ReviveSystem.safeY(bird.y()));
+            bird.setVy(0);
+        }
+    }
+
+    /**
+     * Whether the ghost state covers this hit, latching onto the first hazard it meets when it
+     * was granted without one. A hit from anything else drops the ghost.
+     *
+     * @param hit the obstacle hit, or {@code null} for the ground and the ceiling
+     * @return {@code true} when the hit is ignored
+     */
+    private boolean ghostCovers(Obstacle hit) {
+        if (!ghost) {
+            return false;
+        }
+        if (!ghostLatched) {
+            ghostAgainst = hit;
+            ghostLatched = true;
+            return true;
+        }
+        if (ghostAgainst == hit) {
+            return true;
+        }
+        clearGhost();
+        return false;
+    }
+
+    /**
+     * Starts ghosting against the obstacle a charge was just spent on.
+     *
+     * @param hit the obstacle hit, or {@code null} for the ground and the ceiling
+     */
+    private void startGhost(Obstacle hit) {
+        ghost = true;
+        ghostAgainst = hit;
+        ghostLatched = true;
+    }
+
+    private void clearGhost() {
+        ghost = false;
+        ghostAgainst = null;
+        ghostLatched = false;
+    }
+
+    private static void markHit(Obstacle obstacle) {
+        if (obstacle != null) {
+            obstacle.markDirty();
+        }
+    }
+
+    /**
+     * Offers every coin inside the resolved {@code MAGNET_RADIUS} to the equipped behaviours
+     * ({@code onCoinNear}), after the pickups moved and before the bird collects them.
+     *
+     * <p>Called only when a behaviour asked for the hook ({@link AbilityManager#routesCoins()}):
+     * none of the eight shipped ones does — the magnet is a {@code MAGNET_RADIUS} stat read by
+     * {@code Coin.update} — so the walk over the live coins costs nothing until one does.
+     *
+     * @param ctx the tick context
+     * @param box the bird hitbox of this tick
+     */
+    private void routeCoinsNearBird(SimContext ctx, Aabb box) {
+        double radius = stats.resolve(StatId.MAGNET_RADIUS);
+        if (radius <= 0 || pickups.isEmpty()) {
+            return;
+        }
+        double cx = box.centerX();
+        double cy = box.centerY();
+        double radiusSq = radius * radius;
+        for (Coin coin : pickups.coins()) {
+            if (coin.isCollected()) {
+                continue;
+            }
+            double dx = coin.x() - cx;
+            double dy = coin.y() - cy;
+            if (dx * dx + dy * dy <= radiusSq) {
+                abilities.onCoinNear(ctx, coin);
+            }
+        }
+    }
+
+    /**
      * Folds the visible state into a hash: tick, bird, score and every obstacle (random stream
      * states are not hashed).
+     *
+     * <p>The ability, shield and revive state is folded in only when the run actually has some
+     * (D9, D12). That is not a hole in the guarantee: a run with an empty loadout and no charge
+     * has nothing to diverge on, and keeping its fold untouched is what makes the published
+     * {@code --headless-run} hash — a classic bird with no abilities — comparable across the
+     * milestones that add systems around it.
      *
      * @return the hash
      */
@@ -285,7 +532,79 @@ public final class Simulation {
         h = MathUtil.fold(h, coinsCollected);
         h = streaks.hashState(h);
         h = obstacles.hashState(h);
-        return pickups.hashState(h);
+        h = pickups.hashState(h);
+        if (!hasRunSystems()) {
+            return h;
+        }
+        h = MathUtil.fold(h, invulnerableTicks);
+        h = MathUtil.fold(h, (ghost ? 1 : 0) | (ghostLatched ? 2 : 0));
+        h = shield.hashState(h);
+        h = revive.hashState(h);
+        return abilities.hashState(h);
+    }
+
+    /**
+     * Whether this run has anything the ability systems own: an equipped ability, a shield charge
+     * or a revive.
+     *
+     * @return {@code true} when the ability state is part of the run
+     */
+    public boolean hasRunSystems() {
+        return !abilities.isEmpty() || shield.maxCharges() > 0 || revive.maxCharges() > 0;
+    }
+
+    /**
+     * The equipped abilities (D9): timers, charges and the {@code ABILITY} layer.
+     *
+     * @return the manager
+     */
+    public AbilityManager abilities() {
+        return abilities;
+    }
+
+    @Override
+    public ShieldSystem shield() {
+        return shield;
+    }
+
+    @Override
+    public ReviveSystem revive() {
+        return revive;
+    }
+
+    @Override
+    public void grantIFrames(int ticks) {
+        if (ticks > invulnerableTicks) {
+            invulnerableTicks = ticks;
+        }
+    }
+
+    @Override
+    public void ghostUntilClear() {
+        // No hazard is named: the ghost latches onto the first one it meets (the column a dash
+        // ended inside) and covers only that one.
+        ghost = true;
+        ghostAgainst = null;
+        ghostLatched = false;
+    }
+
+    @Override
+    public boolean isInvulnerable() {
+        return invulnerableTicks > 0 || ghost;
+    }
+
+    @Override
+    public int invulnerableTicks() {
+        return invulnerableTicks;
+    }
+
+    /**
+     * Whether the bird is currently ignoring overlaps until it is clear of them (D9).
+     *
+     * @return {@code true} while ghosting
+     */
+    public boolean isGhosting() {
+        return ghost;
     }
 
     /**

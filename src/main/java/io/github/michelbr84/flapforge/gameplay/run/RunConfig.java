@@ -24,6 +24,8 @@ import java.util.Objects;
  * @param mode how the run was started
  * @param activeAbilityId the equipped active ability, or {@code null}
  * @param passiveAbilityIds equipped passive abilities
+ * @param passiveSlotBonus extra passive slots the profile earned (E3, {@code
+ *     profile.passiveSlotBonus}); the loadout keeps {@code BirdDef.passiveSlots + this} passives
  * @param permanentEffects snapshot of upgrade effects (layer {@code UPGRADES})
  * @param abilityLevels owned level per ability id
  * @param upgradeLevelsTotal total of owned upgrade levels (bird synergies)
@@ -33,8 +35,9 @@ import java.util.Objects;
  */
 public record RunConfig(long seed, String birdId, String paletteId, String worldId, String tierId,
         String challengeId, RunMode mode, String activeAbilityId, List<String> passiveAbilityIds,
-        List<StatModifier> permanentEffects, Map<String, Integer> abilityLevels,
-        int upgradeLevelsTotal, List<String> forcedModifiers, RuleSet rules, boolean allowOffers) {
+        int passiveSlotBonus, List<StatModifier> permanentEffects,
+        Map<String, Integer> abilityLevels, int upgradeLevelsTotal, List<String> forcedModifiers,
+        RuleSet rules, boolean allowOffers) {
 
     /** Default bird id. */
     public static final String DEFAULT_BIRD = "classic";
@@ -57,6 +60,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
      * @param mode the run mode
      * @param activeAbilityId the active ability or {@code null}
      * @param passiveAbilityIds passive abilities
+     * @param passiveSlotBonus extra passive slots
      * @param permanentEffects upgrade effects
      * @param abilityLevels ability levels
      * @param upgradeLevelsTotal total upgrade levels
@@ -112,6 +116,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         b.mode = mode;
         b.activeAbilityId = activeAbilityId;
         b.passiveAbilityIds = new ArrayList<>(passiveAbilityIds);
+        b.passiveSlotBonus = passiveSlotBonus;
         b.permanentEffects = new ArrayList<>(permanentEffects);
         b.abilityLevels = new LinkedHashMap<>(abilityLevels);
         b.upgradeLevelsTotal = upgradeLevelsTotal;
@@ -142,6 +147,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         private RunMode mode = RunMode.STANDARD;
         private String activeAbilityId;
         private List<String> passiveAbilityIds = new ArrayList<>();
+        private int passiveSlotBonus;
         private List<StatModifier> permanentEffects = new ArrayList<>();
         private Map<String, Integer> abilityLevels = new LinkedHashMap<>();
         private int upgradeLevelsTotal;
@@ -253,6 +259,17 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         }
 
         /**
+         * Sets the extra passive slots the profile earned (E3).
+         *
+         * @param value the bonus
+         * @return this builder
+         */
+        public Builder passiveSlotBonus(int value) {
+            passiveSlotBonus = value;
+            return this;
+        }
+
+        /**
          * Sets the permanent (upgrade) effects.
          *
          * @param value the modifiers
@@ -336,8 +353,8 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
          */
         public RunConfig build() {
             return new RunConfig(seed, birdId, paletteId, worldId, tierId, challengeId, mode,
-                    activeAbilityId, passiveAbilityIds, permanentEffects, abilityLevels,
-                    upgradeLevelsTotal, forcedModifiers, rules, allowOffers);
+                    activeAbilityId, passiveAbilityIds, passiveSlotBonus, permanentEffects,
+                    abilityLevels, upgradeLevelsTotal, forcedModifiers, rules, allowOffers);
         }
     }
 }

@@ -24,6 +24,7 @@ import io.github.michelbr84.flapforge.content.defs.GrantType;
 import io.github.michelbr84.flapforge.content.defs.ObjectiveType;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.PrestigeDef;
+import io.github.michelbr84.flapforge.content.defs.StatModifierDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
@@ -482,6 +483,53 @@ class ContentIntegrityTest {
         assertTrue(SHIPPED.achievements().contains("points_1000"));
     }
 
+    /**
+     * M5 completed the M4 ability stub in place (E19): the behaviours, the effects and the
+     * timings are authored now, and they are the numbers D9 specifies.
+     */
+    @Test
+    void theAbilitiesCarryTheirBehavioursEffectsAndTimings() {
+        for (AbilityDef def : SHIPPED.abilities()) {
+            assertEquals(def.id(), def.behavior(),
+                    "the shipped abilities map one to one onto their behaviours");
+            assertEquals(3, def.levels().size(), "E3: three levels each");
+        }
+
+        AbilityDef shield = SHIPPED.abilities().get("shield");
+        assertEquals(List.of(new StatModifierDef(StatId.SHIELD_CHARGES, StatOp.FLAT_ADD, 1)),
+                shield.effects(), "D9: the charge is data, so an upgrade alone can grant one");
+        assertEquals(45.0, shield.levels().get(0).params().get("invulnTicks"));
+        assertEquals(0.0, shield.levels().get(0).params().get("regenEveryGates"));
+        assertEquals(10.0, shield.levels().get(2).params().get("regenEveryGates"));
+
+        AbilityDef dash = SHIPPED.abilities().get("dash");
+        assertEquals(List.of(new StatModifierDef(StatId.SCROLL_SPEED, StatOp.MULTIPLY, 2.5)),
+                dash.effects(), "E24: only the speed goes through the stat pipeline");
+        assertEquals(20, dash.levels().get(0).durationTicks());
+        assertEquals(600, dash.levels().get(0).cooldownTicks());
+
+        AbilityDef doubleFlap = SHIPPED.abilities().get("double_flap");
+        assertEquals(2.0, doubleFlap.levels().get(0).params().get("charges"));
+        assertEquals(5.0, doubleFlap.levels().get(0).params().get("rechargeEveryGates"));
+        assertEquals(1.5, doubleFlap.levels().get(0).params().get("flapMultiplier"));
+
+        assertEquals(90, SHIPPED.abilities().get("slow_time").levels().get(0).durationTicks());
+        assertEquals(List.of(new StatModifierDef(StatId.TIME_SCALE, StatOp.MULTIPLY, 0.5)),
+                SHIPPED.abilities().get("slow_time").effects());
+        assertEquals(300,
+                SHIPPED.abilities().get("score_multiplier").levels().get(0).durationTicks());
+        assertEquals(List.of(new StatModifierDef(StatId.SCORE_MULT, StatOp.MULTIPLY, 2)),
+                SHIPPED.abilities().get("score_multiplier").effects());
+        assertEquals(120,
+                SHIPPED.abilities().get("invulnerability").levels().get(0).durationTicks());
+        assertEquals(List.of(new StatModifierDef(StatId.MAGNET_RADIUS, StatOp.FLAT_ADD, 90)),
+                SHIPPED.abilities().get("coin_magnet").effects());
+        assertEquals(List.of(new StatModifierDef(StatId.REVIVES, StatOp.FLAT_ADD, 1)),
+                SHIPPED.abilities().get("emergency_recovery").effects());
+        assertEquals(90.0, SHIPPED.abilities().get("emergency_recovery").levels().get(0)
+                .params().get("invulnTicks"));
+    }
+
     /** E19: authored and validated is not the same as playable. */
     @Test
     void thePlayableGateReportsWhatEachMilestoneEnabled() {
@@ -491,7 +539,7 @@ class ContentIntegrityTest {
         assertTrue(SHIPPED.playable(ContentKind.TREE));
         assertTrue(SHIPPED.playable(ContentKind.TIER));
         assertTrue(SHIPPED.playable(ContentKind.FEATURE));
-        assertFalse(SHIPPED.playable(ContentKind.ABILITY), "abilities land in M5");
+        assertTrue(SHIPPED.playable(ContentKind.ABILITY), "abilities landed in M5");
         assertFalse(SHIPPED.playable(ContentKind.MODIFIER), "modifiers land in M6");
         assertTrue(SHIPPED.playable(ContentKind.WORLD, "green_fields"));
         assertFalse(SHIPPED.playable(ContentKind.WORLD, "storm_sky"), "worlds land in M7");

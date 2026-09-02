@@ -158,6 +158,14 @@ public enum StringKey {
     HUD_STREAK("hud.streak"),
     /** HUD and wallet: a coin amount, {@code {0}} is the number. */
     HUD_COINS("hud.coins"),
+    /** HUD: the equipped active ability is off cooldown. */
+    HUD_ABILITY_READY("hud.ability.ready"),
+    /** HUD: the cooldown left, {@code {0}} is the number of ticks. */
+    HUD_ABILITY_COOLDOWN("hud.ability.cooldown"),
+    /** HUD: the charges left of a charge-gated ability, {@code {0}} is the count. */
+    HUD_ABILITY_CHARGES("hud.ability.charges"),
+    /** HUD: the shield charges left, {@code {0}} is the count. */
+    HUD_SHIELD_CHARGES("hud.shield.charges"),
 
     /** Pause overlay title. */
     PAUSE_TITLE("pause.title"),
@@ -386,6 +394,70 @@ public enum StringKey {
     BIRDS_BREAKDOWN_BASE("birds.breakdown.base"),
     /** Bird selection: no modifier touches any stat yet. */
     BIRDS_BREAKDOWN_EMPTY("birds.breakdown.empty"),
+    /** Bird selection: the loadout row. */
+    BIRDS_LOADOUT("birds.loadout"),
+    /** Bird selection: the active ability slot. */
+    BIRDS_SLOT_ACTIVE("birds.slot.active"),
+    /** Bird selection: one passive slot, {@code {0}} is its number. */
+    BIRDS_SLOT_PASSIVE("birds.slot.passive"),
+    /** Bird selection: a passive the bird grants and nothing can unequip. */
+    BIRDS_SLOT_INNATE("birds.slot.innate"),
+    /** Bird selection: an empty slot. */
+    BIRDS_SLOT_EMPTY("birds.slot.empty"),
+    /** Bird selection: how a slot is filled. */
+    BIRDS_SLOT_HINT("birds.slot.hint"),
+    /** Bird selection: the title of the panel holding the abilities and the stat breakdown. */
+    BIRDS_PANEL("birds.panel"),
+    /** Bird selection: the list of unlocked abilities. */
+    BIRDS_ABILITY_LIST("birds.ability_list"),
+    /** Bird selection: the player owns no ability of that kind yet. */
+    BIRDS_ABILITY_NONE_OWNED("birds.ability.none_owned"),
+    /** Bird selection: an ability this run's rules would strip, {@code {0}} is the rule. */
+    BIRDS_ABILITY_BLOCKED("birds.ability.blocked"),
+    /** Bird selection: an ability is equipped. */
+    BIRDS_ABILITY_EQUIPPED("birds.ability.equipped"),
+
+    /** An active ability, triggered by the player. */
+    ABILITY_KIND_ACTIVE("ability.kind.active"),
+    /** A passive ability, always on while equipped. */
+    ABILITY_KIND_PASSIVE("ability.kind.passive"),
+    /** Ability tag: prevents or absorbs a lethal hit. */
+    ABILITY_TAG_DEFENSIVE("ability.tag.defensive"),
+    /** Ability tag: brings the bird back. */
+    ABILITY_TAG_REVIVE("ability.tag.revive"),
+    /** Ability tag: changes how the bird moves. */
+    ABILITY_TAG_MOVEMENT("ability.tag.movement"),
+    /** Ability tag: changes the pace of the world. */
+    ABILITY_TAG_TEMPO("ability.tag.tempo"),
+    /** Ability tag: pays in coins or points. */
+    ABILITY_TAG_ECONOMY("ability.tag.economy"),
+    /** Ability level, {@code {0}} of {@code {1}}. */
+    ABILITY_LEVEL("ability.level"),
+    /** Ability effect: the cooldown, {@code {0}} is the number of ticks. */
+    ABILITY_EFFECT_COOLDOWN("ability.effect.cooldown"),
+    /** Ability effect: the duration, {@code {0}} is the number of ticks. */
+    ABILITY_EFFECT_DURATION("ability.effect.duration"),
+    /** Ability level parameter {@code charges}, {@code {0}} is the count. */
+    ABILITY_PARAM_CHARGES("ability.param.charges"),
+    /** Ability level parameter {@code rechargeEveryGates}, {@code {0}} is the cadence. */
+    ABILITY_PARAM_RECHARGE_EVERY_GATES("ability.param.recharge_every_gates"),
+    /** Ability level parameter {@code invulnTicks}, {@code {0}} is the count. */
+    ABILITY_PARAM_INVULN_TICKS("ability.param.invuln_ticks"),
+    /** Ability level parameter {@code invulnExtraTicks}, {@code {0}} is the count. */
+    ABILITY_PARAM_INVULN_EXTRA_TICKS("ability.param.invuln_extra_ticks"),
+    /** Ability level parameter {@code regenEveryGates}, {@code {0}} is the cadence. */
+    ABILITY_PARAM_REGEN_EVERY_GATES("ability.param.regen_every_gates"),
+    /** Ability level parameter {@code flapMultiplier}, {@code {0}} is the factor. */
+    ABILITY_PARAM_FLAP_MULTIPLIER("ability.param.flap_multiplier"),
+    /** Ability level parameter {@code extraRadius}, {@code {0}} is the distance in px. */
+    ABILITY_PARAM_EXTRA_RADIUS("ability.param.extra_radius"),
+    /** Ability level parameter {@code kickMultiplier}, {@code {0}} is the factor. */
+    ABILITY_PARAM_KICK_MULTIPLIER("ability.param.kick_multiplier"),
+
+    /** Rule flag: defensive abilities are stripped. */
+    RULE_NO_DEFENSIVE_ABILITIES("rule.no_defensive_abilities"),
+    /** Rule flag: revives are stripped. */
+    RULE_NO_REVIVE("rule.no_revive"),
 
     /** Upgrade trees: title. */
     UPGRADES_TITLE("upgrades.title"),
@@ -426,6 +498,14 @@ public enum StringKey {
     SHOP_EMPTY("shop.empty"),
     /** Shop: the wallet does not hold the price. */
     SHOP_CANNOT_AFFORD("shop.cannot_afford"),
+    /** Shop: the next level of an ability, {@code {0}} is the level. */
+    SHOP_ABILITY_NEXT_LEVEL("shop.ability.next_level"),
+    /** Shop: the E3 ability level cap, {@code {0}} is the cap. */
+    SHOP_ABILITY_CAP("shop.ability.cap"),
+    /** Shop: the ability is at the level cap the profile has earned (E3). */
+    SHOP_ABILITY_CAPPED("shop.ability.capped"),
+    /** Shop: the ability owns every level the content ships. */
+    SHOP_ABILITY_MAXED("shop.ability.maxed"),
 
     /** Toast: something was bought, {@code {0}} is its name. */
     TOAST_PURCHASED("toast.purchased"),
@@ -433,6 +513,16 @@ public enum StringKey {
     TOAST_UPGRADED("toast.upgraded"),
     /** Toast: a purchase was refused, {@code {0}} says why. */
     TOAST_PURCHASE_FAILED("toast.purchase_failed"),
+    /** Toast: an ability level was bought, {@code {0}} is its name and {@code {1}} the level. */
+    TOAST_ABILITY_LEVEL("toast.ability_level"),
+    /** Toast: the ability key was pressed with nothing equipped. */
+    TOAST_ABILITY_NONE("toast.ability.none"),
+    /** Toast: the ability key was pressed while the ability recharges. */
+    TOAST_ABILITY_COOLDOWN("toast.ability.cooldown"),
+    /** Toast: the ability key was pressed with no charge left. */
+    TOAST_ABILITY_NO_CHARGE("toast.ability.no_charge"),
+    /** Toast: this run's rules stripped the ability, {@code {0}} is the rule. */
+    TOAST_ABILITY_BLOCKED("toast.ability.blocked"),
 
     /** Stat source: a bird effect that grows with every gate, {@code {0}} is the bird. */
     SOURCE_RAMP("source.ramp"),

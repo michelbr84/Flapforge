@@ -28,9 +28,9 @@ import org.junit.jupiter.api.Test;
  * breaks — a reward, an unlock condition, a price, the upgrade layer — the pace of the first three
  * runs changes and this test says so, with the run-by-run table in the failure message.
  *
- * <p>M4 asserts two of the four milestones of the README's opening hour: an upgrade by run 2–3 and
- * Ironbeak by run 3. The shield (run 5) is added in M5 and {@code feature:modifiers} (run 7) in
- * M6, when the things they gate exist (E17).
+ * <p>M4 asserted two of the four milestones of the README's opening hour: an upgrade by run 2–3
+ * and Ironbeak by run 3; M5 adds the shield by run 5, now that a shield charge does something.
+ * {@code feature:modifiers} (run 7) follows in M6, when the thing it gates exists (E17).
  *
  * <p>The shopping policy is "cheapest first" rather than the class-ordered spender of E25: this is
  * a new player emptying their pockets on whatever they can afford, which is what makes the first
@@ -61,6 +61,7 @@ class NewPlayerJourneyTest {
         PlayerProfile profile = PlayerProfile.fresh(time.epochMillis()).normalize();
         int firstUpgradeAfterRun = -1;
         int ironbeakAfterRun = -1;
+        int shieldAfterRun = -1;
         String firstNodeBought = null;
         header();
 
@@ -88,11 +89,15 @@ class NewPlayerJourneyTest {
             if (ironbeakAfterRun < 0 && profile.isUnlocked("bird:guardian")) {
                 ironbeakAfterRun = run;
             }
+            if (shieldAfterRun < 0 && profile.isUnlocked("ability:shield")) {
+                shieldAfterRun = run;
+            }
             row(run, outcome, progressed, profile, bought);
         }
 
         final int firstUpgrade = firstUpgradeAfterRun;
         final int ironbeak = ironbeakAfterRun;
+        final int shield = shieldAfterRun;
         final String firstNode = firstNodeBought;
         Supplier<String> report = () -> "the novice's first " + RUNS + " runs:\n" + table;
         assertTrue(firstUpgrade > 0, report);
@@ -112,6 +117,17 @@ class NewPlayerJourneyTest {
         assertTrue(profile.upgradeLevel("feather_1") >= 1,
                 () -> "the cheapest node is the one a new player can afford first\n"
                         + report.get());
+        // E17/M5: the README's third milestone. The unlock is any_of[runs 5, purchase 200], so a
+        // novice reaches it by playing; and it has to be worth reaching, which is the second half
+        // of the assertion — equipping it puts a real charge in the next run (D9).
+        assertTrue(shield > 0 && shield <= 5,
+                () -> "ability:shield was unlocked only after run " + shield + "\n"
+                        + report.get());
+        profile.selected.passiveAbilityIds = List.of("shield");
+        Run withShield = runs.newRun(RunLoadout.configFor(profile, content, BASE_SEED,
+                RunMode.STANDARD));
+        assertEquals(1, withShield.simulation().shield().maxCharges(),
+                () -> "the unlocked shield must absorb a hit in the next run\n" + report.get());
         assertTrue(profile.statistics.coinsSpent > 0, report);
         assertTrue(Wallet.of(profile).balance(PlayerProfile.CURRENCY_COINS) >= 0, report);
         assertTrue(profile.statistics.totalRuns == RUNS, report);

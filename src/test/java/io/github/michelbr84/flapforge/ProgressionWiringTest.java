@@ -13,6 +13,7 @@ import io.github.michelbr84.flapforge.app.LaunchOptions;
 import io.github.michelbr84.flapforge.app.NullPresenter;
 import io.github.michelbr84.flapforge.app.Threads;
 import io.github.michelbr84.flapforge.audio.AudioManager;
+import io.github.michelbr84.flapforge.audio.ToneSynth;
 import io.github.michelbr84.flapforge.audio.NullAudio;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.Strings;
@@ -75,6 +76,7 @@ class ProgressionWiringTest {
     private SaveManager save;
     private ProgressionManager progression;
     private GameContext context;
+    private GameContent content;
     private GameScreen game;
     private final List<GameEvent> published = new ArrayList<>();
     private long stamp = 1;
@@ -87,7 +89,7 @@ class ProgressionWiringTest {
         assertEquals(home.toAbsolutePath().normalize(), SavePaths.profileDir(),
                 "the profile directory must be the temporary one");
 
-        GameContent content = GameContent.load();
+        content = GameContent.load();
         clock = new ManualClock(1_000_000_000L);
         input = new InputQueue(KeyBindings.defaults());
         Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
@@ -187,6 +189,34 @@ class ProgressionWiringTest {
         ticks(180);
         assertEquals(1, profile().statistics.totalRuns);
         assertEquals(1, eventsOf(GameEvent.RunEnded.class).size());
+    }
+
+    /**
+     * D16/D17: the four ability facts reach the bus, so the ability sounds have a source. The
+     * mapping is the one seam between a simulation fact and a sound, and the ability facts were
+     * the ones M5 added — an activation the player hears nothing for reads as a dropped input.
+     */
+    @Test
+    void anActivatedAbilityIsAnnouncedOnTheBus() {
+        // The default screen of this fixture flies without a loadout; the ability facts need the
+        // profile-aware factory, which is what the application wires (E18: a fresh profile flies
+        // with the double flap).
+        GameScreen equipped = new GameScreen(context,
+                new ContentRunFactory(content, RunMode.SEEDED, save::profile),
+                SeedSequence.from(42L));
+        screens.push(equipped);
+        screens.applyPending();
+        ticks(GRACE);
+        tap(Keys.SPACE);
+        assertEquals("double_flap", equipped.run().simulation().abilities().active().id());
+        tap(Keys.X);
+
+        List<GameEvent.AbilityActivated> used = eventsOf(GameEvent.AbilityActivated.class);
+        assertEquals(1, used.size(), "the press was announced once");
+        assertEquals("double_flap", used.get(0).abilityId());
+        assertEquals(1, used.get(0).level());
+        assertEquals(ToneSynth.ABILITY, AudioManager.sfxIdFor(used.get(0)),
+                "and the audio manager knows what to play for it");
     }
 
     @Test

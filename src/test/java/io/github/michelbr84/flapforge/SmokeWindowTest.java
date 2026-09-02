@@ -56,6 +56,7 @@ import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Toggle;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
+import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
@@ -103,6 +104,9 @@ import org.junit.jupiter.api.Test;
  *   <li>the M4 meta screens: Birds, Upgrades and Shop opened from the menu with real clicks, the
  *       cheapest bird and the first upgrade node bought through the toolkit, and the wallet
  *       dropping by what they cost;</li>
+ *   <li>the M5 loadout: a passive equipped in the bird selection with a real click, a run built
+ *       from it and the active ability used with a real {@code X}, with the ability HUD
+ *       screenshotted;</li>
  *   <li>the real quit path of {@link GameApplication}: {@code CloseRequested} ends the loop
  *       thread, disposes the frame and finishes long before the exit watchdog.</li>
  * </ul>
@@ -953,6 +957,75 @@ class SmokeWindowTest {
             assertFalse(shop.offers().isEmpty(), "the shop still has something to sell");
             assertTrue(saveShot("shop", rig) >= 2, "shop is uniform");
             driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+
+            rig.requestCloseAndVerify();
+        }
+    }
+
+    /**
+     * The M5 loop through the toolkit: equip a passive in the bird selection, start a run with the
+     * loadout the profile now carries, and use the active ability with a real {@code X}.
+     *
+     * <p>It is the one place where the whole chain is exercised at once — chip, profile, save,
+     * {@code RunLoadout}, {@code AbilityManager}, HUD — and the screenshots in
+     * {@code build/smoke/} are what a reviewer looks at to see the cooldown ring, the charge pips
+     * and the shield icon actually drawn on a real window.
+     */
+    @Test
+    void anEquippedAbilityIsUsedInARunAndShownOnTheHud() throws Exception {
+        requireDisplay();
+        try (Rig rig = new Rig("Flapforge smoke test (abilities)", false, true)) {
+            PlayerProfile profile = rig.save.profile();
+            // The shield is unlocked by playing five runs (§4); this smoke run is about the HUD,
+            // not the economy, so it is granted outright.
+            profile.unlock("ability:shield");
+            GameContent content = GameContent.load();
+            MainMenuScreen menu = new MainMenuScreen(rig.context,
+                    new ContentRunFactory(content, RunMode.SEEDED, () -> profile),
+                    SeedSequence.of(42));
+            rig.start(menu);
+            rig.frames(30);
+            focusCanvasOrAbort(rig);
+            Driver driver = new Driver(rig);
+
+            // Menu -> Birds, then equip the shield in the first passive slot with a real click.
+            driver.click(menu.birdsButton(),
+                    () -> rig.screens.top() instanceof BirdSelectionScreen);
+            BirdSelectionScreen birds = (BirdSelectionScreen) rig.screens.top();
+            rig.frames(GRACE);
+            BirdSelectionScreen.AbilitySlot passive =
+                    birds.slot(BirdSelectionScreen.SlotRole.PASSIVE, 0);
+            assertNotNull(passive, "Forgewing carries two passive slots");
+            driver.click(passive, () -> "shield".equals(passive.abilityId()));
+            rig.frames(4);
+            assertEquals(List.of("shield"), profile.selected.passiveAbilityIds,
+                    "the chip wrote the loadout into the profile");
+            assertEquals("double_flap", profile.selected.activeAbilityId, "the E18 default");
+            assertTrue(saveShot("loadout", rig) >= 2, "the loadout row is uniform");
+
+            // Back to the menu and into a run built from that loadout.
+            driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+            rig.frames(GRACE);
+            // Play is clicked rather than tapped: the menu keeps the focus on the Birds button
+            // this test just came back from, so Enter would open the bird selection again.
+            driver.click(menu.playButton(), () -> rig.screens.top() instanceof GameScreen);
+            GameScreen game = (GameScreen) rig.screens.top();
+            assertEquals("double_flap", game.run().simulation().abilities().active().id(),
+                    "the run carries the equipped active ability");
+            assertEquals(1, game.run().simulation().shield().maxCharges(),
+                    "and the equipped shield's charge (D9)");
+
+            driver.tap(KeyEvent.VK_SPACE, () -> game.run().phase() == RunPhase.FLYING);
+            holdAltitude(rig, game, FLIGHT_FLAPS, 600);
+            assertEquals(RunPhase.FLYING, game.run().phase(), "the bird survived the flight");
+
+            // A real X through the toolkit reaches the simulation as an activation.
+            driver.tap(KeyEvent.VK_X,
+                    () -> game.run().stats().abilitiesUsed().containsKey("double_flap"));
+            assertEquals(1, game.run().simulation().abilities().active().charges(),
+                    "the press spent one of the two charges");
+            rig.frames(6);
+            assertTrue(saveShot("ability-hud", rig) >= 2, "the ability HUD frame is uniform");
 
             rig.requestCloseAndVerify();
         }

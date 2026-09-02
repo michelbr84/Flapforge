@@ -64,6 +64,24 @@ public sealed interface TickFact {
     record NearMiss() implements TickFact {
     }
 
+    /**
+     * The player activated the equipped active ability (D9); {@code Run} counts it in
+     * {@code RunStats.abilitiesUsed}.
+     *
+     * @param abilityId the ability that was activated
+     */
+    record AbilityActivated(String abilityId) implements TickFact {
+    }
+
+    /**
+     * An ability became usable again — a cooldown elapsed or a charge came back (D9, D17: the
+     * HUD ring closes and the audio cue plays on this fact).
+     *
+     * @param abilityId the ability that is ready
+     */
+    record AbilityReady(String abilityId) implements TickFact {
+    }
+
     /** A shield charge absorbed a lethal hit. */
     record ShieldAbsorbed() implements TickFact {
     }

@@ -1,4 +1,4 @@
-# Balancing — the conversion table (M1), the run economy (M3) and the meta-progression (M4)
+# Balancing — the conversion table (M1), the run economy (M3), the meta-progression (M4) and the abilities (M5)
 
 Flapforge is a rewrite of a 30 Hz Flappy Bird clone
 ([kingyuluk/FlappyBird](https://github.com/kingyuluk/FlappyBird), the tree at commit `b811782` of
@@ -13,9 +13,9 @@ pinned by `ClassicFeelTest`, which runs a literal transliteration of the old cod
 simulation and requires the two trajectories to agree to **0.0 px**. Exactly one deviation is
 intentional — the ground rule — and it has its own section and its own test.
 
-Sections 1–4 are the M1 conversion; section 5 is the M3 economy and section 6 the M4
-meta-progression, and the same rule holds there — their numbers are measured output over hundreds of
-seeds per cell, not estimates.
+Sections 1–4 are the M1 conversion; section 5 is the M3 economy, section 6 the M4
+meta-progression and section 7 the M5 abilities, and the same rule holds there — their numbers are
+measured output over hundreds of seeds per cell, not estimates.
 
 Every "Measured" entry in sections 1–4 is produced by the M1 test sources, not by hand:
 
@@ -284,10 +284,14 @@ Three groups come out of this:
   `lodestone_1` is worth 0.15 coins a run to the bot, which flies a fixed line and picks up almost
   the whole trail without a magnet — it is a comfort node for a human, and M9's MetaSim should
   re-measure it against a policy that misses coins.
-* **Seven nodes are M5 content** (`quick_recharge_1`, `ability_scholar_1`, `tempered_shield_1`,
+* **Seven nodes were M5 content** (`quick_recharge_1`, `ability_scholar_1`, `tempered_shield_1`,
   `ability_forge_1`, `cooldown_forge_1`, `master_forge_1`, `second_chance_1`) — 10 150 of the
-  21 400. Their effects resolve in the stat sheet today and nothing consumes them, which is why the
-  upgrade screen marks each of them *Arrives in M5* on the card and on the stat row (E19).
+  21 400. Until M5 their effects resolved in the stat sheet and nothing consumed them, so the
+  upgrade screen marked each of them *Arrives in M5* (E19); M5 removed the note. `SHIELD_CHARGES`
+  and `REVIVES` are now read by `ShieldSystem` / `ReviveSystem`, the two `ABILITY_*_MULT` nodes
+  scale every activation, and the `ABILITY_CAP` / `PASSIVE_SLOT` grants are spent in the shop and
+  on the bird screen. The table above predates them and is not re-measured here — §7 measures the
+  abilities themselves.
 * **The flight nodes measure worse than nothing**, which is a property of the bot, not of the nodes
   (§6.4).
 
@@ -348,13 +352,16 @@ Two of these are honest and five need M9's attention:
 * **Cinder (`forge`) is the design working.** 277.61 unupgraded, 566.84 with the tree maxed — the
   only bird that beats `classic` maxed, because `BIRD_SYNERGY` scales with `Σ upgrades`. It is meant
   to be the late bird and it measures like one.
-* **Ironbeak (`guardian`) pays 17.6 % less than the free default and gains nothing back in M4.** Its
-  gates are identical to `classic` (the base stats are the same) and its only live difference is
-  `COIN_MULT −0.20`; the innate `shield` that pays for that is M5 content. That is why the bird
-  screen names a bird's innate passives on the ability line and marks them *Arrives in M5* — a
-  run-3 reward bird must not read as a straight upgrade while it measurably costs coins.
+* **Ironbeak (`guardian`) paid 17.6 % less than the free default and gained nothing back in M4.**
+  Its gates were identical to `classic` (the base stats are the same) and its only live difference
+  was `COIN_MULT −0.20`, because the innate `shield` that pays for that was M5 content. It is live
+  now: §7.1 measures a shield at +96 % gates / +92 % payout for the `average` bot, which is what the
+  −20 % buys. The bird screen still names a bird's innate passives on the ability line, without the
+  milestone note.
 * **Oracle (`mystic`) is byte-identical to `classic`** on every column, and costs 600 coins or an M8
-  achievement. Its distinguishing content is M5/M8.
+  achievement. Its distinguishing content is the third passive slot, which is live from M5 (§7.4:
+  two defensive passives measure 205.4 mean gates against 158.8 for one) and is not visible in this
+  M4 table.
 * **Jackdaw (`gambler`) does not recover its −54 % gates** with +30 % score and coins, at any tree
   level — 222.26 plain and 171.79 maxed. It is the clearest retune candidate for M9.
 * `swift` and `heavy` both lose payout when the tree is maxed, for the §6.4 reason.
@@ -393,13 +400,152 @@ The tables in §6.1–6.6 were produced by driving the same public APIs
 ranges each table names; §6.1 additionally runs `UnlockManager` and `UpgradeManager`, which is what
 `NewPlayerJourneyTest` does with one seed family and hard assertions.
 
-## 7. What is not yet measured here
+## 7. Abilities (M5)
 
-Abilities (M5), modifiers and synergies (M6), the other four worlds (M7), and the runs-to-unlock
-table that `BalancingSim --meta` prints (M9, E25) all extend this document as they land. Four M4
-measurements are recorded above as open questions for M9 rather than as settled balance: `glide_1`
-cannot bind (§6.3), the bot is not monotone in the stats the tree sells (§6.4), Jackdaw and Oracle
-do not pay for themselves (§6.5), and the participation gate zeroes one novice run in five (§6.6). The rule stays the same: a row is added only once a test or a tool
-measures it — §5's numbers are `BalancingSim` output, not estimates, and the shape of the
-distributions matters as much as the means (an expert's coins are almost a constant because the bot
-reaches the tick budget; a novice's are not).
+Every number below is `BalancingSim` output on the shipped content, `classic` bird, `green_fields`,
+tier `normal`, 20 000-tick budget, one ability equipped in the slot its kind belongs to:
+
+```
+./gradlew balancing -PtoolArgs="--seeds 200 --skill average --ability all"
+./gradlew balancing -PtoolArgs="--seeds 60 --skill all --ability all"
+```
+
+### 7.1 What each ability is worth, per skill
+
+Deltas are against the same seeds with **nothing equipped**, 60 seeds per cell. The baseline row is
+absolute (mean gates / mean payout); every other row is `Δgates / Δpayout`. "Uses" is the mean number
+of activations per run, novice / average / expert / perfect — a passive is never activated.
+
+| Ability | Uses | novice | average | expert | perfect |
+| --- | --- | --- | --- | --- | --- |
+| *(none)* | — | 5.47 / 37 | 83.73 / 357 | 246.62 / 1043 | 242.60 / 1023 |
+| `double_flap` | 0.5 / 9.3 / 29.1 / 29.6 | −3 % / −2 % | −5 % / −5 % | −1 % / −1 % | +1 % / +2 % |
+| `shield` | passive | **+102 % / +66 %** | **+96 % / +92 %** | +1 % / +1 % | +2 % / +2 % |
+| `dash` | 0.2 / 4.7 / 14.2 / 14.1 | −7 % / −6 % | +5 % / +1 % | +3 % / −1 % | +4 % / +1 % |
+| `coin_magnet` | passive | +0 % / +1 % | +0 % / +0 % | +0 % / +0 % | +0 % / +0 % |
+| `slow_time` | 0.2 / 3.6 / 11.5 / 11.6 | −5 % / −3 % | −5 % / −5 % | −3 % / −3 % | −0 % / −0 % |
+| `emergency_recovery` | passive | **+111 % / +70 %** | **+108 % / +102 %** | +1 % / +1 % | +2 % / +2 % |
+| `score_multiplier` | 0.2 / 3.3 / 10.0 / 9.7 | +0 % / +2 % | +0 % / +3 % | +0 % / +3 % | +0 % / +3 % |
+| `invulnerability` | 0.2 / 3.0 / 8.8 / 8.6 | +3 % / +2 % | +1 % / +1 % | +1 % / +1 % | +1 % / +1 % |
+
+How to read it:
+
+* **The two defensive passives roughly double a fallible run and do nothing for a good one.** At
+  `expert` and `perfect` the bot almost never takes the hit they absorb, so they collapse to +1–2 %;
+  at `novice` and `average` they are the strongest thing in the shop. That is the intended shape of
+  a defensive item and it is why they must beat the baseline in `AbilityBotRunTest`.
+* **`slow_time` measures negative and is not broken.** Halving `TIME_SCALE` scrolls the world more
+  slowly, so a fixed tick budget contains fewer gates; the run is not shorter in seconds, it is
+  shorter in columns. It is the one ability the regression test allows below the baseline (the
+  tolerance is 0.75 of it).
+* **`score_multiplier` is exactly its own effect**: gates unchanged, payout +3 %, which is
+  `2 × SCORE_MULT` over the 300 ticks a level-1 window covers, three times a run.
+* **The `dash` at `novice` is noise**: 0.2 activations per run over 60 seeds means a handful of runs
+  differ at all. Over 200 `average` seeds the dash is +9 % gates (87.14 against 79.57).
+
+### 7.2 The level-1 dash was a trap, and how it is measured now
+
+Before the M5 review pass, `DashBehavior` granted exactly `durationTicks + invulnExtraTicks`
+i-frames, and level 1 ships `invulnExtraTicks: 0`. The invulnerability therefore expired on the very
+tick the held line released — with the world 100 px further along (20 ticks at `SCROLL_SPEED × 2.5`)
+and the bird still inside the column it had dashed into, whose overlap span is 73 px.
+
+| 200 seeds, `average` | mean gates | mean payout | reached the 20 000-tick budget |
+| --- | --- | --- | --- |
+| nothing equipped | 79.57 | 339.00 | 9.0 % |
+| `dash`, before | 13.86 | 73.48 | 0.0 % |
+| `dash`, after | 87.14 | 359.43 | 11.5 % |
+
+The fix is behavioural, not numeric: the burst asks for **ghost until clear** when it releases — the
+same rule D9 gives a shield absorb — so it always ends clear of what it flew into. The alternative
+(raising level 1's `invulnExtraTicks` to ≥ 15) would have bought the same ticks in data and left the
+same trap one tier of scroll speed away. `AbilityBotRunTest.noAbilityMakesTheBotWorseThanFlyingWithNone`
+now sweeps 24 seeds per ability and fails the build if any ability drops below 0.75 of the
+ability-free baseline, which is what would have caught this.
+
+### 7.3 `coin_magnet` is worth +0.13 coins a run in M5 content
+
+200 seeds, `average` bot: mean payout **339.13** with the magnet against **339.00** without;
+collection 97.4 % of the spawned trail against 97.1 %. Raising `COIN_SPAWN_RATE` to 4.0 moves it
+from 96.0 % to 97.5 % — +532 coins over 33 896 coins spawned across 100 runs.
+
+The cause is structural, not a weak radius: E2 lays the coin trail along `Obstacle.safeBandY`, which
+is the line the bird has to fly anyway, so there is nothing off-path left to attract. Widening the
+trail vertically would fix that and was **not** done in M5: coin positions are folded into
+`Simulation.stateHash` through `PickupLayer`, so any change to the trail moves the published
+`--headless-run` hash (`eaaa01685261a433`), which M5 must not.
+
+What M5 did instead is price it from the measurement: **120 / 240 / 480** instead of 250 / 500 /
+1000, which makes it the cheapest ability in the shop rather than the price of a dash. It becomes a
+real purchase when M6's coin modifiers and M7's obstacle families put coins somewhere other than the
+flight line, and M9's MetaSim should re-measure it then — together with `lodestone_1` (§6.2), which
+has the same problem for the same reason.
+
+### 7.4 `shield` and `emergency_recovery` measure the same, and stack
+
+200 seeds, `average` bot, 20 000 ticks:
+
+| Loadout | mean gates | absorbs | revives |
+| --- | --- | --- | --- |
+| nothing | 79.57 | 0.00 | 0.00 |
+| `shield` | 158.84 | 0.91 | 0.00 |
+| `emergency_recovery` | 158.47 | 0.00 | 0.91 |
+| both | **205.38** | 0.91 | 0.71 |
+
+That the two are indistinguishable in isolation is what D9 specifies: each absorbs exactly one lethal
+hit. The recovery's kick (`−FLAP_VELOCITY × 1.0`) and its longer window (90 i-frames against 45) do
+not show up because the bot flies the same line either way. They are therefore sold as a **pair**,
+not as a ladder — two passive slots, two charges, 205.4 gates — and the difference between them
+arrives with the shield's level-2 regeneration (one charge back every 15 gates, every 10 at level 3),
+which is the only thing in the pair that scales. `emergency_recovery` costing more (400 against 200)
+and unlocking later (150 total gates against 5 runs) is recorded here as an open question for M9's
+retune rather than as settled balance.
+
+### 7.5 A save on the ground lifts the bird 80 px
+
+Every save that cancels a `GROUND` hit — invulnerability ticks, the ghost state, a shield charge or a
+revive — puts the bird back at `GROUND_DEATH_Y − 80` with `vy = 0`. The lift is not decoration: the
+M1 ground rule kills anything at or below the ground line at the *start* of the next tick, so without
+it a charge would buy exactly one tick. 80 px is about 18 ticks of free fall, which is the window the
+player gets to fly out of it.
+
+Two consequences are deliberate:
+
+* **A shield charge does save a dive into the ground**, the one hazard the classic feel treats as
+  final. D9 says a charge absorbs "one lethal hit" and a ground death is one. Measured with three
+  charges (`tempered_shield_1` at level 2 plus the ability) and no input at all: absorbs at ticks
+  48, 102 and 156, the run ending at tick 210 — about 54 ticks per charge, because the absorb also
+  grants 45 invulnerability ticks and those now cover the ground too, lifting the bird each time it
+  sinks back into it. It costs a charge, emits `ShieldAbsorbed` and plays the shield cue — but it
+  has no distinct animation, which is an M7 presentation item.
+* **Nothing is lifted in mid-air.** A revive there gets its velocity kick and stays in the column it
+  was in; the shield's identical lift was already guarded that way, and the revive's was not until
+  the M5 review pass.
+
+### 7.6 The harness
+
+`BalancingSim` gained `--ability <id|all|none>` and `--ability-level <n>` in M5, and prints an
+`ability uses / shield absorbs / revives` line per cell. `--ability all` sweeps the ability-free
+baseline plus all eight, which is what produced §7.1–7.4.
+
+The `--headless-run` hash is **unchanged through M5**, verified on JDK 17 and JDK 21:
+`--headless-run 3000 --seed 42` prints `hash=eaaa01685261a433 ticks=3000 gates=36 points=36` and the
+600-frame line CI compares is `hash=b014de5e0ccf63dc ticks=600 gates=6 points=6`. It cannot move
+with a loadout: `GameApplication.simulationHashLine` builds `RunConfig.classic(seed)` — classic
+bird, Green Fields, tier `normal`, nothing equipped — and reads no profile at all, and
+`Simulation.stateHash` folds ability, shield and revive state only when the run has some
+(`hasRunSystems()`). That is what keeps the number comparable across milestones that add systems
+around it.
+
+## 8. What is not yet measured here
+
+Modifiers and synergies (M6), the other four worlds (M7), and the runs-to-unlock table that
+`BalancingSim --meta` prints (M9, E25) all extend this document as they land. Four M4 measurements
+and three M5 ones are recorded above as open questions for M9 rather than as settled balance:
+`glide_1` cannot bind (§6.3), the bot is not monotone in the stats the tree sells (§6.4), Jackdaw and
+Oracle do not pay for themselves (§6.5), the participation gate zeroes one novice run in five (§6.6),
+`coin_magnet` needs off-path coins to be worth anything (§7.3), `emergency_recovery` and `shield` are
+priced apart but measure the same (§7.4), and the ground save has no animation (§7.5). The rule stays
+the same: a row is added only once a test or a tool measures it — §5's and §7's numbers are
+`BalancingSim` output, not estimates, and the shape of the distributions matters as much as the means
+(an expert's coins are almost a constant because the bot reaches the tick budget; a novice's are not).

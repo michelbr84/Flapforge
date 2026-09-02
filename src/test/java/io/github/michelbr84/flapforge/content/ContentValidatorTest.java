@@ -465,6 +465,131 @@ class ContentValidatorTest {
      * content with exactly one file swapped for a copy carrying exactly one defect, so each test
      * can pin the rule's own message <em>and</em> its JSON pointer.
      */
+    /** M5: {@code abilities.json} against the behaviours that read it (D9, E19). */
+    @Nested
+    class Abilities {
+
+        private List<String> errorsOfShippedWith(Consumer<JsonObject> edit) {
+            Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.shippedJson());
+            JsonElement abilities = files.get("abilities").deepCopy();
+            edit.accept(abilities.getAsJsonObject());
+            files.put("abilities", abilities);
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(files));
+            return e.errors();
+        }
+
+        private JsonObject ability(JsonObject root, int index) {
+            return root.getAsJsonArray("abilities").get(index).getAsJsonObject();
+        }
+
+        private JsonObject level(JsonObject root, int index, int level) {
+            return ability(root, index).getAsJsonArray("levels").get(level).getAsJsonObject();
+        }
+
+        private void assertHasError(List<String> errors, String prefix) {
+            assertTrue(errors.stream().anyMatch(error -> error.startsWith(prefix)),
+                    () -> "expected an error starting with\n  " + prefix + "\nbut got\n  "
+                            + String.join("\n  ", errors));
+        }
+
+        @Test
+        void theShippedAbilitiesAreValid() {
+            assertEquals(List.of(), ContentValidator.errorsOf(GameContent.load()));
+        }
+
+        @Test
+        void anUnknownBehaviorIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            ability(root, 0).addProperty("behavior", "quantum_flap")),
+                    "abilities.json#/abilities/0/behavior: unknown ability behavior "
+                            + "'quantum_flap'");
+        }
+
+        @Test
+        void aParameterTheBehaviorDoesNotReadIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 1, 0).getAsJsonObject("params")
+                                    .addProperty("invulnTikcs", 45)),
+                    "abilities.json#/abilities/1/levels/0/params/invulnTikcs: behavior 'shield' "
+                            + "reads no such parameter");
+        }
+
+        @Test
+        void aMissingRequiredParameterIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 1, 2).getAsJsonObject("params").remove("invulnTicks")),
+                    "abilities.json#/abilities/1/levels/2/params/invulnTicks: behavior 'shield' "
+                            + "requires this parameter at every level");
+        }
+
+        /**
+         * An active contributes its {@code effects} only while its duration runs, so a level with
+         * a duration of zero is an ability whose whole stat half silently does nothing — the dash
+         * would keep its cooldown, its i-frames and its held line and lose the 2.5x scroll.
+         */
+        @Test
+        void anActiveWithEffectsAndNoDurationIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 2, 0).addProperty("durationTicks", 0)),
+                    "abilities.json#/abilities/2/levels/0/durationTicks: an ACTIVE ability with "
+                            + "effects needs a duration");
+        }
+
+        @Test
+        void aParameterOutOfRangeIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 1, 0).getAsJsonObject("params")
+                                    .addProperty("invulnTicks", 900)),
+                    "abilities.json#/abilities/1/levels/0/params/invulnTicks: 900.0 is outside");
+        }
+
+        @Test
+        void aParameterThatGoesTheWrongWayWithTheLevelIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 1, 2).getAsJsonObject("params")
+                                    .addProperty("invulnTicks", 30)),
+                    "abilities.json#/abilities/1/levels/2/params/invulnTicks: 45.0 -> 30.0 goes "
+                            + "the wrong way for a UP parameter");
+        }
+
+        @Test
+        void aLongerCooldownOrAShorterDurationAtAHigherLevelIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 2, 2).addProperty("cooldownTicks", 900)),
+                    "abilities.json#/abilities/2/levels/2/cooldownTicks: a level up must not "
+                            + "lengthen the cooldown");
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 2, 2).addProperty("durationTicks", 10)),
+                    "abilities.json#/abilities/2/levels/2/durationTicks: a level up must not "
+                            + "shorten the duration");
+        }
+
+        @Test
+        void aPassiveWithATimerIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 1, 0).addProperty("durationTicks", 90)),
+                    "abilities.json#/abilities/1/levels/0: a PASSIVE ability is always on");
+        }
+
+        @Test
+        void anActiveWithNoGateAtAllIsRejected() {
+            assertHasError(errorsOfShippedWith(root -> {
+                JsonObject level = level(root, 2, 0);
+                level.addProperty("cooldownTicks", 0);
+                level.addProperty("durationTicks", 0);
+            }), "abilities.json#/abilities/2/levels/0: an ACTIVE ability needs a cooldown");
+        }
+
+        @Test
+        void aLevelThatCostsNoMoreThanTheOneBelowIsRejected() {
+            assertHasError(errorsOfShippedWith(root ->
+                            level(root, 1, 2).addProperty("cost", 400)),
+                    "abilities.json#/abilities/1/levels/2/cost: level 3 must cost more than the "
+                            + "level below it");
+        }
+    }
+
     @Nested
     class BadFixtures {
 

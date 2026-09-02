@@ -193,24 +193,24 @@ class UpgradeTreeScreenTest {
     }
 
     /**
-     * E19: seven of the eighteen nodes sell ability cooldowns, durations, shield charges, revives
-     * or a slot, and no system reads any of them before M5. The screen says so instead of
-     * advertising a number that changes nothing.
+     * E19, now that M5 landed: seven of the eighteen nodes sell ability cooldowns, durations,
+     * shield charges, revives or a slot. Until M5 they carried an "Arrives in M5" note because no
+     * system read them; the abilities exist now, so the note must be gone — an honest screen says
+     * "later" only while it is still true.
      */
     @Test
-    void aNodeNoSystemReadsYetIsMarkedWithItsMilestone() {
+    void theAbilityNodesNoLongerCarryAMilestoneNote() {
         open();
+        assertTrue(content.playable(ContentKind.ABILITY), "M5 turned the ability system on");
         String soon = strings.format(StringKey.COMMON_SOON, "M5");
         CardGrid.Card quickRecharge = screen.nodeGrid().card("quick_recharge_1");
         assertNotNull(quickRecharge);
-        assertTrue(quickRecharge.subtitle().contains(soon),
-                () -> "the card says when it starts working: " + quickRecharge.subtitle());
-        assertTrue(screen.statRow(StatId.ABILITY_COOLDOWN_MULT).label().contains(soon),
+        assertFalse(quickRecharge.subtitle().contains(soon),
+                () -> "the ability cooldown node works now: " + quickRecharge.subtitle());
+        assertFalse(screen.statRow(StatId.ABILITY_COOLDOWN_MULT).label().contains(soon),
                 () -> "and so does its stat row: "
                         + screen.statRow(StatId.ABILITY_COOLDOWN_MULT).label());
-
-        assertFalse(screen.nodeGrid().card("feather_1").subtitle().contains(soon),
-                "a node the run already reads carries no note");
+        assertFalse(screen.nodeGrid().card("feather_1").subtitle().contains(soon));
         assertFalse(screen.statRow(StatId.GRAVITY).label().contains(soon));
     }
 

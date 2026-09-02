@@ -5,6 +5,7 @@ import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.input.InputAction;
@@ -14,6 +15,7 @@ import io.github.michelbr84.flapforge.progression.PurchaseResult;
 import io.github.michelbr84.flapforge.progression.PurchaseStatus;
 import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import io.github.michelbr84.flapforge.progression.UnlockManager;
+import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -53,6 +55,15 @@ import java.util.Objects;
  * <p>Buying goes through {@link UnlockManager#purchase} — check, debit, grant, propagate, save, all
  * or nothing — and raises a toast either way: the name of what was bought, or the reason it was
  * refused. A refusal changes nothing, which is why the card can stay exactly where it is.
+ *
+ * <p>The abilities tab sells two different things (D9, E3). A locked ability is an unlock like any
+ * other, bought whole for the price of its {@code purchase} branch; an ability the player already
+ * owns is sold <em>by the level</em> instead, one level at a time, through
+ * {@link UpgradeManager#buyAbilityLevel}. Level 1 comes with the unlock, so the two are mutually
+ * exclusive and one card id serves both. An ability at the last level the content ships, or at
+ * {@code profile.abilityLevelCap} — the E3 cap, base 2, raised only by the single
+ * {@code ability_cap} grant in the forge tree — keeps its card and loses its price: "Level 3/3"
+ * and "Cap reached" are what the player opened the tab to find out.
  *
  * <p>Some of what is for sale cannot be used yet: {@link GameContent#playable} reports which kinds
  * have systems behind them today (E19), and an offer whose kind does not says so on its card
@@ -115,6 +126,7 @@ public final class ShopScreen implements Screen {
     private final GameContent content;
     private final PlayerProfile profile;
     private final UnlockManager unlocks;
+    private final UpgradeManager upgrades;
     private final UnlockEvaluator evaluator;
     private final ToastLayer toasts;
     private final FocusRing ring = new FocusRing();
@@ -141,6 +153,8 @@ public final class ShopScreen implements Screen {
                 context.content(), context.profile(),
                 context.canProgress()
                         ? new UnlockManager(context.progression(), context::saveProfile) : null,
+                context.canProgress()
+                        ? new UpgradeManager(context.progression(), context::saveProfile) : null,
                 context.toasts());
     }
 
@@ -156,11 +170,30 @@ public final class ShopScreen implements Screen {
      */
     public ShopScreen(ScreenManager screens, Strings strings, GameContent content,
             PlayerProfile profile, UnlockManager unlocks, ToastLayer toasts) {
+        this(screens, strings, content, profile, unlocks, null, toasts);
+    }
+
+    /**
+     * Creates the screen with both purchase paths.
+     *
+     * @param screens the screen stack
+     * @param strings the string table
+     * @param content the loaded content
+     * @param profile the profile to charge
+     * @param unlocks the unlock purchase path, or {@code null} for a screen that cannot buy
+     * @param upgrades the ability-level purchase path (E3), or {@code null} for a screen that
+     *     shows the levels without selling them
+     * @param toasts the toast queue, or {@code null} for one of its own
+     */
+    public ShopScreen(ScreenManager screens, Strings strings, GameContent content,
+            PlayerProfile profile, UnlockManager unlocks, UpgradeManager upgrades,
+            ToastLayer toasts) {
         this.screens = Objects.requireNonNull(screens, "screens");
         this.strings = Objects.requireNonNull(strings, "strings");
         this.content = Objects.requireNonNull(content, "content");
         this.profile = Objects.requireNonNull(profile, "profile");
         this.unlocks = unlocks;
+        this.upgrades = upgrades;
         this.evaluator = UnlockEvaluator.of(content);
         this.toasts = toasts == null ? new ToastLayer() : toasts;
 
@@ -318,8 +351,11 @@ public final class ShopScreen implements Screen {
                 shown.add(offer);
             }
         }
-        // Cheapest first; List.sort is stable, so equal prices keep content order (D13).
-        shown.sort((a, b) -> Long.compare(a.cost(), b.cost()));
+        // Cheapest first; List.sort is stable, so equal prices keep content order (D13). An
+        // offer with nothing left to sell — a maxed or capped ability level — has no price to
+        // compare, so it goes to the end rather than to the front with a cost of zero.
+        shown.sort((a, b) -> a.available() == b.available()
+                ? Long.compare(a.cost(), b.cost()) : Boolean.compare(b.available(), a.available()));
         for (Offer offer : shown) {
             CardGrid.Card card = new CardGrid.Card(offer.id(), "", null);
             card.setOnAction(() -> buy(offer.id()));
@@ -351,7 +387,41 @@ public final class ShopScreen implements Screen {
             }
             ContentKind kind = evaluator.kindOf(id);
             out.add(new Offer(id, kind, price, balance >= price,
-                    ProgressionText.unlockableName(strings, content, id)));
+                    ProgressionText.unlockableName(strings, content, id), 0, true));
+        }
+        out.addAll(abilityLevelOffers(balance));
+        return out;
+    }
+
+    /**
+     * The ability levels for sale (D9, E3): one entry per ability the profile has unlocked.
+     *
+     * <p>Level 1 comes with the unlock, so an unlocked ability is never an unlock offer any more
+     * and always a level offer instead — including when there is nothing left to buy, because
+     * "Level 3/3" and "Cap reached" are exactly what the player opened the tab to find out. Those
+     * two are marked unavailable and sort to the end.
+     *
+     * @param balance the coin balance
+     * @return the offers, in content order
+     */
+    private List<Offer> abilityLevelOffers(long balance) {
+        List<Offer> out = new ArrayList<>();
+        if (!content.has(GameContent.ABILITIES) || !content.playable(ContentKind.ABILITY)) {
+            return out;
+        }
+        int cap = UpgradeManager.abilityLevelCap(profile, content);
+        for (AbilityDef def : content.abilities()) {
+            int owned = UpgradeManager.abilityLevelOwned(profile, def);
+            if (owned <= 0) {
+                continue;
+            }
+            int next = owned + 1;
+            boolean available = next <= def.levels().size() && next <= cap;
+            long price = available ? def.levels().get(next - 1).cost() : 0;
+            out.add(new Offer(def.unlockableId(), ContentKind.ABILITY, price,
+                    available && balance >= price,
+                    ProgressionText.name(strings, ContentKind.ABILITY, def.id()),
+                    available ? next : 0, available));
         }
         return out;
     }
@@ -388,10 +458,11 @@ public final class ShopScreen implements Screen {
         for (int i = 0; i < shown.size(); i++) {
             Offer offer = shown.get(i);
             CardGrid.Card card = offers.cards().get(i);
-            boolean affordable = balance >= offer.cost();
+            boolean affordable = offer.available() && balance >= offer.cost();
             card.setTitle(offer.name());
             card.setSubtitle(subtitleOf(offer));
-            card.setBadge(Long.toString(offer.cost()), true);
+            card.setBadge(offer.available() ? Long.toString(offer.cost()) : closedBadge(offer),
+                    offer.available());
             card.setDimmed(!affordable);
             card.setTooltip(tooltipFor(offer, affordable));
         }
@@ -407,10 +478,53 @@ public final class ShopScreen implements Screen {
      * @return the line
      */
     private String subtitleOf(Offer offer) {
+        if (offer.isAbilityLevel()) {
+            AbilityDef def = abilityOf(offer);
+            return ProgressionText.abilityLevel(strings, def, ownedLevel(def)) + " - "
+                    + strings.format(StringKey.SHOP_ABILITY_CAP,
+                            UpgradeManager.abilityLevelCap(profile, content));
+        }
         String milestone = milestoneOf(offer);
         String kindName = offer.kind() == null ? "" : kindLabel(offer.kind());
         return milestone == null ? kindName
                 : kindName + " - " + strings.format(StringKey.COMMON_SOON, milestone);
+    }
+
+    /**
+     * The badge of an offer with nothing left to sell: every level owned, or the E3 cap reached.
+     *
+     * @param offer the offer
+     * @return the word
+     */
+    private String closedBadge(Offer offer) {
+        AbilityDef def = abilityOf(offer);
+        return def != null && ownedLevel(def) >= def.levels().size()
+                ? strings.get(StringKey.SHOP_ABILITY_MAXED)
+                : strings.get(StringKey.SHOP_ABILITY_CAPPED);
+    }
+
+    /**
+     * The ability an offer is about.
+     *
+     * @param offer the offer
+     * @return the definition, or {@code null} when the offer is not about an ability
+     */
+    private AbilityDef abilityOf(Offer offer) {
+        if (offer.kind() != ContentKind.ABILITY || !content.has(GameContent.ABILITIES)) {
+            return null;
+        }
+        String id = offer.id().substring(ContentKind.ABILITY.namespace().length());
+        return content.abilities().contains(id) ? content.abilities().get(id) : null;
+    }
+
+    /**
+     * The level the profile owns an ability at.
+     *
+     * @param def the ability, may be {@code null}
+     * @return the level, {@code 0} when the ability is unknown or locked
+     */
+    private int ownedLevel(AbilityDef def) {
+        return def == null ? 0 : UpgradeManager.abilityLevelOwned(profile, def);
     }
 
     /**
@@ -469,8 +583,19 @@ public final class ShopScreen implements Screen {
      */
     private String tooltipFor(Offer offer, boolean affordable) {
         StringBuilder out = new StringBuilder(descriptionOf(offer));
-        out.append(" - ").append(ProgressionText.price(strings, offer.cost()));
-        if (!affordable) {
+        if (offer.isAbilityLevel()) {
+            AbilityDef def = abilityOf(offer);
+            out.append(" - ")
+                    .append(strings.format(StringKey.SHOP_ABILITY_NEXT_LEVEL, offer.level()))
+                    .append(": ")
+                    .append(ProgressionText.abilityEffects(strings, def, offer.level()));
+        } else if (!offer.available()) {
+            out.append(" - ").append(closedBadge(offer));
+        }
+        if (offer.available()) {
+            out.append(" - ").append(ProgressionText.price(strings, offer.cost()));
+        }
+        if (!affordable && offer.available()) {
             out.append(" (").append(strings.get(StringKey.SHOP_CANNOT_AFFORD)).append(')');
         }
         String milestone = milestoneOf(offer);
@@ -489,6 +614,13 @@ public final class ShopScreen implements Screen {
     private String descriptionOf(Offer offer) {
         if (offer.kind() == null) {
             return offer.name();
+        }
+        AbilityDef ability = abilityOf(offer);
+        if (ability != null) {
+            // An ability's description carries the numbers of one level (M5), so it must never be
+            // read raw: a locked one is described at level 1, the level its unlock grants.
+            return ProgressionText.abilityDescription(strings, ability,
+                    Math.max(1, ownedLevel(ability)));
         }
         String id = offer.id().substring(offer.kind().namespace().length());
         if (offer.kind() == ContentKind.COSMETIC) {
@@ -512,9 +644,25 @@ public final class ShopScreen implements Screen {
         }
         detailLines.add(offer.name());
         detailLines.add(descriptionOf(offer));
-        detailLines.add(ProgressionText.price(strings, offer.cost()));
-        if (coins() < offer.cost()) {
-            detailLines.add(strings.get(StringKey.SHOP_CANNOT_AFFORD));
+        if (offer.kind() == ContentKind.ABILITY) {
+            AbilityDef def = abilityOf(offer);
+            if (def != null && ownedLevel(def) > 0) {
+                detailLines.add(ProgressionText.abilityLevel(strings, def, ownedLevel(def)));
+            }
+            detailLines.add(strings.format(StringKey.SHOP_ABILITY_CAP,
+                    UpgradeManager.abilityLevelCap(profile, content)));
+            if (offer.isAbilityLevel()) {
+                detailLines.add(strings.format(StringKey.SHOP_ABILITY_NEXT_LEVEL, offer.level())
+                        + ": " + ProgressionText.abilityEffects(strings, def, offer.level()));
+            }
+        }
+        if (offer.available()) {
+            detailLines.add(ProgressionText.price(strings, offer.cost()));
+            if (coins() < offer.cost()) {
+                detailLines.add(strings.get(StringKey.SHOP_CANNOT_AFFORD));
+            }
+        } else {
+            detailLines.add(closedBadge(offer));
         }
         String milestone = milestoneOf(offer);
         if (milestone != null) {
@@ -531,6 +679,16 @@ public final class ShopScreen implements Screen {
      */
     private void buy(String unlockId) {
         currentId = unlockId;
+        Offer offer = offer(unlockId);
+        if (offer != null && offer.isAbilityLevel()) {
+            buyAbilityLevel(offer);
+            return;
+        }
+        if (offer != null && !offer.available()) {
+            // Nothing left to sell: the card already says why, and a toast would only repeat it.
+            refreshState();
+            return;
+        }
         if (unlocks == null) {
             refreshState();
             return;
@@ -539,6 +697,30 @@ public final class ShopScreen implements Screen {
         if (result.ok()) {
             toasts.push(strings.format(StringKey.TOAST_PURCHASED,
                     ProgressionText.unlockableName(strings, content, unlockId)), Toast.Kind.INFO);
+            rebuild();
+            return;
+        }
+        toasts.push(strings.format(StringKey.TOAST_PURCHASE_FAILED, refusal(result.status())),
+                Toast.Kind.WARNING);
+        refreshState();
+    }
+
+    /**
+     * Buys the next level of an ability through {@link UpgradeManager#buyAbilityLevel} (E3).
+     *
+     * @param offer the level offer
+     */
+    private void buyAbilityLevel(Offer offer) {
+        if (upgrades == null) {
+            refreshState();
+            return;
+        }
+        AbilityDef def = abilityOf(offer);
+        PurchaseResult result = upgrades.buyAbilityLevel(profile,
+                def == null ? offer.id() : def.id(), content);
+        if (result.ok()) {
+            toasts.push(strings.format(StringKey.TOAST_ABILITY_LEVEL, offer.name(),
+                    result.level()), Toast.Kind.INFO);
             rebuild();
             return;
         }
@@ -559,6 +741,12 @@ public final class ShopScreen implements Screen {
         }
         if (status == PurchaseStatus.ALREADY_OWNED) {
             return strings.get(StringKey.COMMON_OWNED);
+        }
+        if (status == PurchaseStatus.LEVEL_CAPPED) {
+            return strings.get(StringKey.SHOP_ABILITY_CAPPED);
+        }
+        if (status == PurchaseStatus.MAX_LEVEL) {
+            return strings.get(StringKey.SHOP_ABILITY_MAXED);
         }
         return strings.get(StringKey.COMMON_LOCKED);
     }
@@ -640,14 +828,31 @@ public final class ShopScreen implements Screen {
     }
 
     /**
-     * One line of the shop.
+     * One line of the shop: an unlockable for sale, or the next level of an ability the player
+     * already owns (E3).
      *
-     * @param id the namespaced unlockable id
+     * @param id the namespaced unlockable id; for an ability level, the ability's own
+     *     {@code ability:<id>} — an ability is either locked (an unlock offer) or owned (a level
+     *     offer), never both, so the id stays unambiguous
      * @param kind what kind of thing it is, or {@code null} when the content does not say
-     * @param cost the price in coins
+     * @param cost the price in coins, {@code 0} when there is nothing left to buy
      * @param affordable whether the wallet held the price when the tab was built
      * @param name the translated name
+     * @param level the ability level this offer buys, {@code 0} for an unlock offer and for an
+     *     ability with nothing left to buy
+     * @param available whether the offer can be bought at all — {@code false} for an ability at
+     *     its last level or at {@code profile.abilityLevelCap}
      */
-    public record Offer(String id, ContentKind kind, long cost, boolean affordable, String name) {
+    public record Offer(String id, ContentKind kind, long cost, boolean affordable, String name,
+            int level, boolean available) {
+
+        /**
+         * Whether this offer buys an ability level rather than an unlock.
+         *
+         * @return {@code true} for a level offer
+         */
+        public boolean isAbilityLevel() {
+            return level > 0;
+        }
     }
 }

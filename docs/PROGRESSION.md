@@ -119,6 +119,7 @@ from M4 on.
 | --- | --- | --- |
 | `UnlockManager` | anything with a `purchase` branch: birds, abilities, worlds, tiers, trees, features | `UNKNOWN_ID`, `ALREADY_OWNED`, `NOT_FOR_SALE`, `INSUFFICIENT_FUNDS` |
 | `UpgradeManager` | one level of one upgrade node | `UNKNOWN_ID`, `MAX_LEVEL`, `ALREADY_OWNED`, `TREE_LOCKED`, `MISSING_PREREQ`, `INSUFFICIENT_FUNDS` |
+| `UpgradeManager.buyAbilityLevel` | one level of one ability (M5) | `UNKNOWN_ID`, `NOT_FOR_SALE` (not unlocked yet), `MAX_LEVEL`, `LEVEL_CAPPED`, `INSUFFICIENT_FUNDS` |
 
 Both follow the same shape, and the order is the point:
 
@@ -167,6 +168,36 @@ until M7 — and changing the bird repairs the palette, because a palette belong
 Every accepted change marks the profile dirty and saves immediately (D15); a rejected one writes
 nothing.
 
+### The loadout (M5)
+
+`SelectionManager.selectActiveAbility` and `setPassiveAbilities` write
+`profile.selected.activeAbilityId` and `profile.selected.passiveAbilityIds`. The rules (D9, E3):
+
+* **One active, N passives.** A run carries one `ACTIVE` ability plus
+  `BirdDef.passiveSlots + profile.passiveSlotBonus` `PASSIVE` ones, plus the selected bird's
+  **innate** passives — which occupy no slot, need no unlock and cannot be unequipped (Ironbeak's
+  shield is the shipped case).
+* **Only what is owned, and only in its own slot.** A locked ability, an unknown id, a passive in
+  the active slot and an active in a passive slot are all refused and nothing is written. This is
+  the only ownership check on the equip path: a run resolves the loadout from the profile and
+  re-checks only that the id exists.
+* **Slots hide, they do not delete.** The passive list is stored dense and deduplicated, and it may
+  be longer than the current bird can show: switching from Oracle (three slots) to a two-slot bird
+  hides the third choice, and switching back restores it. Cycling a slot on the bird that hides it
+  must not drop it either.
+* **The rules of the run strip, the profile keeps.** `NO_DEFENSIVE_ABILITIES` and `NO_REVIVE` remove
+  the tagged abilities (innate ones included) from the loadout of that run, and the bird screen greys
+  them out with the reason; nothing is unequipped in the profile.
+* **Levels are capped by `min(profile.abilityLevelCap, levels.size())`** — E3's cap starts at 2 and
+  is raised to 3 by the single `ability_cap: 1` grant on `forge/master_forge_1`. Level 1 comes free
+  with the unlock; levels 2 and 3 are bought with `UpgradeManager.buyAbilityLevel` and stored in
+  `profile.abilityLevels`. `PlayerProfile.normalize` clamps the cap from both sides against
+  `UpgradeManager.abilityLevelCeiling`, so a save that carries a higher cap than the build supports
+  cannot buy a level that does not exist.
+* **The passive slot bonus is capped at +1** (`economy/ability_scholar_1`), and
+  `passiveSlots + bonus` may never exceed 4 — the validator enforces both, and the bird screen shows
+  the extra chip as soon as the grant is owned.
+
 ### Old ids
 
 `UpgradeManager.reconcile(profile, aliases, currency)` applies `aliases.json` (E21): renames per
@@ -213,6 +244,7 @@ purchase visible in the game:
 | `BIRD_RAMP` | `BirdDef.rampEffects`, re-evaluated on every passed gate |
 | `BIRD_SYNERGY` | `BirdDef.synergyEffects` × `Σ profile.upgrades.values()`, resolved **once** at run start |
 | `UPGRADES` | every owned node's `effectsPerLevel` — `FLAT_ADD`/`PERCENT_ADD` scale linearly with the level, `MULTIPLY` compounds as `value^level` |
+| `ABILITY` | the equipped passives' `effects` for the whole run, plus the active's while its duration runs (M5) |
 | `WORLD`, `DIFFICULTY`, `TIER` | the world, its curve and the tier of the run |
 
 Buying `feather_1` at level 1 therefore resolves `GRAVITY` to `1800 × (1 − 0.03) = 1746`, and
@@ -233,7 +265,7 @@ the words the player reads and the arithmetic the run uses cannot drift apart.
 
 | Screen | What it shows | What it writes |
 | --- | --- | --- |
-| `BirdSelectionScreen` | the seven birds as a `CardGrid` with a procedural portrait in the selected palette, the archetype, and — for a locked one — the **cheapest** way to open it in words; the palette swatches with their conditions; the tier picker with the locked tiers marked (E19); the ability slot area, which says the slots arrive in M5 while `GameContent.playable(ABILITY)` is false; and the stat breakdown of the run that would start right now | `SelectionManager` (bird, palette, tier), `UnlockManager` (Buy) |
+| `BirdSelectionScreen` | the seven birds as a `CardGrid` with a procedural portrait in the selected palette, the archetype, and — for a locked one — the **cheapest** way to open it in words; the palette swatches with their conditions; the tier picker with the locked tiers marked (E19); the loadout row — one active chip, one chip per passive slot the bird and the `passive_slot` grant give, and a fixed chip per innate passive — with the ability panel beside it (level, next level's price, and what each level does); and the stat breakdown of the run that would start right now | `SelectionManager` (bird, palette, tier, loadout), `UnlockManager` (Buy), `UpgradeManager.buyAbilityLevel` |
 | `UpgradeTreeScreen` | one tab per tree, nodes laid out by tier with a line from every prerequisite, each card carrying level/maximum, what one level does in words, the price of the next level and its state (tree locked / prerequisite missing / affordable / maxed / already unlocked); a locked tree shows its condition instead | `UpgradeManager.buy` |
 | `ShopScreen` | everything with a `purchase` branch the profile does not own, grouped into four tabs (birds, abilities, worlds, features), cheapest first, each with its price and whether the wallet covers it; an offer that is not playable yet says which milestone it arrives in | `UnlockManager.purchase` |
 
@@ -241,9 +273,9 @@ the words the player reads and the arithmetic the run uses cannot drift apart.
 
 | Where | What it says |
 | --- | --- |
-| `ShopScreen` | abilities *Arrives in M5*, worlds other than Green Fields *M7*, challenges and achievements *M8*, and — per id, from `GameContent.featureMilestone` — `feature:modifiers` *M6* and `feature:seeded_runs` *M9*. Both features are buyable in M4 and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for them |
-| `UpgradeTreeScreen` | the seven nodes whose whole effect is `ABILITY_COOLDOWN_MULT`, `ABILITY_DURATION_MULT`, `SHIELD_CHARGES` or `REVIVES`, or whose grant is `ABILITY_CAP` / `PASSIVE_SLOT`, on the card and on the stat row: *Arrives in M5*. The stat pipeline resolves all four today and no system consumes any of them |
-| `BirdSelectionScreen` | the ability line, which names the bird's innate passives and adds *Arrives in M5* — Ironbeak pays −20 % coins for a shield that does not exist yet, and a line that counted only the slots would present that as a straight upgrade |
+| `ShopScreen` | worlds other than Green Fields *Arrives in M7*, challenges and achievements *M8*, and — per id, from `GameContent.featureMilestone` — `feature:modifiers` *M6* and `feature:seeded_runs` *M9*. Both features are buyable and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for them. Abilities carried the same note until M5 turned them on |
+| `UpgradeTreeScreen` | nothing any more. The seven nodes whose whole effect is `ABILITY_COOLDOWN_MULT`, `ABILITY_DURATION_MULT`, `SHIELD_CHARGES` or `REVIVES`, or whose grant is `ABILITY_CAP` / `PASSIVE_SLOT`, carried *Arrives in M5* on the card and on the stat row; M5 consumes all of them and the note is gone |
+| `BirdSelectionScreen` | the ability line still names the bird's innate passives, without a milestone note: Ironbeak's −20 % `COIN_MULT` buys a shield that is live from M5 (`docs/BALANCING.md` §7.1 measures it at +96 % gates for the `average` bot) |
 
 The card text of a `CardGrid` is measured and ends in an ellipsis when it does not fit the space
 the badge leaves, so a long name or translation says "there is more" instead of stopping mid-word.
@@ -298,8 +330,9 @@ cumulative conditions read "since prestige", so nothing condition-derived is gra
 | `NewPlayerJourneyTest` (`@Tag("sim")`) | the novice bot on the real economy: `feather_1` bought after run 1 and Ironbeak by run 3 (E17), with the run-by-run table in the failure message. It pins *which* node and *which* run, so doubling a price fails it |
 | `SaveManagerTest` | E21's load order end to end (a renamed bird survives normalisation), an owned node the content dropped, and `abilityLevelCap` clamped from above |
 | `SmokeWindowTest` (`@Tag("gui")`) | a launch grants the unlocks a saved profile has already earned, and persists them |
-| `BirdSelectionScreenTest` | the roster, the cheapest path in words, selection writing and saving, a purchase that moves the wallet and one that cannot, and the breakdown against `StatSheet.breakdown` |
-| `UpgradeTreeScreenTest` | the tabs, a locked tree's condition, the tier layout and prerequisites, a bought level moving wallet, card and live stats, every refusal, the M5 note on a node nothing reads yet, and a node whose grant is already owned |
+| `BirdSelectionScreenTest` | the roster, the cheapest path in words, selection writing and saving, a purchase that moves the wallet and one that cannot, the breakdown against `StatSheet.breakdown`, and the M5 loadout row: the chips a bird's slots and the `passive_slot` grant give, cycling one, and that cycling never drops a passive the bird cannot show |
+| `SelectionManagerTest` | every selection refusal, including a locked ability, a passive in the active slot and a passive list that mixes locked, non-passive and duplicate ids |
+| `UpgradeTreeScreenTest` | the tabs, a locked tree's condition, the tier layout and prerequisites, a bought level moving wallet, card and live stats, every refusal, and a node whose grant is already owned |
 | `ShopScreenTest` | the four tabs, cheapest first, affordability, a purchase leaving the list, and the milestone note on what is not playable yet — including the two features |
 | `ProceduralRenderTest`, `SmokeWindowTest` | the three screens headless in both languages, and through a real window with the Robot buying the cheapest bird |
 

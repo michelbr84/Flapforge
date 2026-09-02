@@ -19,7 +19,11 @@ import java.util.Objects;
  *   <li>{@code READY}: the bird floats at its start position, nothing spawns or scrolls (upstream
  *       shows the welcome screen); the first flap edge starts the run and is applied on that
  *       same tick, so gates start with the first flap.</li>
- *   <li>{@code FLYING}: the simulation ticks; hold-to-flap is forwarded to it (D2).</li>
+ *   <li>{@code FLYING}: the simulation ticks; hold-to-flap and the ability edge are forwarded to
+ *       it (D2, D9). The facts the tick produced update the stats: a passed gate, a coin, an
+ *       ability activation, a shield absorb and a revive are counted here, so
+ *       {@code RunStats.abilitiesUsed}, {@code shieldAbsorbs} and {@code revives} are a function
+ *       of the tick report and never of a second code path.</li>
  *   <li>{@code DYING}: on a lethal hit the world freezes and the bird falls from +15 px/s (E28)
  *       to the ground line; ground contact while flying finishes the run on the same tick.</li>
  *   <li>{@code FINISHED}: further ticks do nothing; {@link #result()} is final.</li>
@@ -86,7 +90,8 @@ public final class Run {
     }
 
     private TickReport tickFlying(RunInput input, List<TickFact> facts) {
-        TickReport report = sim.tick(new SimInput(input.flap(), input.autoFlapHeld()));
+        TickReport report = sim.tick(
+                new SimInput(input.flap(), input.ability(), input.autoFlapHeld()));
         stats.tickAlive();
         facts.addAll(report.facts());
         CollisionCause cause = null;
@@ -103,6 +108,12 @@ public final class Run {
                 stats.setStreakSteps(sim.streaks().steps());
             } else if (f instanceof TickFact.ObstacleSpawned) {
                 obstaclesSpawned++;
+            } else if (f instanceof TickFact.AbilityActivated used) {
+                stats.countAbilityUse(used.abilityId());
+            } else if (f instanceof TickFact.ShieldAbsorbed) {
+                stats.countShieldAbsorb();
+            } else if (f instanceof TickFact.Revived) {
+                stats.countRevive();
             } else if (f instanceof TickFact.Crashed crashed) {
                 cause = crashed.cause();
             }

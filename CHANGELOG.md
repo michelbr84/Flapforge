@@ -664,6 +664,150 @@ is fixed here, with a test that fails without the fix.
   `RewardDef` carries an amount and no currency, so a second declared currency
   has no source. The graph check reports exactly that.
 
+### Added — M5: abilities, shield/revive run systems, ability HUD, ability levels
+
+- New pure package `ability`: `AbilityBehavior` (the hooks `onEquip`,
+  `canActivate`, `onActivate`, `onTick`, `onLethalHit`, `onFlap`, `onCoinNear`,
+  plus the `holdsBird` / `routesCoins` declarations), `AbilityInstance` (level,
+  cooldown, duration, charges, activation count, all scaled by
+  `ABILITY_COOLDOWN_MULT` / `ABILITY_DURATION_MULT` at activation time),
+  `AbilityManager` (loadout selection, rule stripping, the `ABILITY` stat layer,
+  fixed routing order active → passives), `AbilityContext`, `AbilityHost`,
+  `ParamSpec` and `BehaviorRegistry`.
+- The eight behaviours of D9: `shield`, `double_flap`, `dash`, `slow_time`,
+  `emergency_recovery`, `coin_magnet`, `score_multiplier`, `invulnerability`.
+  Each one's stat half is authored in `data/abilities.json` and only what the
+  stat pipeline cannot express is code (E24): the dash's held line, the double
+  flap's impulse, the revive's kick, the two run systems' configuration.
+- `gameplay.run.ShieldSystem` and `gameplay.run.ReviveSystem`: stat-driven, so
+  `SHIELD_CHARGES > 0` from the forge node `tempered_shield_1` absorbs a hit
+  with no ability equipped, and `REVIVES > 0` from `second_chance_1` brings the
+  bird back with no ability equipped. `NO_DEFENSIVE_ABILITIES` and `NO_REVIVE`
+  zero the stats (D8) and strip the tagged abilities, innate ones included.
+- The absorb chain in `Simulation.absorbLethalHit`: i-frames or the ghost state,
+  then the behaviours, then a shield charge, then a revive; the column that
+  caused the hit is marked dirty either way, so the gate is not clean (D26).
+- `data/abilities.json` completed in place (E19): `effects`, `cooldownTicks`,
+  `durationTicks` and per-level `params` beside the M4 unlock and cost blocks.
+  Level 1 comes with the unlock; levels 2 and 3 are bought in the shop, capped
+  by `min(profile.abilityLevelCap, levels.size())` (E3: base cap 2, one
+  `ability_cap:1` grant in `forge/master_forge_1`).
+- Content validation of the ability contract: the behaviour id must be
+  implemented (`BehaviorRegistry`), every `params` key must be one the behaviour
+  reads and inside its `ParamSpec` range and trend, a passive declares no
+  cooldown or duration, an active declares at least one gate, an active with
+  `effects` declares a duration, and level-up columns may not move the wrong way.
+- Loadout: one active plus `BirdDef.passiveSlots + profile.passiveSlotBonus`
+  passives plus the bird's innate passives, which take no slot, need no unlock
+  and cannot be unequipped. `SelectionManager.selectActiveAbility` /
+  `setPassiveAbilities` refuse anything locked or of the wrong kind and write
+  the profile at once (D15).
+- `BirdSelectionScreen` loadout row (active chip, passive chips, innate chip,
+  the ability panel with the level, cost and per-level effect lines) and
+  `ShopScreen` ability levels. `UpgradeManager.buyAbilityLevel` is the atomic
+  purchase.
+- Ability HUD (D17): cooldown ring, duration bar, charge pips, shield pips, the
+  ready flash and the ability name, plus the `ABILITY` input action (`X`,
+  `Shift`, right mouse button) and the refusal toast that says why a press did
+  nothing (on cooldown, out of charges, stripped by the run's rules, or nothing
+  equipped).
+- `TickFact.AbilityActivated` / `AbilityReady` / `ShieldAbsorbed` / `Revived`
+  reach the event bus and the audio manager; `RunStats` counts
+  `abilitiesUsed`, `shieldAbsorbs` and `revives`.
+- `BotPilot` spends the active when it predicts a lethal hit within ten ticks
+  (D21), and `BalancingSim` gained `--ability <id|all|none>` and
+  `--ability-level`, which is how the per-ability table in `docs/BALANCING.md`
+  §7 is produced.
+
+### Changed — M5
+
+- `Simulation.tick` now runs ability timers before the flap, the activation
+  after it, and `onTick` after the integration, so a burst that pins the bird
+  undoes the gravity step of the tick it is holding and the collision test sees
+  the y the renderer draws (E24). A run with an empty loadout takes none of
+  those branches and folds no ability state, which is what keeps the published
+  `--headless-run` hash comparable across milestones (D12): it is unchanged
+  through M5 on JDK 17 and 21 — `hash=eaaa01685261a433 ticks=3000 gates=36
+  points=36`, and `hash=b014de5e0ccf63dc ticks=600 gates=6 points=6` for the
+  600-frame line CI compares.
+- `coin_magnet` is repriced from 250 / 500 / 1000 to 120 / 240 / 480. Measured
+  over 200 average-bot seeds on M5 content it is worth +0.13 coins per run,
+  because E2 lays the coin trail on the safe band — the line the bird already
+  flies. It becomes a real purchase with the M6 coin modifiers and the M7
+  obstacle families; `docs/BALANCING.md` §7.3 records the measurement.
+- `docs/PROGRESSION.md`, `docs/BALANCING.md` and `docs/CONTENT.md` no longer
+  describe abilities, ability slots and the seven ability-facing upgrade nodes
+  as *Arrives in M5*.
+
+### Fixed — M5 (review pass)
+
+- The level-1 dash was a net-negative ability: its i-frames ran out on the exact
+  tick the held line released, 100 px deeper into the column it had entered.
+  Measured over 200 average-bot seeds it passed 13.9 gates against the 79.6 of a
+  bird with no ability at all. The burst now asks for "ghost until clear" when
+  it releases — D9's shield rule — and measures 87.1. `AbilityBotRunTest` now
+  compares every ability's mean gates against the ability-free baseline over a
+  seed sweep, so a net-negative ability fails the build.
+- A ghost is granted against one hazard: it latches onto the obstacle the bird
+  is inside and is dropped the moment a different one hits it. It used to be a
+  global "ignore every lethal overlap" flag, so an obstacle that arrived while
+  the bird was still ghosting was free too.
+- The double flap obeys the ceiling gate that refuses an ordinary flap at
+  `y ≤ 32`. It used to set the velocity directly, which pushed the bird about
+  95 px above the playfield — an instant death on a `LETHAL_CEILING` tier, from
+  the button the game sells as a rescue. A refused press now costs no charge and
+  reaches the HUD's existing refusal beat (the new `AbilityBehavior.canActivate`
+  hook).
+- A flap pressed during a dash is refused instead of being eaten: the hold
+  overwrote the velocity a few lines later, but the flap had already restarted
+  the wing animation, played the sound and counted in the statistics.
+- Invulnerability now covers the ground: `absorbLethalHit` had a `!onGround`
+  exception, so a run with 74 i-frames left still died on the ground line while
+  the shipped description promised "nothing touches you". Every save that
+  cancels a ground hit — i-frames, ghost, shield or revive — lifts the bird
+  clear of the ground band, and nothing lifts it in mid-air.
+- A revive in mid-air no longer teleports the bird up to the safe band: the lift
+  is the ground rule's answer, not the revive's, and the shield's identical lift
+  was already guarded that way. A mid-air revive gets its velocity kick alone.
+- A regenerated shield charge reports `AbilityReady("shield")`, so the one
+  defensive state change that matters most is announced like every other "ready"
+  event: the HUD pip lights again and the cue plays. The return value of
+  `ShieldSystem.onGatePassed` used to be dropped.
+- `TickFact.AbilityActivated` and `TickFact.AbilityReady` now reach the event
+  bus. `GameScreen.publishFacts` had no case for either, so the two sounds
+  `AudioManager` already maps (`ToneSynth.ABILITY`) had no source and an
+  activated ability was silent — the one thing that seam exists to prevent.
+- `AbilityInstance.advance` reports "ready" as a transition of `isReady()`
+  rather than as the cooldown edge, so a level whose duration outlasts its
+  cooldown still announces itself.
+- `BirdSelectionScreen.cycleSlot` keeps the passives the current bird cannot
+  show. It rebuilt the selection from the visible chips only, so cycling a slot
+  on a bird with fewer slots (or on Ironbeak, which grants the shield innately)
+  silently dropped what the player had chosen.
+- `onCoinNear` is opt-in (`AbilityBehavior.routesCoins`): the per-tick walk over
+  every live coin ran in every run with any ability equipped, to call a hook no
+  shipped behaviour implements.
+
+### Deferred — M5
+
+- `ShieldSystem` and `ReviveSystem` read `SHIELD_CHARGES` / `REVIVES` once, at
+  run start. Nothing in M5 can change those stats mid-run, so the snapshot is
+  exact today, but E12 reasons about modifiers that touch them: M6's
+  `ModifierDirector` must re-resolve the stat when it applies a card, or keep
+  those stats out of the pool. Both classes carry the note.
+- `emergency_recovery` and `shield` measure the same in isolation (158.5 against
+  158.8 mean gates, both absorbing 0.91 hits per run): each absorbs exactly one
+  lethal hit, which is what D9 specifies for both. They are priced and unlocked
+  as a pair rather than as a ladder — equipping both is what the two passive
+  slots are for, and measures 205.4 — and the difference between them arrives
+  with the shield's level-2 regeneration. Recorded in `docs/BALANCING.md` §7.4
+  for M9's retune.
+- A shield charge absorbs a ground death and bounces the bird 80 px clear of the
+  ground line. That is D9's "absorbs one lethal hit" applied to the one hazard
+  the classic feel treats as final; it costs a charge, emits `ShieldAbsorbed`
+  and plays the shield cue, but it has no distinct animation. `docs/BALANCING.md`
+  §7.5 records it for the M7 presentation pass.
+
 ---
 
 ## Inherited upstream history (kingyuluk/FlappyBird)

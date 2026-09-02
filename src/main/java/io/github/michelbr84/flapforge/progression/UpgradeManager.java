@@ -108,6 +108,120 @@ public final class UpgradeManager {
     }
 
     /**
+     * Buys the next level of an ability (D9, E3): the second half of what the shop sells.
+     *
+     * <p>Level 1 comes with the unlock and costs nothing, so the profile may hold no entry at all
+     * for an ability it owns; {@link #abilityLevelOwned} is what that means in numbers. Above it
+     * the levels are bought here, one at a time, and never past
+     * {@link #abilityLevelCap(PlayerProfile, GameContent)} — the E3 cap, which starts at 2 and is
+     * raised only by the single {@code ability_cap} grant in the forge tree.
+     *
+     * <p>The shape is {@link #buy}'s, for the same reason: check everything, then debit, raise,
+     * count the coins, propagate and save, all or nothing.
+     *
+     * @param profile the profile to charge and raise
+     * @param abilityId the bare ability id, for example {@code shield}
+     * @param content the loaded content
+     * @return what happened; only {@link PurchaseStatus#OK} changed the profile
+     */
+    public PurchaseResult buyAbilityLevel(PlayerProfile profile, String abilityId,
+            GameContent content) {
+        Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(content, "content");
+        Wallet wallet = Wallet.of(profile);
+        String currency = UnlockManager.currencyOf(content);
+        long balance = wallet.balance(currency);
+        AbilityDef ability = abilityOrNull(content, abilityId);
+        if (ability == null) {
+            return PurchaseResult.refused(PurchaseStatus.UNKNOWN_ID, abilityId, -1, balance);
+        }
+        if (!profile.isUnlocked(ability.unlockableId())) {
+            // The ability itself is a shop unlockable; UnlockManager sells that, not this.
+            return PurchaseResult.refused(PurchaseStatus.NOT_FOR_SALE, abilityId, -1, balance);
+        }
+        int owned = abilityLevelOwned(profile, ability);
+        int level = owned + 1;
+        if (level > ability.levels().size()) {
+            return PurchaseResult.refused(PurchaseStatus.MAX_LEVEL, abilityId, -1, balance);
+        }
+        if (level > abilityLevelCap(profile, content)) {
+            return PurchaseResult.refused(PurchaseStatus.LEVEL_CAPPED, abilityId,
+                    ability.levels().get(level - 1).cost(), balance);
+        }
+        long price = ability.levels().get(level - 1).cost();
+        if (!wallet.canAfford(currency, price) || !wallet.spend(currency, price)) {
+            return PurchaseResult.refused(PurchaseStatus.INSUFFICIENT_FUNDS, abilityId, price,
+                    wallet.balance(currency));
+        }
+        profile.abilityLevels.put(ability.id(), level);
+        profile.statistics.addCoinsSpent(price);
+        ProgressionOutcome outcome = progression.applyPurchase(profile);
+        save.saveNow();
+        return new PurchaseResult(PurchaseStatus.OK, abilityId, level, price,
+                wallet.balance(currency), List.of(), outcome);
+    }
+
+    /**
+     * The level an unlocked ability is owned at: level 1 comes with the unlock, so an ability
+     * without an entry in {@code profile.abilityLevels} is owned at level 1, not at level 0.
+     *
+     * @param profile the profile
+     * @param ability the ability
+     * @return the owned level, {@code 0} when the ability is not unlocked
+     */
+    public static int abilityLevelOwned(PlayerProfile profile, AbilityDef ability) {
+        if (!profile.isUnlocked(ability.unlockableId())) {
+            return 0;
+        }
+        return Math.max(1, Math.min(ability.levels().size(), profile.abilityLevel(ability.id())));
+    }
+
+    /**
+     * The price of the next level of an ability.
+     *
+     * @param profile the profile that owns the levels
+     * @param abilityId the ability id
+     * @param content the loaded content
+     * @return the price in coins, or {@code -1} when there is no next level to buy (unknown,
+     *     locked, maxed or capped)
+     */
+    public static long nextAbilityLevelCost(PlayerProfile profile, String abilityId,
+            GameContent content) {
+        AbilityDef ability = abilityOrNull(content, abilityId);
+        if (ability == null) {
+            return -1;
+        }
+        int owned = abilityLevelOwned(profile, ability);
+        int level = owned + 1;
+        if (owned == 0 || level > ability.levels().size()
+                || level > abilityLevelCap(profile, content)) {
+            return -1;
+        }
+        return ability.levels().get(level - 1).cost();
+    }
+
+    /**
+     * The highest ability level this profile may buy (E3): its earned cap, never above the number
+     * of levels the content actually ships.
+     *
+     * @param profile the profile
+     * @param content the loaded content
+     * @return the cap
+     */
+    public static int abilityLevelCap(PlayerProfile profile, GameContent content) {
+        return Math.min(profile.abilityLevelCap, maxAbilityLevelCap(content));
+    }
+
+    private static AbilityDef abilityOrNull(GameContent content, String abilityId) {
+        if (abilityId == null || abilityId.isBlank() || !content.has(GameContent.ABILITIES)
+                || !content.abilities().contains(abilityId)) {
+            return null;
+        }
+        AbilityDef ability = content.abilities().get(abilityId);
+        return ability.levels().isEmpty() ? null : ability;
+    }
+
+    /**
      * The price of the next level of a node.
      *
      * @param profile the profile that owns the levels

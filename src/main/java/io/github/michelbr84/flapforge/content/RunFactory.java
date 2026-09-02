@@ -1,5 +1,8 @@
 package io.github.michelbr84.flapforge.content;
 
+import io.github.michelbr84.flapforge.ability.AbilityManager;
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
@@ -59,7 +62,37 @@ public final class RunFactory {
                 RuleSet.EMPTY, Map.of(ObstacleKind.PIPE_GATE, PIPE_GATE_WEIGHT));
         return new RunSetup(content.birdProfile(config.birdId()), world,
                 content.tierSpec(config.tierId()), content.speedRampPerTick(),
-                content.economy().rewards().streak().step());
+                content.economy().rewards().streak().step(), loadout(config));
+    }
+
+    /**
+     * Resolves the abilities a configuration equips (D9, E3): the selected active, the selected
+     * passives up to {@code BirdDef.passiveSlots + RunConfig.passiveSlotBonus}, then the bird's
+     * innate passives, which cost no slot and need no unlock.
+     *
+     * <p>Only the ids are resolved here. What the run's rules forbid is stripped when the
+     * simulation starts, where the flags of the config, the world and the tier are already
+     * unioned — {@code Run.start()} strips defensively (D9) rather than trusting the screen that
+     * assembled the loadout.
+     *
+     * @param config the configuration
+     * @return the definitions, active first; empty when the build ships no abilities
+     */
+    public List<AbilityDef> loadout(RunConfig config) {
+        if (!content.has(GameContent.ABILITIES) || content.abilities().size() == 0) {
+            return List.of();
+        }
+        List<String> innate = List.of();
+        int slots = 0;
+        if (content.birds().contains(config.birdId())) {
+            BirdDef bird = content.birds().get(config.birdId());
+            innate = bird.passiveAbilities();
+            slots = bird.passiveSlots();
+        }
+        return AbilityManager.selectLoadout(
+                id -> content.abilities().contains(id) ? content.abilities().get(id) : null,
+                config.activeAbilityId(), config.passiveAbilityIds(), innate,
+                slots + Math.max(0, config.passiveSlotBonus()));
     }
 
     /**

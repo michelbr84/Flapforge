@@ -561,7 +561,11 @@ public final class UpgradeTreeScreen implements Screen {
      * @param def the node
      * @return {@code "M5"}, or {@code null}
      */
-    private static String milestoneOf(UpgradeDef def) {
+    private String milestoneOf(UpgradeDef def) {
+        if (content.playable(ContentKind.ABILITY)) {
+            // M5 landed: every one of these stats and grants is read by a run now.
+            return null;
+        }
         if (!def.effectsPerLevel().isEmpty()) {
             for (StatModifierDef effect : def.effectsPerLevel()) {
                 if (!M5_STATS.contains(effect.stat())) {
@@ -712,7 +716,7 @@ public final class UpgradeTreeScreen implements Screen {
         Set<StatId> ordered = new LinkedHashSet<>(touched);
         for (StatId stat : ordered) {
             String label = ProgressionText.statLabel(strings, stat);
-            if (M5_STATS.contains(stat)) {
+            if (M5_STATS.contains(stat) && !content.playable(ContentKind.ABILITY)) {
                 // The value is real; nothing reads it yet (E19).
                 label += " - " + strings.format(StringKey.COMMON_SOON, ABILITY_MILESTONE);
             }

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.content.RunFactory;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.bird.Bird;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
@@ -22,6 +24,7 @@ import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -226,6 +229,36 @@ class RunLifecycleTest {
         assertEquals(run.stats().streakBest(), result.counter("streakBest"));
         assertEquals(run.simulation().streaks().steps(), result.stats().streakSteps());
         assertTrue(result.stats().streakBest() >= result.stats().streak());
+    }
+
+    /**
+     * M5 (D9, D11): the ability edge is part of the run input, so it does nothing before the run
+     * starts, activates inside FLYING, and is tallied into {@code RunStats} through the facts.
+     */
+    @Test
+    void theAbilityEdgeIsPartOfTheRunLifecycle() {
+        RunFactory factory = new RunFactory(GameContent.load());
+        Run run = factory.newRun(RunConfig.builder(5).activeAbilityId("dash").build());
+
+        TickReport ready = run.tick(new RunInput(false, true, RunInput.NO_CHOICE, false));
+        assertEquals(RunPhase.READY, run.phase(), "an ability edge does not start a run");
+        assertTrue(ready.isEmpty());
+        assertEquals(0, run.simulation().abilities().active().activations());
+
+        run.tick(RunInput.FLAP);
+        run.simulation().spawner().setSuppressed(true);
+        run.simulation().obstacles().clear();
+        TickReport used = run.tick(new RunInput(false, true, RunInput.NO_CHOICE, false));
+        assertTrue(used.has(TickFact.AbilityActivated.class));
+        assertEquals(1, run.stats().abilitiesUsed().get("dash"));
+
+        while (!run.isFinished()) {
+            run.tick(new RunInput(false, true, RunInput.NO_CHOICE, false));
+        }
+        RunResult result = run.result();
+        assertEquals(Map.of("dash", 1), result.stats().abilitiesUsed(),
+                "DYING and FINISHED ignore the edge");
+        assertEquals("dash", result.config().activeAbilityId());
     }
 
     @Test

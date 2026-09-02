@@ -1,8 +1,13 @@
 package io.github.michelbr84.flapforge.ui.screens;
 
+import io.github.michelbr84.flapforge.ability.AbilityInstance;
+import io.github.michelbr84.flapforge.ability.AbilityManager;
 import io.github.michelbr84.flapforge.app.GameContext;
+import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.gameplay.TickFact;
 import io.github.michelbr84.flapforge.gameplay.TickReport;
@@ -25,6 +30,7 @@ import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.GameRenderer;
 import io.github.michelbr84.flapforge.render.WorldPalette;
+import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
@@ -47,6 +53,15 @@ import java.util.Set;
  * inside the simulation ({@code RunInput.autoFlapHeld}); it is read from
  * {@code settings.holdToFlap} when the screen is built from a {@link GameContext}, and defaults
  * to {@code false} otherwise.
+ *
+ * <h2>Abilities (D9, M5)</h2>
+ * The {@code ABILITY} action — {@code X}, {@code Shift} or the right mouse button — is forwarded
+ * to the run as {@code RunInput.ability}; the simulation decides whether it activates anything.
+ * When the press produced no {@code AbilityActivated} fact the screen answers instead of staying
+ * silent: the HUD badge blinks red and a toast says why — nothing equipped, on cooldown, out of
+ * charges, or stripped by the run's rules, in which case it names the rule. The toast is
+ * rate-limited to one every {@value #REFUSAL_QUIET_TICKS} ticks, because the ability key is
+ * exactly the key a player mashes when a gate is closing.
  *
  * <h2>Pausing (D2)</h2>
  * While {@code FLYING}, losing the window focus, being iconified or pressing {@code Esc} pushes a
@@ -71,6 +86,9 @@ import java.util.Set;
  */
 public final class GameScreen implements Screen {
 
+    /** Ticks between two refusal toasts, so a mashed ability key cannot bury the playfield. */
+    public static final int REFUSAL_QUIET_TICKS = 90;
+
     private final ScreenManager screens;
     private final GameContext context;
     private final SeededRunSource runFactory;
@@ -86,6 +104,8 @@ public final class GameScreen implements Screen {
     private boolean holdToFlap;
     private boolean gameOverShown;
     private int runsStarted;
+    private int refusalQuietTicks;
+    private String abilityRefusal = "";
     private ProgressionOutcome lastOutcome = ProgressionOutcome.EMPTY;
 
     /**
@@ -135,6 +155,9 @@ public final class GameScreen implements Screen {
         this.renderer.setStreakLabel(strings.get(StringKey.HUD_STREAK));
         this.renderer.setCoinLabel(strings.get(StringKey.HUD_COINS));
         this.renderer.setStreakStep(streakStep());
+        this.renderer.setAbilityStateLabels(strings.get(StringKey.HUD_ABILITY_READY),
+                strings.get(StringKey.HUD_ABILITY_COOLDOWN));
+        this.renderer.setShieldLabel(strings.get(StringKey.HUD_SHIELD_CHARGES));
         this.shownLanguage = strings.language();
         this.holdToFlap = context != null && context.settings().holdToFlap;
         startRun();
@@ -221,6 +244,9 @@ public final class GameScreen implements Screen {
         // shipped empty manifest this resolves to nothing and the art stays procedural.
         renderer.applyAssets(AssetResolver.active(), run.config().birdId(),
                 run.config().worldId());
+        renderer.setAbilityName(activeAbilityName());
+        refusalQuietTicks = 0;
+        abilityRefusal = "";
         gameOverShown = false;
         lastOutcome = ProgressionOutcome.EMPTY;
         runsStarted++;
@@ -253,6 +279,10 @@ public final class GameScreen implements Screen {
         renderer.setReadyHint(strings.get(StringKey.GAME_READY_HINT));
         renderer.setStreakLabel(strings.get(StringKey.HUD_STREAK));
         renderer.setCoinLabel(strings.get(StringKey.HUD_COINS));
+        renderer.setAbilityStateLabels(strings.get(StringKey.HUD_ABILITY_READY),
+                strings.get(StringKey.HUD_ABILITY_COOLDOWN));
+        renderer.setShieldLabel(strings.get(StringKey.HUD_SHIELD_CHARGES));
+        renderer.setAbilityName(activeAbilityName());
         seedText = seeds.isExplicit() ? strings.format(StringKey.HUD_SEED, seed) : null;
         shownLanguage = strings.language();
     }
@@ -278,9 +308,17 @@ public final class GameScreen implements Screen {
         if (handleInterrupts(input)) {
             return;
         }
-        TickReport report = run.tick(readIntent(input));
+        RunInput intent = readIntent(input);
+        TickReport report = run.tick(intent);
         boolean flapped = report.has(TickFact.Flapped.class);
         boolean crashed = report.has(TickFact.Crashed.class);
+        if (refusalQuietTicks > 0) {
+            refusalQuietTicks--;
+        }
+        if (intent.ability() && !report.has(TickFact.AbilityActivated.class)
+                && run.phase() == RunPhase.FLYING) {
+            refuseAbility();
+        }
         renderer.tick(run, flapped, crashed);
         if (toasts != null) {
             toasts.tick();
@@ -305,9 +343,9 @@ public final class GameScreen implements Screen {
      * the toast layer or the debug overlay can hear.
      *
      * <p>Facts are published in the order the simulation produced them, so a shield absorb is
-     * heard before the crash it prevented. Coins and the streak fire from M3 on; several of the
-     * remaining cases cannot fire yet — shields and revives are M5, synergies M6, rule shifts M7
-     * — but the mapping is written once, here, so a milestone that adds the fact does not have to
+     * heard before the crash it prevented. Coins and the streak fire from M3 on, the four ability
+     * facts from M5; the remaining cases cannot fire yet — synergies are M6, rule shifts M7 — but
+     * the mapping is written once, here, so a milestone that adds the fact does not have to
      * remember to add its sound.
      *
      * <p>Three facts stay deliberately unmapped: {@code OfferOpened} (the event carries the
@@ -341,6 +379,11 @@ public final class GameScreen implements Screen {
             } else if (fact instanceof TickFact.Revived) {
                 publish(new GameEvent.Revived(
                         remaining(StatId.REVIVES, run.stats().revives())));
+            } else if (fact instanceof TickFact.AbilityActivated used) {
+                publish(new GameEvent.AbilityActivated(used.abilityId(),
+                        levelOf(used.abilityId())));
+            } else if (fact instanceof TickFact.AbilityReady ready) {
+                publish(new GameEvent.AbilityReady(ready.abilityId()));
             } else if (fact instanceof TickFact.SynergyActivated synergy) {
                 publish(new GameEvent.SynergyActivated(synergy.id()));
             } else if (fact instanceof TickFact.RuleShift) {
@@ -350,6 +393,19 @@ public final class GameScreen implements Screen {
         if (crashed) {
             publish(new GameEvent.Crashed(causeOf(report), run.stats().gatesPassed()));
         }
+    }
+
+    /**
+     * The owned level of an equipped ability, for the activation event.
+     *
+     * @param abilityId the ability
+     * @return the level, or 1 when the id is not an equipped ability (the shield reports its
+     *     regenerated charge under its own id and is not always an equipped ability at all — it
+     *     can be a bare {@code SHIELD_CHARGES} from an upgrade node)
+     */
+    private int levelOf(String abilityId) {
+        AbilityInstance instance = run.simulation().abilities().instance(abilityId);
+        return instance == null ? 1 : instance.level();
     }
 
     /**
@@ -495,6 +551,92 @@ public final class GameScreen implements Screen {
                 || input.isMouseJustPressed(Keys.BUTTON_RIGHT);
         boolean auto = holdToFlap && input.isHeld(InputAction.FLAP);
         return new RunInput(flap, ability, RunInput.NO_CHOICE, auto);
+    }
+
+    /**
+     * The name of the equipped active ability, translated for the HUD badge (D9, D17).
+     *
+     * <p>It is read from the run rather than from the profile on purpose: the rules of a run strip
+     * what they forbid when it starts ({@code AbilityManager.create}), so a badge built from the
+     * selection would promise an ability the player cannot use. A stripped or empty slot returns
+     * the empty string, which is what hides the badge.
+     *
+     * @return the name, or the empty string when the run has no active ability
+     */
+    private String activeAbilityName() {
+        AbilityInstance active = run.simulation().abilities().active();
+        return active == null ? ""
+                : ProgressionText.name(strings, ContentKind.ABILITY, active.id());
+    }
+
+    /**
+     * The cue for an ability press that did nothing (M5): the HUD badge blinks red and, at most
+     * once every {@value #REFUSAL_QUIET_TICKS} ticks, a toast says why.
+     *
+     * <p>The blink is the immediate answer and costs nothing; the toast is rate-limited because
+     * the ability key is exactly the key a player mashes when a gate is closing, and three
+     * identical toasts would cover the gate they were mashing at.
+     */
+    private void refuseAbility() {
+        renderer.hud().flashAbilityRefused();
+        abilityRefusal = abilityRefusalText();
+        if (toasts == null || refusalQuietTicks > 0) {
+            return;
+        }
+        refusalQuietTicks = REFUSAL_QUIET_TICKS;
+        toasts.push(abilityRefusal, Toast.Kind.WARNING);
+    }
+
+    /**
+     * Why the last ability press did nothing, in the words the toast used.
+     *
+     * @return the sentence, empty until a press was refused in the run being played
+     */
+    public String lastAbilityRefusal() {
+        return abilityRefusal;
+    }
+
+    /**
+     * Why the ability press did nothing, in words (D9).
+     *
+     * @return the translated sentence
+     */
+    private String abilityRefusalText() {
+        AbilityManager abilities = run.simulation().abilities();
+        AbilityInstance active = abilities.active();
+        if (active != null) {
+            return active.maxCharges() > 0 && active.charges() == 0
+                    ? strings.get(StringKey.TOAST_ABILITY_NO_CHARGE)
+                    : strings.get(StringKey.TOAST_ABILITY_COOLDOWN);
+        }
+        for (String id : abilities.strippedIds()) {
+            AbilityDef def = equippedDef(id);
+            if (def == null || def.kind() != AbilityKind.ACTIVE) {
+                continue;
+            }
+            RuleFlag flag = ProgressionText.strippedBy(def, run.simulation().rules());
+            if (flag != null) {
+                return strings.format(StringKey.TOAST_ABILITY_BLOCKED,
+                        ProgressionText.ruleName(strings, flag));
+            }
+        }
+        return strings.get(StringKey.TOAST_ABILITY_NONE);
+    }
+
+    /**
+     * The definition of an ability the run was built with.
+     *
+     * @param id the ability id
+     * @return the definition, or {@code null} when the run does not carry it
+     */
+    private AbilityDef equippedDef(String id) {
+        List<AbilityDef> loadout = run.setup().abilities();
+        for (int i = 0; i < loadout.size(); i++) {
+            if (loadout.get(i).id().equals(id)) {
+                return loadout.get(i);
+            }
+        }
+        return null;
     }
 
     /**

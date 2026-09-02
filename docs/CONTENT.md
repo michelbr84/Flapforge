@@ -44,7 +44,7 @@ was supplied, and cross-reference rules that point into a file that was not supp
 shipped set is checked in full.
 
 `GameContent.playable(kind)` is the other half: content can be authored, validated and visible
-before its system exists. Abilities become playable in M5, challenges and achievements in M8. Two
+before its system exists. Abilities became playable in M5; challenges and achievements do in M8. Two
 kinds answer per id instead of per kind: `playable(WORLD, id)` is true only for `green_fields`
 until M7, and `playable(FEATURE, id)` is false while `GameContent.featureMilestone(id)` names a
 milestone — `modifiers` is read by the modifier director in M6 and `seeded_runs` by the Seeded
@@ -122,6 +122,87 @@ Two things that look like unlockables and are not:
    cheaper one. Anything a node grants that no system reads yet must carry its milestone in the UI
    (E19); see `docs/PROGRESSION.md` §6.
 
+### An ability
+
+An ability is two halves: **data** in `abilities.json` and, only when the stat pipeline cannot
+express what it does, a **behaviour** in `ability/behaviors`. The data half needs no code at all —
+`coin_magnet` is nothing but `MAGNET_RADIUS +90` — and the behaviour half exists for what a stat
+cannot say: setting the bird's velocity, holding its line, configuring the shield or revive system,
+or cancelling a lethal hit (D9, E24).
+
+1. **Append the entry** to `abilities.json`:
+
+   ```json
+   { "id": "tailwind", "kind": "ACTIVE", "behavior": "tailwind", "tags": ["MOVEMENT"],
+     "levels": [
+       { "cooldownTicks": 600, "durationTicks": 40, "params": { "lift": 0.5 }, "cost": 0 },
+       { "cooldownTicks": 500, "durationTicks": 50, "params": { "lift": 0.7 }, "cost": 400 },
+       { "cooldownTicks": 400, "durationTicks": 60, "params": { "lift": 0.9 }, "cost": 800 } ],
+     "effects": [ { "stat": "GRAVITY", "op": "MULTIPLY", "value": 0.5 } ],
+     "unlock": { "type": "any_of", "conditions": [
+       { "type": "best_gates", "value": 15 },
+       { "type": "purchase", "amount": 200 } ] } }
+   ```
+
+   `kind` is `ACTIVE` (one slot, activated with the `ABILITY` action) or `PASSIVE` (a slot each,
+   always on). `tags` drive the rule flags: `DEFENSIVE` is stripped by `NO_DEFENSIVE_ABILITIES`
+   and `REVIVE` by `NO_REVIVE`, innate ones included.
+
+2. **`effects` is the stat half.** A passive contributes them for the whole run; an active only
+   while its duration runs — which is what makes the dash a burst instead of a permanent stat
+   change. An active that declares `effects` therefore needs a non-zero `durationTicks` at every
+   level, and the validator says so.
+
+3. **`levels` is exactly three** (E3: the cap is `2 + Σ ability_cap grants` and may not exceed the
+   levels the thinnest ability ships). Level 1 comes with the unlock and **must cost 0**; levels 2
+   and 3 are bought in the shop, each costing more than the level below it. Cooldowns may never
+   grow with the level and durations may never shrink. An `ACTIVE` needs at least one gate — a
+   cooldown, a duration or `charges` — or it could be pressed every tick for free; a `PASSIVE`
+   must declare `cooldownTicks: 0` and `durationTicks: 0`.
+
+4. **`behavior` must be a registered id.** If the ability is pure data, reuse an existing
+   behaviour; otherwise implement `AbilityBehavior`, register it in `BehaviorRegistry.shipped()`
+   and declare what it reads:
+
+   ```java
+   public final class TailwindBehavior implements AbilityBehavior {
+       public static final String LIFT = "lift";
+       public static final List<ParamSpec> PARAMS = List.of(ParamSpec.up(LIFT, 0, 1));
+
+       @Override public void onActivate(AbilityContext ctx) { … }
+   }
+   ```
+
+   `ParamSpec.up` / `down` / `free` declare a key's range and how it may move between levels (up
+   for a magnitude that improves, down for one that shrinks, free for a cadence or a switch); the
+   canonical constructor takes a `required` flag for a key a level may leave out. The validator
+   checks `params` against the specs in both directions: a key the behaviour does not read is an
+   error
+   (a typo cannot become a silently ignored default), a required key missing from a level is an
+   error, a value outside the range is an error, and a column moving against its trend is an
+   error.
+
+5. **Know which hooks you may write the bird from.** `onActivate`, `onTick` and `onLethalHit` may
+   set the bird's velocity and position directly; `onEquip`, `onFlap` and `onCoinNear` may not.
+   `canActivate` is a question the manager asks *before* spending a charge — return `false` and
+   the press costs nothing and reaches the HUD's refusal beat. Declare `holdsBird()` when the
+   behaviour pins the bird's y while it runs (the simulation then refuses flaps it would undo)
+   and `routesCoins()` when you implement `onCoinNear` (nothing walks the coins otherwise). A
+   behaviour is created per equipped ability per run, so per-run state may live in its fields — but
+   it must never keep static state, read a clock or draw from an unseeded source (D12).
+
+6. **Add the strings** `ability.<id>.name` / `.desc` to `strings/en.json` **and**
+   `strings/pt_BR.json`. A per-level parameter that the ability panel should spell out also needs
+   an `ability.param.<key>` line; `ProgressionText` maps the key to it.
+
+7. **Give it an unlock with a cumulative path** (§5), like any other non-cosmetic unlockable.
+
+8. `./gradlew contentCheck`, then measure it:
+   `./gradlew balancing -PtoolArgs="--seeds 200 --skill all --ability <id>"`.
+   `AbilityBotRunTest` compares every ability's mean gates against the ability-free baseline, so an
+   ability that costs the bot survival fails the build rather than shipping as a trap
+   (`docs/BALANCING.md` §7.2).
+
 ### A palette
 
 Append to the bird's `palettes[]` with four `#RRGGBB` colours and an unlock. Cosmetics are the
@@ -160,7 +241,16 @@ one (`bossClears.void`, `bestGatesByTier.hard`) or a profile-root scalar (`level
 `run.coinsCollected`. A `COLLECTION` counter is `collection.<category>.percent`.
 
 **Costs and levels.** `costs.length == maxLevel`. Ability level 1 costs 0 (it comes with the
-unlock) and every level above it costs more than 0.
+unlock), every level above it costs more than 0 and more than the level below it.
+
+**Abilities (M5).** `behavior` must be an id `BehaviorRegistry` implements — an unknown one used to
+be a run that silently did nothing. Every `params` key must be one the behaviour declares as a
+`ParamSpec`, every required key must be present at every level, every value must sit inside its
+range, and every column must follow its trend (`up`, `down` or free). A `PASSIVE` declares
+`cooldownTicks: 0` and `durationTicks: 0`; an `ACTIVE` declares a cooldown, a duration or
+`charges`, and — when it declares `effects` — a non-zero duration at every level, because an
+active contributes its effects only while its duration runs. A level-up may not lengthen a cooldown
+or shorten a duration.
 
 **Prerequisites.** The node graph is acyclic and tier-consistent (a prerequisite sits in the same
 tree, in a lower tier).

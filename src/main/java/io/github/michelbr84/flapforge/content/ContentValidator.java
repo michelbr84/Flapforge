@@ -1,6 +1,9 @@
 package io.github.michelbr84.flapforge.content;
 
+import io.github.michelbr84.flapforge.ability.BehaviorRegistry;
+import io.github.michelbr84.flapforge.ability.ParamSpec;
 import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.content.defs.AbilityLevelDef;
 import io.github.michelbr84.flapforge.content.defs.AchievementConditionDef;
 import io.github.michelbr84.flapforge.content.defs.AchievementDef;
@@ -91,6 +94,8 @@ public final class ContentValidator {
     public static final int MAX_PASSIVE_SLOTS = 4;
 
     private static final double EPSILON = 1e-9;
+    private static final String PARAM_CHARGES =
+            io.github.michelbr84.flapforge.ability.AbilityInstance.PARAM_CHARGES;
     private static final String BIRDS_FILE = "birds.json";
     private static final String DIFFICULTY_FILE = "difficulty.json";
     private static final String ECONOMY_FILE = "economy.json";
@@ -570,9 +575,140 @@ public final class ContentValidator {
                     errors.add(at + "/levels/" + l + "/cost: level " + (l + 1)
                             + " is bought in the shop and must cost more than 0");
                 }
+                if (level.cost() <= def.levels().get(l - 1).cost()) {
+                    errors.add(at + "/levels/" + l + "/cost: level " + (l + 1)
+                            + " must cost more than the level below it");
+                }
             }
+            checkBehavior(errors, at, def);
+            checkAbilityTimings(errors, at, def);
+            checkAbilityParams(errors, at, def);
             checkCondition(content, errors, at + "/unlock", def.unlock(), false);
         }
+    }
+
+    /**
+     * M5: the behaviour id must be implemented. Until {@code BehaviorRegistry} existed an unknown
+     * id was a run that silently did nothing; now it is a content error, which is the whole point
+     * of pairing the data with a registry (D9, E19).
+     *
+     * @param errors where to append
+     * @param at the pointer of the ability
+     * @param def the ability
+     */
+    private static void checkBehavior(List<String> errors, String at, AbilityDef def) {
+        if (!BehaviorRegistry.DEFAULT.contains(def.behavior())) {
+            errors.add(at + "/behavior: unknown ability behavior '" + def.behavior()
+                    + "'; known: " + BehaviorRegistry.DEFAULT.ids());
+        }
+    }
+
+    /**
+     * Cooldowns and durations: a passive has neither, an active has at least one way of being
+     * gated, an active that authors {@code effects} has a window for them to apply in, and the
+     * columns move the way a level-up is supposed to move them — cooldowns never up, durations
+     * never down.
+     *
+     * @param errors where to append
+     * @param at the pointer of the ability
+     * @param def the ability
+     */
+    private static void checkAbilityTimings(List<String> errors, String at, AbilityDef def) {
+        for (int l = 0; l < def.levels().size(); l++) {
+            AbilityLevelDef level = def.levels().get(l);
+            String levelAt = at + "/levels/" + l;
+            if (def.kind() == AbilityKind.PASSIVE
+                    && (level.cooldownTicks() != 0 || level.durationTicks() != 0)) {
+                errors.add(levelAt + ": a PASSIVE ability is always on and must declare "
+                        + "cooldownTicks 0 and durationTicks 0");
+            }
+            if (def.kind() == AbilityKind.ACTIVE && level.cooldownTicks() == 0
+                    && level.durationTicks() == 0
+                    && level.params().getOrDefault(PARAM_CHARGES, 0.0) <= 0) {
+                errors.add(levelAt + ": an ACTIVE ability needs a cooldown, a duration or "
+                        + "charges, otherwise it can be activated every tick for free");
+            }
+            if (def.kind() == AbilityKind.ACTIVE && !def.effects().isEmpty()
+                    && level.durationTicks() == 0) {
+                // An active contributes its effects only while its duration runs
+                // (AbilityManager.publishLayer), so a zero here is an ability whose whole stat
+                // half silently does nothing — exactly the class of typo D10/E19 wants caught.
+                errors.add(levelAt + "/durationTicks: an ACTIVE ability with effects needs a "
+                        + "duration, or its effects never reach the ABILITY layer");
+            }
+            if (l == 0) {
+                continue;
+            }
+            AbilityLevelDef previous = def.levels().get(l - 1);
+            if (level.cooldownTicks() > previous.cooldownTicks()) {
+                errors.add(levelAt + "/cooldownTicks: a level up must not lengthen the cooldown ("
+                        + previous.cooldownTicks() + " -> " + level.cooldownTicks() + ")");
+            }
+            if (level.durationTicks() < previous.durationTicks()) {
+                errors.add(levelAt + "/durationTicks: a level up must not shorten the duration ("
+                        + previous.durationTicks() + " -> " + level.durationTicks() + ")");
+            }
+        }
+    }
+
+    /**
+     * The {@code params} contract (D9): every key a level declares is read by the behaviour,
+     * every required key is declared by every level, values are inside the behaviour's range and
+     * each column follows its {@link ParamSpec.Trend}.
+     *
+     * @param errors where to append
+     * @param at the pointer of the ability
+     * @param def the ability
+     */
+    private static void checkAbilityParams(List<String> errors, String at, AbilityDef def) {
+        List<ParamSpec> specs = BehaviorRegistry.DEFAULT.params(def.behavior());
+        if (!BehaviorRegistry.DEFAULT.contains(def.behavior())) {
+            return;
+        }
+        Set<String> known = new HashSet<>();
+        for (ParamSpec spec : specs) {
+            known.add(spec.key());
+        }
+        for (int l = 0; l < def.levels().size(); l++) {
+            String levelAt = at + "/levels/" + l + "/params";
+            for (Map.Entry<String, Double> entry : def.levels().get(l).params().entrySet()) {
+                if (!known.contains(entry.getKey())) {
+                    errors.add(levelAt + "/" + entry.getKey() + ": behavior '" + def.behavior()
+                            + "' reads no such parameter; it reads " + keysOf(specs));
+                }
+            }
+        }
+        for (ParamSpec spec : specs) {
+            Double previous = null;
+            for (int l = 0; l < def.levels().size(); l++) {
+                String levelAt = at + "/levels/" + l + "/params/" + spec.key();
+                Double value = def.levels().get(l).params().get(spec.key());
+                if (value == null) {
+                    if (spec.required()) {
+                        errors.add(levelAt + ": behavior '" + def.behavior()
+                                + "' requires this parameter at every level");
+                    }
+                    continue;
+                }
+                if (!spec.accepts(value)) {
+                    errors.add(levelAt + ": " + value + " is outside [" + spec.min() + ", "
+                            + spec.max() + "]");
+                }
+                if (previous != null && !spec.accepts(previous, value)) {
+                    errors.add(levelAt + ": " + previous + " -> " + value
+                            + " goes the wrong way for a " + spec.trend() + " parameter");
+                }
+                previous = value;
+            }
+        }
+    }
+
+    private static List<String> keysOf(List<ParamSpec> specs) {
+        List<String> keys = new ArrayList<>(specs.size());
+        for (ParamSpec spec : specs) {
+            keys.add(spec.key());
+        }
+        return keys;
     }
 
     // ----------------------------------------------------------------- worlds

@@ -5,12 +5,17 @@ import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import io.github.michelbr84.flapforge.gameplay.stats.StatBreakdown;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
@@ -23,6 +28,7 @@ import io.github.michelbr84.flapforge.progression.RunLoadout;
 import io.github.michelbr84.flapforge.progression.SelectionManager;
 import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import io.github.michelbr84.flapforge.progression.UnlockManager;
+import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -51,8 +57,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * The bird selection (D17, M4): the roster, the colours, the tier of the next run and — the point
- * of the screen — the stat breakdown of the build the player is about to fly.
+ * The bird selection (D17, M4/M5): the roster, the colours, the tier of the next run, the ability
+ * loadout and — the other point of the screen — the stat breakdown of the build the player is
+ * about to fly.
  *
  * <p>The roster is a {@link CardGrid} of all seven birds. An owned bird shows its name, its
  * archetype and its portrait in the palette the profile has selected for it; a locked one is
@@ -62,17 +69,23 @@ import java.util.Objects;
  * {@link SelectionManager} and saves; Buy pays for a locked one through {@link UnlockManager},
  * which is the only path that grants a {@code purchase} branch (D13).
  *
- * <p>The breakdown panel below is not a second implementation of the stat pipeline: it reads
- * {@link RunLoadout#previewStats} — the sheet of the run that would start right now — and lists,
- * per stat, the resolved value and every contributing modifier with the thing it came from (the
- * bird, an upgrade node, the bird's synergy with the nodes owned, the world, the tier, the
- * difficulty curve). Buying {@code feather_1} in the upgrade screen therefore shows up here as a
- * new line under Gravity and a lower number next to it (D8, D17).
+ * <p>The panel below is not a second implementation of the stat pipeline: it reads
+ * {@link RunLoadout#previewRun} — the very run that would start right now — and lists, per stat,
+ * the resolved value and every contributing modifier with the thing it came from (the bird, an
+ * upgrade node, the bird's synergy with the nodes owned, the world, the tier, the difficulty
+ * curve). Buying {@code feather_1} in the upgrade screen therefore shows up here as a new line
+ * under Gravity and a lower number next to it (D8, D17).
  *
- * <p>Abilities are the one thing this screen only <em>promises</em>: {@code GameContent.playable}
- * reports that no ability system exists before M5 (E19), so the slot area shows how many passive
- * slots the bird has and says the slots arrive in M5 instead of offering a loadout that cannot be
- * flown.
+ * <p><b>The loadout (M5, D9, E3).</b> Above the panel sits one chip per slot: the active ability,
+ * the bird's passive slots ({@code BirdDef.passiveSlots + profile.passiveSlotBonus}) and the
+ * passives the bird grants innately, which are shown fixed because nothing can unequip them.
+ * Activating a chip steps to the next ability the slot may hold and writes
+ * {@code profile.selected} through {@link SelectionManager}, which saves at once. The panel then
+ * lists every unlocked ability with its level, its kind, its tags, the description of the level
+ * the profile owns and what that level does — greyed out, with the rule named, when the run the
+ * screen is previewing would strip it ({@code NO_DEFENSIVE_ABILITIES}, {@code NO_REVIVE}). A
+ * greyed-out ability is not offered by any chip either: {@code Run.start()} would strip it
+ * anyway, and a slot that accepted it would be lying.
  */
 public final class BirdSelectionScreen implements Screen {
 
@@ -96,6 +109,18 @@ public final class BirdSelectionScreen implements Screen {
     public static final int HEADER_H = 17;
     /** Logical pixels one wheel notch scrolls the breakdown. */
     public static final int WHEEL_STEP = 30;
+    /** Columns of the loadout row. */
+    public static final int SLOT_COLUMNS = 3;
+    /**
+     * Chips the loadout row holds: the active slot, up to four passive slots (Oracle's three plus
+     * the {@code passive_slot} grant of E3) and one innate passive. A bird that grants more innate
+     * passives than fit still lists them in the ability panel below.
+     */
+    public static final int MAX_SLOTS = 6;
+    /** Highest number of passive slots any bird plus the E3 bonus can reach. */
+    public static final int MAX_PASSIVE_SLOTS = 4;
+    /** Characters a detail row fits before it is wrapped onto the next one. */
+    public static final int WRAP_CHARS = 62;
 
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
     private static final int TITLE_BASELINE = 34;
@@ -106,16 +131,21 @@ public final class BirdSelectionScreen implements Screen {
     private static final int ACTION_H = 30;
     private static final int TIER_TOP = 362;
     private static final int TIER_H = 24;
-    private static final int ABILITY_BASELINE = 405;
-    private static final int BREAKDOWN_LABEL_BASELINE = 425;
-    private static final int VIEW_TOP = 432;
+    private static final int ABILITY_BASELINE = 402;
+    private static final int SLOT_TOP = 406;
+    private static final int SLOT_H = 22;
+    private static final int SLOT_VGAP = 4;
+    private static final int SLOT_HGAP = 6;
+    private static final int BREAKDOWN_LABEL_BASELINE = 474;
+    private static final int VIEW_TOP = 480;
     private static final int VIEW_BOTTOM = Playfield.HEIGHT - 58;
     private static final int FOOTER_TOP = Playfield.HEIGHT - 52;
     private static final int FOOTER_H = 40;
     private static final Color SCROLLBAR = new Color(0xF4, 0xF8, 0xF8, 0x50);
     private static final Stroke SWATCH_STROKE = new BasicStroke(2f);
-    /** The milestone the ability slots arrive in (E19). */
-    private static final String ABILITY_MILESTONE = "M5";
+    private static final Color SLOT_BACK = new Color(0x10, 0x1C, 0x1E, 0x9C);
+    private static final Color SLOT_BLOCKED = new Color(0xE8, 0x5A, 0x4A);
+    private static final Color SLOT_FIXED = new Color(0x6F, 0xD1, 0xA8);
 
     private final ScreenManager screens;
     private final Strings strings;
@@ -128,6 +158,7 @@ public final class BirdSelectionScreen implements Screen {
     private final FocusRing ring = new FocusRing();
     private final CardGrid roster = new CardGrid();
     private final List<Swatch> swatches = new ArrayList<>();
+    private final List<AbilitySlot> slots = new ArrayList<>();
     private final List<Row> rows = new ArrayList<>();
     private final CurrencyDisplay wallet = new CurrencyDisplay();
     private final Tooltip tooltip = new Tooltip();
@@ -139,6 +170,7 @@ public final class BirdSelectionScreen implements Screen {
     private String currentBirdId;
     private String shownLanguage;
     private String abilityLine = "";
+    private RuleSet previewRules = RuleSet.EMPTY;
     private double contentHeight;
     private double scroll;
     private long ticks;
@@ -202,6 +234,19 @@ public final class BirdSelectionScreen implements Screen {
             swatch.setBounds(MARGIN + i * (SWATCH + 8.0), SWATCH_TOP, SWATCH, SWATCH);
             swatches.add(swatch);
             ring.add(swatch);
+        }
+
+        for (int i = 0; i < MAX_SLOTS; i++) {
+            AbilitySlot slot = new AbilitySlot();
+            int column = i % SLOT_COLUMNS;
+            int row = i / SLOT_COLUMNS;
+            double width = (CONTENT_W - (SLOT_COLUMNS - 1.0) * SLOT_HGAP) / SLOT_COLUMNS;
+            slot.setBounds(MARGIN + column * (width + SLOT_HGAP),
+                    SLOT_TOP + row * (SLOT_H + SLOT_VGAP), width, SLOT_H);
+            int index = i;
+            slot.setOnAction(() -> cycleSlot(index));
+            slots.add(slot);
+            ring.add(slot);
         }
 
         select = new Button("", this::selectCurrent);
@@ -371,12 +416,61 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * The line that stands in for the ability loadout until M5.
+     * The heading of the loadout row: how many passive slots the selected bird carries and which
+     * passives it grants for free.
      *
      * @return the line
      */
     public String abilityLine() {
         return abilityLine;
+    }
+
+    /**
+     * The loadout chips in display order: the active slot, the bird's passive slots and its
+     * innate passives. Chips past what the bird carries are hidden.
+     *
+     * @return an unmodifiable snapshot
+     */
+    public List<AbilitySlot> abilitySlots() {
+        return List.copyOf(slots);
+    }
+
+    /**
+     * The active-ability chip.
+     *
+     * @return the chip
+     */
+    public AbilitySlot activeSlot() {
+        return slots.get(0);
+    }
+
+    /**
+     * One chip by role and index.
+     *
+     * @param role the role
+     * @param index the index within the role, 0-based
+     * @return the chip, or {@code null} when the bird does not carry it
+     */
+    public AbilitySlot slot(SlotRole role, int index) {
+        int seen = 0;
+        for (AbilitySlot slot : slots) {
+            if (!slot.isVisible() || slot.role() != role) {
+                continue;
+            }
+            if (seen++ == index) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The rules the next run would carry (D9), which is what the screen greys abilities out with.
+     *
+     * @return the rule set, resolved from the very run the player is about to start
+     */
+    public RuleSet previewRules() {
+        return previewRules;
     }
 
     // ------------------------------------------------------------------ actions
@@ -547,7 +641,13 @@ public final class BirdSelectionScreen implements Screen {
         tier.setOptions(tierOptions());
         tier.selectQuietly(tierIndex());
         wallet.setAmount(balance);
-        buildBreakdown();
+        // One preview run answers both questions the panels below ask: what the stats resolve to
+        // and which rules the run carries (D8, D9). Building it twice could not disagree, but
+        // building it once means it cannot.
+        Run preview = RunLoadout.previewRun(profile, content);
+        previewRules = preview.simulation().rules();
+        refreshLoadout();
+        buildBreakdown(preview.simulation().stats());
         refreshCurrent();
     }
 
@@ -593,17 +693,265 @@ public final class BirdSelectionScreen implements Screen {
         buy.setText(price >= 0 && !owned
                 ? strings.get(StringKey.COMMON_BUY) + "  " + ProgressionText.price(strings, price)
                 : strings.get(StringKey.COMMON_BUY));
-        // E19: the slots and the innate passives are drawn from the bird, but the loadout only
-        // exists once the ability system does, and GameContent.playable is the single answer to
-        // whether it does. The innate passives are named because they are half of what a bird
-        // trades for: Ironbeak pays -20 % coins for a shield that does not exist before M5, and a
-        // line that only counted the slots would present that as a straight upgrade.
+        // The innate passives are named because they are half of what a bird trades for: Ironbeak
+        // pays -20 % coins for a shield it grants for free, and a line that only counted the
+        // slots would present that as a straight upgrade.
         abilityLine = strings.get(StringKey.BIRDS_ABILITIES) + ": "
-                + strings.format(StringKey.BIRDS_PASSIVE_SLOTS,
-                        current.passiveSlots() + profile.passiveSlotBonus)
-                + innateAbilities(current)
-                + (content.playable(ContentKind.ABILITY) ? ""
-                        : " - " + strings.format(StringKey.COMMON_SOON, ABILITY_MILESTONE));
+                + strings.format(StringKey.BIRDS_PASSIVE_SLOTS, passiveSlotsOf(current))
+                + innateAbilities(current);
+    }
+
+    // ------------------------------------------------------------------ loadout (M5)
+
+    /**
+     * How many passives the bird can equip: its own slots plus the {@code passive_slot} grant the
+     * profile has earned (E3), never more chips than the row holds.
+     *
+     * @param bird the bird
+     * @return the slot count
+     */
+    private int passiveSlotsOf(BirdDef bird) {
+        return Math.min(MAX_PASSIVE_SLOTS, bird.passiveSlots() + profile.passiveSlotBonus);
+    }
+
+    /**
+     * Rebuilds the loadout chips from the profile and the selected bird (D9, E3).
+     *
+     * <p>The chips describe the <em>selected</em> bird rather than the focused card, for the same
+     * reason the breakdown does: they are the loadout the next run will actually fly with, and
+     * that run uses the bird the profile has selected.
+     */
+    private void refreshLoadout() {
+        BirdDef bird = content.birds().contains(profile.selected.birdId)
+                ? content.birds().get(profile.selected.birdId) : null;
+        if (bird == null) {
+            for (AbilitySlot slot : slots) {
+                slot.setVisible(false);
+            }
+            return;
+        }
+        int passiveSlots = passiveSlotsOf(bird);
+        List<String> passives = equippedPassives(bird, passiveSlots);
+        int used = 0;
+        bindSlot(slots.get(used++), SlotRole.ACTIVE, 0, profile.selected.activeAbilityId);
+        for (int i = 0; i < passiveSlots && used < MAX_SLOTS; i++) {
+            bindSlot(slots.get(used++), SlotRole.PASSIVE, i,
+                    i < passives.size() ? passives.get(i) : null);
+        }
+        for (String id : bird.passiveAbilities()) {
+            if (used >= MAX_SLOTS) {
+                break;
+            }
+            bindSlot(slots.get(used++), SlotRole.INNATE, 0, id);
+        }
+        while (used < MAX_SLOTS) {
+            AbilitySlot slot = slots.get(used++);
+            slot.setVisible(false);
+            slot.bind(SlotRole.PASSIVE, null, "", "", "", false);
+        }
+    }
+
+    /**
+     * The passives the profile has equipped that this bird can actually carry, in slot order.
+     *
+     * <p>An id the player no longer owns, one that is not a passive and one the bird already
+     * grants innately are dropped: the first two cannot be equipped at all, and the third would
+     * spend a slot on something the bird gives away.
+     *
+     * @param bird the selected bird
+     * @param slotCount how many slots the bird has
+     * @return the ids, at most {@code slotCount} of them
+     */
+    private List<String> equippedPassives(BirdDef bird, int slotCount) {
+        List<String> out = new ArrayList<>(slotCount);
+        for (String id : profile.selected.passiveAbilityIds) {
+            if (out.size() >= slotCount) {
+                break;
+            }
+            AbilityDef def = abilityOrNull(id);
+            if (def == null || def.kind() != AbilityKind.PASSIVE || out.contains(id)
+                    || bird.passiveAbilities().contains(id)
+                    || !profile.isUnlocked(def.unlockableId())) {
+                continue;
+            }
+            out.add(id);
+        }
+        return out;
+    }
+
+    /**
+     * Points one chip at an ability (or at nothing).
+     *
+     * @param slot the chip
+     * @param role what the slot is
+     * @param index its index within the role
+     * @param abilityId the ability in it, or {@code null}
+     */
+    private void bindSlot(AbilitySlot slot, SlotRole role, int index, String abilityId) {
+        AbilityDef def = abilityOrNull(abilityId);
+        String label;
+        switch (role) {
+            case ACTIVE:
+                label = strings.get(StringKey.BIRDS_SLOT_ACTIVE);
+                break;
+            case PASSIVE:
+                label = strings.format(StringKey.BIRDS_SLOT_PASSIVE, index + 1);
+                break;
+            case INNATE:
+            default:
+                label = strings.get(StringKey.BIRDS_SLOT_INNATE);
+                break;
+        }
+        String value = def == null ? strings.get(StringKey.BIRDS_SLOT_EMPTY)
+                : ProgressionText.name(strings, ContentKind.ABILITY, def.id());
+        RuleFlag blocked = def == null ? null
+                : ProgressionText.strippedBy(def, previewRules);
+        slot.setVisible(true);
+        slot.bind(role, def == null ? null : def.id(), label, value,
+                slotTooltip(def, blocked), blocked != null);
+        // An innate passive is granted by the bird and cannot be traded away (D9), so its chip is
+        // there to be read, not to be pressed.
+        slot.setEnabled(role != SlotRole.INNATE && selection != null);
+    }
+
+    /**
+     * What a chip says when the pointer rests on it.
+     *
+     * @param def the ability in the slot, or {@code null}
+     * @param blocked the rule stripping it, or {@code null}
+     * @return the text
+     */
+    private String slotTooltip(AbilityDef def, RuleFlag blocked) {
+        if (def == null) {
+            return strings.get(StringKey.BIRDS_SLOT_HINT);
+        }
+        StringBuilder out = new StringBuilder(ProgressionText.abilityDescription(strings, def,
+                abilityLevelOf(def)));
+        String effects = ProgressionText.abilityEffects(strings, def, abilityLevelOf(def));
+        if (!effects.isEmpty()) {
+            out.append(" - ").append(effects);
+        }
+        if (blocked != null) {
+            out.append(" - ").append(strings.format(StringKey.BIRDS_ABILITY_BLOCKED,
+                    ProgressionText.ruleName(strings, blocked)));
+        }
+        return out.toString();
+    }
+
+    /**
+     * The level the profile owns an ability at (level 1 comes with the unlock).
+     *
+     * @param def the ability
+     * @return the level
+     */
+    private int abilityLevelOf(AbilityDef def) {
+        int owned = UpgradeManager.abilityLevelOwned(profile, def);
+        return owned <= 0 ? 1 : owned;
+    }
+
+    /**
+     * The ability of an id, or {@code null} when the content does not ship it.
+     *
+     * @param abilityId the id, may be {@code null}
+     * @return the definition
+     */
+    private AbilityDef abilityOrNull(String abilityId) {
+        if (abilityId == null || abilityId.isBlank()
+                || !content.has(GameContent.ABILITIES)
+                || !content.abilities().contains(abilityId)) {
+            return null;
+        }
+        return content.abilities().get(abilityId);
+    }
+
+    /**
+     * Advances one chip to the next ability it may hold, and writes the new loadout (D9, D15).
+     *
+     * <p>The cycle is {@code nothing -> first eligible -> ... -> nothing}: an ability already in
+     * another slot and one the run's rules would strip are left out, which is exactly what "greyed
+     * out" means for a slot the player can only step through.
+     *
+     * @param index the chip index in the row
+     */
+    private void cycleSlot(int index) {
+        AbilitySlot slot = slots.get(index);
+        if (selection == null || !slot.isVisible() || slot.role() == SlotRole.INNATE) {
+            return;
+        }
+        List<String> options = optionsFor(slot);
+        int at = options.indexOf(slot.abilityId());
+        String next = options.get(((at < 0 ? 0 : at) + 1) % options.size());
+        if (slot.role() == SlotRole.ACTIVE) {
+            selection.selectActiveAbility(profile, next, content);
+        } else {
+            List<String> passives = new ArrayList<>(MAX_PASSIVE_SLOTS + 1);
+            for (AbilitySlot other : slots) {
+                if (!other.isVisible() || other.role() != SlotRole.PASSIVE) {
+                    continue;
+                }
+                String id = other == slot ? next : other.abilityId();
+                if (id != null && !passives.contains(id)) {
+                    passives.add(id);
+                }
+            }
+            // What the player chose beyond the chips this bird shows is kept, not dropped: the
+            // selection is the profile's, and a bird with fewer slots only hides the tail of it
+            // (SelectionManager.setPassiveAbilities: "the profile keeps what the player chose
+            // even when they switch to a bird with fewer slots and back").
+            for (String id : profile.selected.passiveAbilityIds) {
+                if (id != null && !id.equals(slot.abilityId()) && !passives.contains(id)) {
+                    passives.add(id);
+                }
+            }
+            selection.setPassiveAbilities(profile, passives, content);
+        }
+        refreshState();
+    }
+
+    /**
+     * What one chip may cycle through: {@code null} first, then every unlocked ability of the
+     * slot's kind that is not innate, not already in another slot and not stripped by the rules.
+     *
+     * @param slot the chip
+     * @return the options, always starting with {@code null}
+     */
+    private List<String> optionsFor(AbilitySlot slot) {
+        List<String> options = new ArrayList<>();
+        options.add(null);
+        if (!content.has(GameContent.ABILITIES)) {
+            return options;
+        }
+        AbilityKind kind = slot.role() == SlotRole.ACTIVE
+                ? AbilityKind.ACTIVE : AbilityKind.PASSIVE;
+        BirdDef bird = content.birds().contains(profile.selected.birdId)
+                ? content.birds().get(profile.selected.birdId) : null;
+        for (AbilityDef def : content.abilities()) {
+            if (def.kind() != kind || !profile.isUnlocked(def.unlockableId())
+                    || ProgressionText.strippedBy(def, previewRules) != null
+                    || (bird != null && bird.passiveAbilities().contains(def.id()))
+                    || equippedElsewhere(slot, def.id())) {
+                continue;
+            }
+            options.add(def.id());
+        }
+        return options;
+    }
+
+    /**
+     * Whether another chip of the same role already holds an ability.
+     *
+     * @param slot the chip being cycled
+     * @param abilityId the ability
+     * @return {@code true} when a sibling slot holds it
+     */
+    private boolean equippedElsewhere(AbilitySlot slot, String abilityId) {
+        for (AbilitySlot other : slots) {
+            if (other != slot && other.isVisible() && other.role() == slot.role()
+                    && abilityId.equals(other.abilityId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -662,10 +1010,13 @@ public final class BirdSelectionScreen implements Screen {
      * default; the core physics stats are always there, because "did the node I bought change the
      * gravity?" is the question this panel exists to answer.
      */
-    private void buildBreakdown() {
+    private void buildBreakdown(StatSheet sheet) {
         rows.clear();
         contentHeight = 0;
-        StatSheet sheet = RunLoadout.previewStats(profile, content);
+        buildAbilityRows();
+        rows.add(new Row("stats", strings.get(StringKey.BIRDS_BREAKDOWN), "", true,
+                contentHeight));
+        contentHeight += HEADER_H;
         int shown = 0;
         for (StatId stat : StatId.values()) {
             StatBreakdown breakdown = sheet.breakdown(stat);
@@ -695,6 +1046,118 @@ public final class BirdSelectionScreen implements Screen {
             contentHeight += ROW_H;
         }
         scroll = MathUtil.clamp(scroll, 0, maxScroll());
+    }
+
+    /**
+     * The ability panel (M5, D9): every unlocked ability with its level, its kind, its tags, what
+     * one level of it does and the description of the level the profile owns — and, for one the
+     * run's rules would strip, the rule responsible instead of a silent omission.
+     *
+     * <p>It sits above the stat breakdown in the same scrolling view because the two answer the
+     * same question from two sides: what will the next run be.
+     */
+    private void buildAbilityRows() {
+        rows.add(new Row("abilities", strings.get(StringKey.BIRDS_ABILITY_LIST), "", true,
+                contentHeight));
+        contentHeight += HEADER_H;
+        int shown = 0;
+        if (content.has(GameContent.ABILITIES)) {
+            for (AbilityDef def : content.abilities()) {
+                if (!profile.isUnlocked(def.unlockableId())) {
+                    continue;
+                }
+                shown++;
+                addAbilityRows(def);
+            }
+        }
+        if (shown == 0) {
+            rows.add(new Row("abilities.empty",
+                    strings.get(StringKey.BIRDS_ABILITY_NONE_OWNED), "", false, contentHeight,
+                    true));
+            contentHeight += ROW_H;
+        }
+    }
+
+    /**
+     * The three or four rows of one unlocked ability.
+     *
+     * @param def the ability
+     */
+    private void addAbilityRows(AbilityDef def) {
+        int level = abilityLevelOf(def);
+        RuleFlag blocked = ProgressionText.strippedBy(def, previewRules);
+        boolean dimmed = blocked != null;
+        String name = ProgressionText.name(strings, ContentKind.ABILITY, def.id());
+        if (isEquipped(def.id())) {
+            name = name + " - " + strings.get(StringKey.BIRDS_ABILITY_EQUIPPED);
+        }
+        String id = "ability." + def.id();
+        rows.add(new Row(id, name, ProgressionText.abilityLevel(strings, def, level), true,
+                contentHeight, dimmed));
+        contentHeight += HEADER_H;
+        String kinds = ProgressionText.abilityKind(strings, def.kind());
+        String tags = ProgressionText.abilityTags(strings, def);
+        addWrapped(id + ".kind", tags.isEmpty() ? kinds : kinds + " - " + tags, dimmed);
+        addWrapped(id + ".desc", ProgressionText.abilityDescription(strings, def, level), dimmed);
+        addWrapped(id + ".effect", ProgressionText.abilityEffects(strings, def, level), dimmed);
+        if (blocked != null) {
+            rows.add(new Row(id + ".blocked", strings.format(StringKey.BIRDS_ABILITY_BLOCKED,
+                    ProgressionText.ruleName(strings, blocked)), "", false, contentHeight, true));
+            contentHeight += ROW_H;
+        }
+    }
+
+    /**
+     * Adds a detail line, wrapped onto as many rows as it needs.
+     *
+     * <p>The panel clips at its own edge, so a description longer than the column would simply be
+     * cut in half — and an ability's description is exactly where the numbers that justify its
+     * price live. The wrap is by character budget rather than by font metrics because the rows are
+     * built when the profile changes, long before a {@code Graphics2D} exists; {@link #WRAP_CHARS}
+     * is measured against the widest shipped line at the 11 pt detail size.
+     *
+     * <p>The first line keeps the row id, so a caller can address the line by what it is about;
+     * the continuations are {@code <id>.2}, {@code <id>.3} and so on.
+     *
+     * @param id the row id
+     * @param text the text, may be empty (nothing is added then)
+     * @param dimmed whether the rows are greyed out
+     */
+    private void addWrapped(String id, String text, boolean dimmed) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        int line = 1;
+        int from = 0;
+        while (from < text.length()) {
+            int to = Math.min(text.length(), from + WRAP_CHARS);
+            if (to < text.length()) {
+                int space = text.lastIndexOf(' ', to);
+                if (space > from) {
+                    to = space;
+                }
+            }
+            rows.add(new Row(line == 1 ? id : id + "." + line, text.substring(from, to).trim(), "",
+                    false, contentHeight, dimmed));
+            contentHeight += ROW_H;
+            from = to + 1;
+            line++;
+        }
+    }
+
+    /**
+     * Whether an ability is in one of the loadout chips.
+     *
+     * @param abilityId the ability id
+     * @return {@code true} when a visible chip holds it
+     */
+    private boolean isEquipped(String abilityId) {
+        for (AbilitySlot slot : slots) {
+            if (slot.isVisible() && abilityId.equals(slot.abilityId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The stats the panel always lists, whether or not anything touches them. */
@@ -770,6 +1233,9 @@ public final class BirdSelectionScreen implements Screen {
         if (node instanceof Swatch swatch) {
             return swatch.tooltip();
         }
+        if (node instanceof AbilitySlot slot) {
+            return slot.tooltip();
+        }
         return "";
     }
 
@@ -801,17 +1267,22 @@ public final class BirdSelectionScreen implements Screen {
         select.render(g);
         buy.render(g);
         ProceduralArt.panel(g, MARGIN - 4, TIER_TOP - 4, CONTENT_W + 8,
-                ABILITY_BASELINE + 6 - (TIER_TOP - 4));
+                SLOT_TOP + 2 * SLOT_H + SLOT_VGAP + 6 - (TIER_TOP - 4));
         tier.render(g);
-        g.setFont(Fonts.regular(12));
+        g.setFont(Fonts.regular(11));
         g.setColor(ProceduralArt.TEXT_MUTED);
         TextPainter.draw(g, abilityLine, MARGIN, ABILITY_BASELINE);
+        for (AbilitySlot slot : slots) {
+            if (slot.isVisible()) {
+                slot.render(g);
+            }
+        }
 
         ProceduralArt.panel(g, MARGIN - 4, VIEW_TOP - 22, CONTENT_W + 8,
                 VIEW_BOTTOM - VIEW_TOP + 26);
         g.setFont(Fonts.bold(13));
         g.setColor(ProceduralArt.accentColor(PALETTE));
-        TextPainter.draw(g, strings.get(StringKey.BIRDS_BREAKDOWN), MARGIN,
+        TextPainter.draw(g, strings.get(StringKey.BIRDS_PANEL), MARGIN,
                 BREAKDOWN_LABEL_BASELINE);
         Shape oldClip = g.getClip();
         g.clipRect(MARGIN - 4, VIEW_TOP, CONTENT_W + 8, VIEW_BOTTOM - VIEW_TOP);
@@ -833,10 +1304,10 @@ public final class BirdSelectionScreen implements Screen {
         double baseline = row.y() + (row.header() ? HEADER_H - 5 : ROW_H - 4);
         if (row.header()) {
             g.setFont(Fonts.bold(12));
-            g.setColor(ProceduralArt.TEXT_LIGHT);
+            g.setColor(row.dimmed() ? SLOT_BLOCKED : ProceduralArt.TEXT_LIGHT);
         } else {
             g.setFont(Fonts.regular(11));
-            g.setColor(ProceduralArt.TEXT_MUTED);
+            g.setColor(row.dimmed() ? SLOT_BLOCKED : ProceduralArt.TEXT_MUTED);
         }
         TextPainter.draw(g, row.label(), MARGIN + (row.header() ? 0.0 : 10.0), baseline);
         if (!row.value().isEmpty()) {
@@ -897,15 +1368,166 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * One line of the breakdown.
+     * One line of the scrolling panel: an ability, one of its details, a stat or one of the stat's
+     * sources.
      *
      * @param id the stable identifier a test addresses the row by
      * @param label the translated label
      * @param value the translated value, empty when there is none
-     * @param header whether the row heads a stat (rather than listing one of its sources)
+     * @param header whether the row heads an entry (rather than listing one of its details)
      * @param y the row's top edge in content space
+     * @param dimmed whether the row is greyed out — an ability this run's rules would strip (D9)
      */
-    public record Row(String id, String label, String value, boolean header, double y) {
+    public record Row(String id, String label, String value, boolean header, double y,
+            boolean dimmed) {
+
+        /**
+         * A row that is not greyed out.
+         *
+         * @param id the row id
+         * @param label the label
+         * @param value the value
+         * @param header whether it heads an entry
+         * @param y the top edge
+         */
+        public Row(String id, String label, String value, boolean header, double y) {
+            this(id, label, value, header, y, false);
+        }
+    }
+
+    /** What a loadout chip stands for (D9). */
+    public enum SlotRole {
+        /** The one active ability, triggered with X, Shift or the right mouse button. */
+        ACTIVE,
+        /** One of the bird's passive slots. */
+        PASSIVE,
+        /** A passive the bird grants: free, and impossible to unequip. */
+        INNATE
+    }
+
+    /**
+     * One loadout chip: a slot with the ability in it, or the word for "nothing".
+     *
+     * <p>Activating it (Enter, Space or a click) steps to the next ability the slot may hold;
+     * arrows are left to the focus ring, so moving between chips and changing one never happen on
+     * the same key. An innate chip is disabled: it says what the bird grants and refuses to be
+     * traded away.
+     */
+    public static final class AbilitySlot extends UiNode {
+
+        private SlotRole role = SlotRole.ACTIVE;
+        private String abilityId;
+        private String label = "";
+        private String value = "";
+        private String tooltip = "";
+        private boolean blocked;
+
+        AbilitySlot() {
+            setVisible(false);
+        }
+
+        /**
+         * Points the chip at an ability.
+         *
+         * @param newRole what the slot is
+         * @param newAbilityId the ability in it, or {@code null}
+         * @param newLabel the translated slot label
+         * @param newValue the translated ability name, or the word for an empty slot
+         * @param newTooltip the hover text
+         * @param isBlocked whether the run's rules would strip what is in the slot
+         */
+        void bind(SlotRole newRole, String newAbilityId, String newLabel, String newValue,
+                String newTooltip, boolean isBlocked) {
+            this.role = newRole;
+            this.abilityId = newAbilityId;
+            this.label = newLabel;
+            this.value = newValue;
+            this.tooltip = newTooltip;
+            this.blocked = isBlocked;
+        }
+
+        /**
+         * What the slot is.
+         *
+         * @return the role
+         */
+        public SlotRole role() {
+            return role;
+        }
+
+        /**
+         * The ability in the slot.
+         *
+         * @return the id, or {@code null} when the slot is empty
+         */
+        public String abilityId() {
+            return abilityId;
+        }
+
+        /**
+         * The slot label, as drawn.
+         *
+         * @return the text
+         */
+        public String label() {
+            return label;
+        }
+
+        /**
+         * The ability name, as drawn.
+         *
+         * @return the text, the word for "empty" when the slot holds nothing
+         */
+        public String value() {
+            return value;
+        }
+
+        /**
+         * Whether the run's rules would strip what the slot holds (D9).
+         *
+         * @return {@code true} when the ability is greyed out
+         */
+        public boolean isBlocked() {
+            return blocked;
+        }
+
+        /**
+         * The hover text.
+         *
+         * @return the tooltip
+         */
+        public String tooltip() {
+            return tooltip;
+        }
+
+        @Override
+        public void render(Graphics2D g) {
+            int bx = (int) Math.round(x());
+            int by = (int) Math.round(y());
+            int bw = (int) Math.round(width());
+            int bh = (int) Math.round(height());
+            g.setColor(SLOT_BACK);
+            g.fillRoundRect(bx, by, bw, bh, 8, 8);
+            Stroke old = g.getStroke();
+            g.setStroke(SWATCH_STROKE);
+            if (blocked) {
+                g.setColor(SLOT_BLOCKED);
+            } else if (role == SlotRole.INNATE) {
+                g.setColor(SLOT_FIXED);
+            } else {
+                g.setColor(isFocused() || isHovered() ? ProceduralArt.TEXT_LIGHT
+                        : ProceduralArt.TEXT_MUTED);
+            }
+            g.drawRoundRect(bx, by, bw, bh, 8, 8);
+            g.setStroke(old);
+            g.setFont(Fonts.regular(9));
+            g.setColor(ProceduralArt.TEXT_MUTED);
+            TextPainter.draw(g, label, bx + 6.0, by + 9.0);
+            g.setFont(Fonts.bold(11));
+            g.setColor(blocked ? SLOT_BLOCKED
+                    : (abilityId == null ? ProceduralArt.TEXT_MUTED : ProceduralArt.TEXT_LIGHT));
+            TextPainter.draw(g, value, bx + 6.0, by + bh - 5.0);
+        }
     }
 
     /** One palette swatch: a square in the palette's body colour, with its wing as a corner. */

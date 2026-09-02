@@ -1,13 +1,21 @@
 package io.github.michelbr84.flapforge.ui.screens;
 
+import io.github.michelbr84.flapforge.ability.BehaviorRegistry;
+import io.github.michelbr84.flapforge.ability.ParamSpec;
 import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityKind;
+import io.github.michelbr84.flapforge.content.defs.AbilityLevelDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityTag;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.StatModifierDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
 import io.github.michelbr84.flapforge.gameplay.stats.StatOp;
@@ -48,6 +56,9 @@ public final class ProgressionText {
     private static final String PERCENT_SUFFIX = ".percent";
 
     private static final Map<StatId, StringKey> STAT_LABELS = statLabels();
+
+    /** Prefix of the string key naming an ability level parameter. */
+    private static final String PARAM_PREFIX = "ability.param.";
 
     private ProgressionText() {
     }
@@ -263,6 +274,226 @@ public final class ProgressionText {
      */
     public static String price(Strings strings, long coins) {
         return strings.format(StringKey.SHOP_PRICE, coins);
+    }
+
+    // ------------------------------------------------------------------ abilities (M5)
+
+    /**
+     * The description of one ability <em>at one level</em> (D9, M5).
+     *
+     * <p>{@code ability.<id>.desc} is a pattern rather than a sentence, because the numbers that
+     * make an ability worth buying a second level of are exactly the ones the level carries. The
+     * arguments are positional and the same for every ability, so a translator can rely on them:
+     * {@code {0}} the level, {@code {1}} the duration in ticks, {@code {2}} the cooldown in ticks,
+     * and from {@code {3}} the behaviour's own parameters in the order its
+     * {@link ParamSpec} list declares them. A description that needs none of them simply uses
+     * none — {@link Strings#substitute} leaves an index without an argument untouched, and the
+     * shipped coin magnet does exactly that.
+     *
+     * @param strings the string table
+     * @param def the ability
+     * @param level the owned level, 1-based (clamped into the levels the ability ships)
+     * @return the translated description with the level's numbers in it
+     */
+    public static String abilityDescription(Strings strings, AbilityDef def, int level) {
+        return Strings.substitute(description(strings, ContentKind.ABILITY, def.id()),
+                (Object[]) abilityArgs(def, level));
+    }
+
+    /**
+     * The substitution arguments of {@link #abilityDescription}.
+     *
+     * @param def the ability
+     * @param level the owned level
+     * @return the arguments, already formatted as the player reads them
+     */
+    private static String[] abilityArgs(AbilityDef def, int level) {
+        AbilityLevelDef levelDef = levelOf(def, level);
+        List<ParamSpec> specs = BehaviorRegistry.DEFAULT.params(def.behavior());
+        String[] args = new String[3 + specs.size()];
+        args[0] = Integer.toString(clampLevel(def, level));
+        args[1] = Integer.toString(levelDef.durationTicks());
+        args[2] = Integer.toString(levelDef.cooldownTicks());
+        for (int i = 0; i < specs.size(); i++) {
+            Double value = levelDef.params().get(specs.get(i).key());
+            args[3 + i] = number(value == null ? 0 : value);
+        }
+        return args;
+    }
+
+    /**
+     * The level of an ability, clamped into the levels it ships.
+     *
+     * @param def the ability
+     * @param level the owned level, 1-based
+     * @return the level in {@code [1, levels]}
+     */
+    public static int clampLevel(AbilityDef def, int level) {
+        return Math.max(1, Math.min(def.levels().size(), level));
+    }
+
+    private static AbilityLevelDef levelOf(AbilityDef def, int level) {
+        return def.levels().get(clampLevel(def, level) - 1);
+    }
+
+    /**
+     * The owned level of an ability in words, {@code "Level 2/3"}.
+     *
+     * @param strings the string table
+     * @param def the ability
+     * @param level the owned level
+     * @return the phrase
+     */
+    public static String abilityLevel(Strings strings, AbilityDef def, int level) {
+        return strings.format(StringKey.ABILITY_LEVEL, clampLevel(def, level),
+                def.levels().size());
+    }
+
+    /**
+     * Active or passive, translated.
+     *
+     * @param strings the string table
+     * @param kind the kind
+     * @return the word
+     */
+    public static String abilityKind(Strings strings, AbilityKind kind) {
+        return strings.get(kind == AbilityKind.ACTIVE
+                ? StringKey.ABILITY_KIND_ACTIVE : StringKey.ABILITY_KIND_PASSIVE);
+    }
+
+    /**
+     * An ability's tags, translated and joined.
+     *
+     * @param strings the string table
+     * @param def the ability
+     * @return the phrase, empty when the ability carries no tag
+     */
+    public static String abilityTags(Strings strings, AbilityDef def) {
+        StringBuilder out = new StringBuilder();
+        for (AbilityTag tag : def.tags()) {
+            if (out.length() > 0) {
+                out.append(", ");
+            }
+            out.append(strings.get(StringKey.valueOf("ABILITY_TAG_" + tag.name())));
+        }
+        return out.toString();
+    }
+
+    /**
+     * What one level of an ability actually does, as one line: its timings, its charges and every
+     * stat it contributes.
+     *
+     * <p>Only the numbers that are set are named — a passive has no cooldown and no duration, and
+     * the shield at level 1 has no regeneration — so the line never advertises a zero.
+     *
+     * @param strings the string table
+     * @param def the ability
+     * @param level the level to describe
+     * @return the phrase
+     */
+    public static String abilityEffects(Strings strings, AbilityDef def, int level) {
+        AbilityLevelDef levelDef = levelOf(def, level);
+        StringBuilder out = new StringBuilder();
+        append(out, effects(strings, def.effects()));
+        if (levelDef.durationTicks() > 0) {
+            append(out, strings.format(StringKey.ABILITY_EFFECT_DURATION,
+                    levelDef.durationTicks()));
+        }
+        if (levelDef.cooldownTicks() > 0) {
+            append(out, strings.format(StringKey.ABILITY_EFFECT_COOLDOWN,
+                    levelDef.cooldownTicks()));
+        }
+        for (ParamSpec spec : BehaviorRegistry.DEFAULT.params(def.behavior())) {
+            double value = param(levelDef, spec.key());
+            if (value == 0) {
+                // A zero is the "off" value of every shipped parameter (no regeneration, no extra
+                // invulnerability, no extra radius), and "0 extra ticks of grace" is noise.
+                continue;
+            }
+            append(out, paramText(strings, spec.key(), value));
+        }
+        return out.toString();
+    }
+
+    /**
+     * One level parameter in words: {@code "45 ticks of grace"}, {@code "2 charges"}.
+     *
+     * <p>The label comes from {@code ability.param.<snake_case key>}, so a behaviour that declares
+     * a new parameter needs one string and no code. A key with no string falls back to
+     * {@code "<key> <value>"} rather than disappearing, which is what makes the gap visible.
+     *
+     * @param strings the string table
+     * @param key the parameter name as {@code abilities.json} spells it
+     * @param value the value
+     * @return the phrase
+     */
+    public static String paramText(Strings strings, String key, double value) {
+        StringKey label = StringKey.byKey(PARAM_PREFIX + snakeCase(key));
+        return label == null ? key + " " + number(value)
+                : strings.format(label, number(value));
+    }
+
+    /**
+     * {@code invulnExtraTicks} to {@code invuln_extra_ticks}.
+     *
+     * @param key the camel-case parameter name
+     * @return the snake-case string key suffix
+     */
+    private static String snakeCase(String key) {
+        StringBuilder out = new StringBuilder(key.length() + 4);
+        for (int i = 0; i < key.length(); i++) {
+            char c = key.charAt(i);
+            if (Character.isUpperCase(c)) {
+                out.append('_').append(Character.toLowerCase(c));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
+    private static double param(AbilityLevelDef level, String key) {
+        Double value = level.params().get(key);
+        return value == null ? 0 : value;
+    }
+
+    private static void append(StringBuilder out, String part) {
+        if (part == null || part.isEmpty()) {
+            return;
+        }
+        if (out.length() > 0) {
+            out.append(", ");
+        }
+        out.append(part);
+    }
+
+    /**
+     * The name of a rule flag, as the screens and the HUD say it.
+     *
+     * @param strings the string table
+     * @param flag the flag
+     * @return the phrase
+     */
+    public static String ruleName(Strings strings, RuleFlag flag) {
+        StringKey key = StringKey.byKey("rule." + flag.name().toLowerCase(Locale.ROOT));
+        return key == null ? flag.name() : strings.get(key);
+    }
+
+    /**
+     * The rule that would strip an ability from a run, if any (D9).
+     *
+     * @param def the ability
+     * @param rules the rules the run would carry
+     * @return the flag responsible, or {@code null} when the ability survives
+     */
+    public static RuleFlag strippedBy(AbilityDef def, RuleSet rules) {
+        if (rules.contains(RuleFlag.NO_DEFENSIVE_ABILITIES) && def.has(AbilityTag.DEFENSIVE)) {
+            return RuleFlag.NO_DEFENSIVE_ABILITIES;
+        }
+        if (rules.contains(RuleFlag.NO_REVIVE) && def.has(AbilityTag.REVIVE)) {
+            return RuleFlag.NO_REVIVE;
+        }
+        return null;
     }
 
     /**

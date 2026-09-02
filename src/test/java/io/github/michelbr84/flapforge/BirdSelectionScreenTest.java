@@ -3,9 +3,13 @@ package io.github.michelbr84.flapforge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import io.github.michelbr84.flapforge.app.FrameLimiter;
 import io.github.michelbr84.flapforge.app.GameLoop;
 import io.github.michelbr84.flapforge.app.NullPresenter;
@@ -16,6 +20,7 @@ import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.geom.Vec2;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.StatBreakdown;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.input.InputQueue;
@@ -32,6 +37,7 @@ import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
+import io.github.michelbr84.flapforge.support.TestContent;
 import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
@@ -40,7 +46,9 @@ import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Tooltip;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.ProgressionText;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -279,15 +287,250 @@ class BirdSelectionScreenTest {
         return screen.rows().stream().map(BirdSelectionScreen.Row::id).toList();
     }
 
+    // ------------------------------------------------------------------ loadout (M5)
+
     @Test
-    void theAbilitySlotAreaSaysTheSlotsArriveInTheNextMilestone() {
+    void theLoadoutRowShowsOneActiveSlotAndTheBirdsPassiveSlots() {
         open();
-        assertFalse(content.playable(ContentKind.ABILITY),
-                "M4 ships ability content but no ability system (E19)");
-        assertTrue(screen.abilityLine().contains(strings.format(StringKey.COMMON_SOON, "M5")),
-                () -> "the slot area must say so: " + screen.abilityLine());
+        assertTrue(content.playable(ContentKind.ABILITY), "M5 turned the ability system on");
+        assertFalse(screen.abilityLine().contains(strings.format(StringKey.COMMON_SOON, "M5")),
+                () -> "the slots exist now: " + screen.abilityLine());
         assertTrue(screen.abilityLine().contains(
                 strings.format(StringKey.BIRDS_PASSIVE_SLOTS, 2)));
+
+        // Forgewing: one active slot plus two passive slots, no innate passive.
+        assertEquals(BirdSelectionScreen.SlotRole.ACTIVE, screen.activeSlot().role());
+        assertNotNull(screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 0));
+        assertNotNull(screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 1));
+        assertNull(screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 2),
+                "the classic bird carries two passive slots");
+        assertNull(screen.slot(BirdSelectionScreen.SlotRole.INNATE, 0));
+        assertEquals(ProgressionText.name(strings, ContentKind.ABILITY, "double_flap"),
+                screen.activeSlot().value(),
+                "a fresh profile flies with the default active ability (E18)");
+    }
+
+    /**
+     * E3: {@code economy/ability_scholar_1} grants {@code passive_slot:1} and "BirdSelection shows
+     * the extra slot". Nothing asserted the screen half of that, so deleting the bonus from
+     * {@code passiveSlotsOf} left the suite green.
+     */
+    @Test
+    void thePassiveSlotGrantAddsAChipToTheRow() {
+        profile.passiveSlotBonus = 1;
+        open();
+        assertNotNull(screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 2),
+                "the granted slot is a chip the player can cycle");
+        assertTrue(screen.abilityLine().contains(
+                strings.format(StringKey.BIRDS_PASSIVE_SLOTS, 3)),
+                () -> "and the line counts it: " + screen.abilityLine());
+
+        profile.passiveSlotBonus = 0;
+        screen.refreshState();
+        assertNull(screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 2),
+                "and it goes away with the grant");
+        assertTrue(screen.abilityLine().contains(
+                strings.format(StringKey.BIRDS_PASSIVE_SLOTS, 2)));
+    }
+
+    /**
+     * A bird that hides one of the chosen passives — Ironbeak grants the shield innately, so the
+     * chips show the other two — must not delete it from the profile when another slot is cycled
+     * ({@code SelectionManager.setPassiveAbilities}: "the profile keeps what the player chose even
+     * when they switch to a bird with fewer slots and back").
+     */
+    @Test
+    void cyclingASlotKeepsThePassivesTheBirdCannotShow() {
+        profile.unlock("ability:shield");
+        profile.unlock("ability:coin_magnet");
+        profile.unlock("ability:emergency_recovery");
+        profile.unlock("bird:guardian");
+        profile.unlock("cosmetic:guardian:default");
+        open();
+        selection.setPassiveAbilities(profile,
+                List.of("shield", "coin_magnet", "emergency_recovery"), content);
+        selection.selectBird(profile, "guardian", content);
+        screen.refreshState();
+        assertEquals("shield", screen.slot(BirdSelectionScreen.SlotRole.INNATE, 0).abilityId());
+        assertEquals("coin_magnet",
+                screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 0).abilityId(),
+                "the chips skip the shield the bird grants for free");
+
+        click(screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 0));
+
+        assertTrue(profile.selected.passiveAbilityIds.contains("shield"),
+                () -> "the choice the bird hid survived the cycle: "
+                        + profile.selected.passiveAbilityIds);
+        selection.selectBird(profile, "classic", content);
+        screen.refreshState();
+        assertEquals(List.of("emergency_recovery", "shield"), profile.selected.passiveAbilityIds,
+                "the cycled chips keep their order and what was hidden follows them");
+        assertEquals("shield", screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 1).abilityId(),
+                "and it is equipped again on a bird that does not grant it");
+    }
+
+    @Test
+    void activatingTheActiveSlotCyclesTheAbilityAndSavesIt() {
+        open();
+        int savesBefore = saves;
+        assertEquals("double_flap", profile.selected.activeAbilityId, "the E18 default");
+
+        // The only ACTIVE ability a fresh profile owns is the double flap, so the cycle is
+        // "double flap -> nothing -> double flap".
+        click(screen.activeSlot());
+        assertNull(profile.selected.activeAbilityId, "the slot was emptied");
+        assertTrue(saves > savesBefore, "an equipped ability is written at once (D15)");
+        assertEquals(strings.get(StringKey.BIRDS_SLOT_EMPTY), screen.activeSlot().value());
+
+        click(screen.activeSlot());
+        assertEquals("double_flap", profile.selected.activeAbilityId, "and equipped again");
+        assertEquals(ProgressionText.name(strings, ContentKind.ABILITY, "double_flap"),
+                screen.activeSlot().value());
+
+        // A run built from the profile now carries it as the active ability (D9).
+        assertEquals("double_flap",
+                RunLoadout.previewRun(profile, content).simulation().abilities().active().id());
+    }
+
+    @Test
+    void buyingAnAbilityLevelChangesWhatTheAbilityPanelShows() {
+        profile.unlock("ability:shield");
+        credit(1000);
+        open();
+        assertEquals(strings.format(StringKey.ABILITY_LEVEL, 1, 3),
+                screen.row("ability.shield").value());
+        assertTrue(upgradeManager.buyAbilityLevel(profile, "shield", content).ok());
+        screen.refreshState();
+        assertEquals(strings.format(StringKey.ABILITY_LEVEL, 2, 3),
+                screen.row("ability.shield").value(), "the panel re-reads the profile");
+        // Level 2 is the one that regenerates a charge every 15 gates (data/abilities.json).
+        assertTrue(screen.row("ability.shield.effect").label().contains("15"),
+                () -> screen.row("ability.shield.effect").label());
+    }
+
+    @Test
+    void aPassiveSlotOnlyOffersUnlockedPassivesAndNeverTheSameOneTwice() {
+        profile.unlock("ability:shield");
+        profile.unlock("ability:coin_magnet");
+        open();
+        BirdSelectionScreen.AbilitySlot first =
+                screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 0);
+        BirdSelectionScreen.AbilitySlot second =
+                screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 1);
+        assertNotNull(first);
+        assertNotNull(second);
+
+        click(first);
+        assertEquals(List.of("shield"), profile.selected.passiveAbilityIds);
+        click(second);
+        assertEquals(List.of("shield", "coin_magnet"), profile.selected.passiveAbilityIds,
+                "the second slot skipped the passive the first one already holds");
+
+        // The run built from the profile carries both, and the shield's charge with them (D9).
+        assertEquals(1, RunLoadout.previewRun(profile, content).simulation().shield().maxCharges());
+    }
+
+    @Test
+    void anInnateSlotIsFixedAndDoesNotSpendASlot() {
+        profile.unlock("bird:guardian");
+        profile.unlock("cosmetic:guardian:default");
+        open();
+        selection.selectBird(profile, "guardian", content);
+        screen.refreshState();
+
+        BirdSelectionScreen.AbilitySlot innate =
+                screen.slot(BirdSelectionScreen.SlotRole.INNATE, 0);
+        assertNotNull(innate, "Ironbeak grants a shield");
+        assertEquals("shield", innate.abilityId());
+        assertFalse(innate.isEnabled(), "an innate passive cannot be unequipped (D9)");
+        assertNotNull(screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 1),
+                "and it does not eat one of the two slots");
+
+        click(innate);
+        assertEquals("shield", innate.abilityId(), "clicking a fixed slot changes nothing");
+        assertTrue(profile.selected.passiveAbilityIds.isEmpty());
+    }
+
+    @Test
+    void theAbilityPanelListsEveryUnlockedAbilityWithItsLevelKindTagsAndEffect() {
+        profile.unlock("ability:shield");
+        open();
+        BirdSelectionScreen.Row header = screen.row("ability.shield");
+        assertNotNull(header, () -> "the unlocked shield must be listed: " + ids());
+        assertTrue(header.header());
+        assertEquals(strings.format(StringKey.ABILITY_LEVEL, 1, 3), header.value(),
+                "the panel shows the owned level of three");
+        assertTrue(header.label().startsWith(
+                ProgressionText.name(strings, ContentKind.ABILITY, "shield")));
+
+        BirdSelectionScreen.Row kind = screen.row("ability.shield.kind");
+        assertNotNull(kind);
+        assertTrue(kind.label().contains(strings.get(StringKey.ABILITY_KIND_PASSIVE)));
+        assertTrue(kind.label().contains(strings.get(StringKey.ABILITY_TAG_DEFENSIVE)));
+
+        // The description carries the level's own numbers (M5): 45 invulnerability ticks at L1.
+        BirdSelectionScreen.Row desc = screen.row("ability.shield.desc");
+        assertNotNull(desc);
+        assertTrue(desc.label().contains("45"), () -> "the level parameters are substituted: "
+                + desc.label());
+        assertFalse(desc.label().contains("{"), () -> "and no placeholder is left: " + desc.label());
+        assertNotNull(screen.row("ability.shield.effect"));
+
+        // A locked ability is not in the panel at all.
+        assertNull(screen.row("ability.dash"), "the dash is not unlocked yet");
+        assertNotNull(screen.row("ability.double_flap"), "the default ability always is");
+    }
+
+    @Test
+    void anAbilityTheRunsRulesWouldStripIsGreyedOutWithTheReason() {
+        // No shipped tier strips abilities, so the case is driven with a content set whose hard
+        // tier carries NO_DEFENSIVE_ABILITIES -- which is what a challenge does from M8 (D9).
+        GameContent strict = contentWithDefensiveBan();
+        profile.unlock("ability:shield");
+        profile.unlock("tier:hard");
+        profile.selected.tierId = "hard";
+        screen = new BirdSelectionScreen(screens, strings, strict, profile, selection, unlocks,
+                toasts);
+        screens.push(screen);
+        screens.applyPending();
+        loop.start();
+        ticks(GRACE);
+
+        assertTrue(screen.previewRules().contains(RuleFlag.NO_DEFENSIVE_ABILITIES),
+                "the selected tier strips defensive abilities");
+        BirdSelectionScreen.Row header = screen.row("ability.shield");
+        assertNotNull(header);
+        assertTrue(header.dimmed(), "a stripped ability is greyed out");
+        BirdSelectionScreen.Row why = screen.row("ability.shield.blocked");
+        assertNotNull(why, () -> "and says why: " + ids());
+        assertTrue(why.label().contains(
+                strings.get(StringKey.RULE_NO_DEFENSIVE_ABILITIES)), why.label());
+
+        // And it cannot be equipped: the slot cycle skips it, so it stays empty.
+        BirdSelectionScreen.AbilitySlot slot =
+                screen.slot(BirdSelectionScreen.SlotRole.PASSIVE, 0);
+        assertNotNull(slot);
+        click(slot);
+        assertTrue(profile.selected.passiveAbilityIds.isEmpty(),
+                "a greyed-out ability is not offered by the slot");
+    }
+
+    /**
+     * The shipped content with {@code NO_DEFENSIVE_ABILITIES} added to the hard tier.
+     *
+     * @return the content
+     */
+    private static GameContent contentWithDefensiveBan() {
+        Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.shippedJson());
+        JsonObject difficulty = files.get("difficulty").getAsJsonObject();
+        for (JsonElement tier : difficulty.getAsJsonArray("tiers")) {
+            if ("hard".equals(tier.getAsJsonObject().get("id").getAsString())) {
+                JsonArray flags = new JsonArray();
+                flags.add("NO_DEFENSIVE_ABILITIES");
+                tier.getAsJsonObject().add("flags", flags);
+            }
+        }
+        return GameContent.fromJson(files);
     }
 
     @Test

@@ -2,8 +2,12 @@ package io.github.michelbr84.flapforge.progression;
 
 import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.content.defs.AbilityDef;
+import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -136,6 +140,88 @@ public final class SelectionManager {
         profile.selected.tierId = tierId;
         commit(profile);
         return true;
+    }
+
+    /**
+     * Equips the active ability of the next run (D9), or clears the slot.
+     *
+     * <p>An ability has to be unlocked and has to be an {@code ACTIVE} one: a passive selected
+     * into the active slot would simply be dropped when the run assembles its loadout
+     * ({@code AbilityManager.selectLoadout}), and a slot that silently keeps an id nothing equips
+     * is worse than a refusal.
+     *
+     * @param profile the profile to write
+     * @param abilityId the ability id, or {@code null} to equip nothing
+     * @param content the loaded content
+     * @return {@code true} when the selection now names that ability (or nothing)
+     */
+    public boolean selectActiveAbility(PlayerProfile profile, String abilityId,
+            GameContent content) {
+        Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(content, "content");
+        String id = abilityId == null || abilityId.isBlank() ? null : abilityId;
+        if (id != null && !ownsAbility(profile, content, id, AbilityKind.ACTIVE)) {
+            return false;
+        }
+        if (Objects.equals(id, profile.selected.activeAbilityId)) {
+            return true;
+        }
+        profile.selected.activeAbilityId = id;
+        commit(profile);
+        return true;
+    }
+
+    /**
+     * Equips the passive abilities of the next run, in slot order (D9, E3).
+     *
+     * <p>The list is stored dense and deduplicated: how many of it a run actually uses depends on
+     * the bird ({@code BirdDef.passiveSlots + profile.passiveSlotBonus}), which the content layer
+     * resolves at run start, so the profile keeps what the player chose even when they switch to
+     * a bird with fewer slots and back.
+     *
+     * @param profile the profile to write
+     * @param abilityIds the passive ability ids, in slot order; unknown, locked and non-passive
+     *     ids are dropped rather than stored
+     * @param content the loaded content
+     * @return {@code true} when the selection now names those abilities
+     */
+    public boolean setPassiveAbilities(PlayerProfile profile, List<String> abilityIds,
+            GameContent content) {
+        Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(content, "content");
+        List<String> kept = new ArrayList<>(abilityIds == null ? List.of() : abilityIds);
+        List<String> clean = new ArrayList<>(kept.size());
+        for (String id : kept) {
+            if (id != null && !id.isBlank() && !clean.contains(id)
+                    && ownsAbility(profile, content, id, AbilityKind.PASSIVE)) {
+                clean.add(id);
+            }
+        }
+        if (clean.equals(profile.selected.passiveAbilityIds)) {
+            return true;
+        }
+        profile.selected.passiveAbilityIds = clean;
+        commit(profile);
+        return true;
+    }
+
+    /**
+     * Whether the profile owns an ability of a kind and this build can equip it (E19).
+     *
+     * @param profile the profile
+     * @param content the loaded content
+     * @param abilityId the ability id
+     * @param kind the kind the slot takes
+     * @return {@code true} when it may be equipped
+     */
+    private static boolean ownsAbility(PlayerProfile profile, GameContent content,
+            String abilityId, AbilityKind kind) {
+        if (!content.has(GameContent.ABILITIES) || !content.playable(ContentKind.ABILITY)
+                || !content.abilities().contains(abilityId)) {
+            return false;
+        }
+        AbilityDef def = content.abilities().get(abilityId);
+        return def.kind() == kind && profile.isUnlocked(def.unlockableId());
     }
 
     private void commit(PlayerProfile profile) {

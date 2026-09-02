@@ -2,11 +2,13 @@ package io.github.michelbr84.flapforge.progression;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
+import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -96,6 +98,41 @@ class SelectionManagerTest {
         assertEquals("green_fields", profile.selected.worldId);
         assertTrue(selection.selectWorld(profile, "green_fields", content));
         assertEquals(0, saves, "re-selecting what is already selected writes nothing");
+    }
+
+    /**
+     * The equip path's only ownership check (D9): a run resolves the loadout from the profile and
+     * re-checks nothing but the id, and the selection screen only ever offers unlocked ids, so
+     * this guard is what keeps a locked or wrong-kind ability out of a run.
+     */
+    @Test
+    void anAbilityMustBeOwnedAndOfTheSlotsKind() {
+        profile.unlock("ability:shield");
+        assertEquals("double_flap", profile.selected.activeAbilityId, "the E18 default");
+
+        assertFalse(selection.selectActiveAbility(profile, "invulnerability", content),
+                "a fresh profile has not unlocked it");
+        assertFalse(selection.selectActiveAbility(profile, "shield", content),
+                "and a passive is not an active, even when unlocked");
+        assertEquals("double_flap", profile.selected.activeAbilityId, "nothing was equipped");
+        assertEquals(0, saves);
+
+        assertTrue(selection.selectActiveAbility(profile, null, content), "the slot may be empty");
+        assertNull(profile.selected.activeAbilityId);
+        assertTrue(selection.selectActiveAbility(profile, "double_flap", content),
+                "and the default is unlocked and is an active");
+        assertEquals("double_flap", profile.selected.activeAbilityId);
+        assertEquals(2, saves);
+    }
+
+    @Test
+    void onlyUnlockedPassivesAreStoredInTheSlots() {
+        profile.unlock("ability:shield");
+        assertTrue(selection.setPassiveAbilities(profile,
+                List.of("dash", "shield", "coin_magnet", "shield"), content));
+        assertEquals(List.of("shield"), profile.selected.passiveAbilityIds,
+                "dash is an active, coin_magnet is locked, and the duplicate is dropped");
+        assertEquals(1, saves);
     }
 
     @Test

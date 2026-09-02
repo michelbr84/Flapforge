@@ -24,6 +24,7 @@ import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import io.github.michelbr84.flapforge.progression.UnlockManager;
+import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
@@ -32,6 +33,7 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
 import io.github.michelbr84.flapforge.ui.component.CardGrid;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
+import io.github.michelbr84.flapforge.ui.screens.ProgressionText;
 import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -59,6 +61,7 @@ class ShopScreenTest {
     private GameContent content;
     private PlayerProfile profile;
     private UnlockManager unlocks;
+    private UpgradeManager upgrades;
     private ToastLayer toasts;
     private ShopScreen screen;
     private int saves;
@@ -82,6 +85,7 @@ class ShopScreenTest {
         ProgressionManager progression = new ProgressionManager(time,
                 ProgressionManager.AchievementHook.NONE, UnlockEvaluator.of(content));
         unlocks = new UnlockManager(progression, () -> saves++);
+        upgrades = new UpgradeManager(progression, () -> saves++);
         toasts = new ToastLayer();
     }
 
@@ -91,7 +95,7 @@ class ShopScreenTest {
     }
 
     private void open() {
-        screen = new ShopScreen(screens, strings, content, profile, unlocks, toasts);
+        screen = new ShopScreen(screens, strings, content, profile, unlocks, upgrades, toasts);
         screens.push(screen);
         screens.applyPending();
         loop.start();
@@ -196,12 +200,15 @@ class ShopScreenTest {
     void theOtherTabsCarryTheRestOfTheShopAndSayWhatIsNotPlayableYet() {
         open();
         openTab(1);
-        assertEquals(7, screen.offers().size(), "seven abilities carry a price");
-        assertEquals("ability:shield", screen.offers().get(0).id());
-        assertFalse(content.playable(ContentKind.ABILITY));
-        assertTrue(screen.offerGrid().card("ability:shield").subtitle()
+        assertEquals(8, screen.offers().size(),
+                "seven locked abilities carry a price, and the default one carries its level");
+        assertEquals("ability:coin_magnet", screen.offers().get(0).id(),
+                "cheapest first: M5 repriced the magnet down to what it measures (120)");
+        assertTrue(content.playable(ContentKind.ABILITY), "M5 turned the ability system on");
+        assertFalse(screen.offerGrid().card("ability:shield").subtitle()
                         .contains(strings.format(StringKey.COMMON_SOON, "M5")),
-                () -> screen.offerGrid().card("ability:shield").subtitle());
+                () -> "abilities work now: " + screen.offerGrid().card("ability:shield")
+                        .subtitle());
 
         openTab(2);
         assertEquals(4, screen.offers().size(), "the four worlds behind Green Fields");
@@ -255,6 +262,99 @@ class ShopScreenTest {
         assertEquals(730, coins());
         assertNull(screen.offer("tree:economy"));
         assertNull(screen.offer("feature:modifiers"));
+    }
+
+    // ------------------------------------------------------------------ ability levels (M5, E3)
+
+    @Test
+    void theAbilitiesTabSellsTheNextLevelOfAnOwnedAbility() {
+        credit(1000);
+        open();
+        openTab(1);
+        ShopScreen.Offer level = screen.offer("ability:double_flap");
+        assertNotNull(level, "the default ability is owned, so it is sold by the level");
+        assertTrue(level.isAbilityLevel());
+        assertEquals(2, level.level(), "level 1 came with the unlock, so level 2 is next");
+        assertEquals(300, level.cost(), "data/abilities.json prices level 2 at 300");
+        assertEquals(0, profile.abilityLevel("double_flap"), "no level entry was ever written");
+        assertEquals(1, UpgradeManager.abilityLevelOwned(profile,
+                        content.abilities().get("double_flap")),
+                "yet an unlocked ability is owned at level 1: level 1 comes with the unlock");
+
+        CardGrid.Card card = screen.offerGrid().card("ability:double_flap");
+        assertNotNull(card);
+        assertEquals("300", card.badge());
+        assertTrue(card.subtitle().contains(strings.format(StringKey.ABILITY_LEVEL, 1, 3)),
+                () -> "the card shows the owned level: " + card.subtitle());
+        assertTrue(card.subtitle().contains(strings.format(StringKey.SHOP_ABILITY_CAP, 2)),
+                () -> "and the E3 cap: " + card.subtitle());
+
+        long toastsBefore = toasts.pushedCount();
+        click(card);
+        assertEquals(2, profile.abilityLevel("double_flap"), "the level was bought");
+        assertEquals(700, coins(), "the price left the wallet");
+        assertTrue(saves > 0, "and it was written at once (D15)");
+        assertTrue(toasts.pushedCount() > toastsBefore, "the purchase raised a toast");
+    }
+
+    @Test
+    void anAbilityAtTheCapIsShownAndNotSold() {
+        credit(2000);
+        open();
+        openTab(1);
+        click(screen.offerGrid().card("ability:double_flap"));
+        assertEquals(2, profile.abilityLevel("double_flap"));
+        assertEquals(PlayerProfile.DEFAULT_ABILITY_LEVEL_CAP, profile.abilityLevelCap);
+
+        ShopScreen.Offer capped = screen.offer("ability:double_flap");
+        assertNotNull(capped, "a capped ability stays on the card list, it just cannot be bought");
+        assertFalse(capped.available());
+        assertEquals(0, capped.level());
+        CardGrid.Card card = screen.offerGrid().card("ability:double_flap");
+        assertEquals(strings.get(StringKey.SHOP_ABILITY_CAPPED), card.badge());
+
+        long before = coins();
+        click(card);
+        assertEquals(before, coins(), "clicking a capped level costs nothing");
+        assertEquals(2, profile.abilityLevel("double_flap"), "and buys nothing");
+
+        // The cap is exactly what the single ability_cap grant of E3 raises.
+        assertEquals(3, UpgradeManager.abilityLevelCeiling(content),
+                "the forge tree ships one ability_cap grant");
+    }
+
+    @Test
+    void anAbilityLevelThatCannotBePaidForChangesNothing() {
+        credit(10);
+        open();
+        openTab(1);
+        CardGrid.Card card = screen.offerGrid().card("ability:double_flap");
+        assertTrue(card.isDimmed(), "10 coins do not buy a 300 coin level");
+        long toastsBefore = toasts.pushedCount();
+        click(card);
+        assertEquals(10, coins(), "nothing was spent");
+        assertEquals(0, profile.abilityLevel("double_flap"), "and nothing was raised");
+        assertTrue(toasts.pushedCount() > toastsBefore, "the refusal is explained");
+        assertTrue(screen.detailLines().stream()
+                        .anyMatch(line -> line.contains(strings.get(
+                                StringKey.SHOP_CANNOT_AFFORD))),
+                () -> "the detail panel says so: " + screen.detailLines());
+    }
+
+    @Test
+    void aLockedAbilityStillShowsItsUnlockPath() {
+        open();
+        openTab(1);
+        ShopScreen.Offer shield = screen.offer("ability:shield");
+        assertNotNull(shield);
+        assertFalse(shield.isAbilityLevel(), "a locked ability is bought whole, not by the level");
+        assertEquals(200, shield.cost());
+        assertTrue(screen.offerGrid().card("ability:shield").tooltip()
+                        .contains(ProgressionText.price(strings, 200)),
+                () -> screen.offerGrid().card("ability:shield").tooltip());
+        // Its description carries level 1's numbers (M5) and no leftover placeholder.
+        assertFalse(screen.offerGrid().card("ability:shield").tooltip().contains("{"),
+                () -> screen.offerGrid().card("ability:shield").tooltip());
     }
 
     @Test

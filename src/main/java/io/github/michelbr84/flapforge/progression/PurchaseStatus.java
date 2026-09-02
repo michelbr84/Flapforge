@@ -24,6 +24,9 @@ public enum PurchaseStatus {
     MISSING_PREREQ,
     /** The node is already at its maximum level. */
     MAX_LEVEL,
+    /** The ability is at {@code profile.abilityLevelCap} and needs an {@code ability_cap} grant
+     * before the next level can be bought (E3). */
+    LEVEL_CAPPED,
     /** The wallet does not hold the price. */
     INSUFFICIENT_FUNDS
 }

@@ -180,6 +180,34 @@ public final class GameRenderer {
     }
 
     /**
+     * Names the equipped active ability on the HUD badge (M5, D25); an empty name hides it.
+     *
+     * @param name the translated ability name, or {@code null} for none
+     */
+    public void setAbilityName(String name) {
+        hud.setAbilityName(name);
+    }
+
+    /**
+     * Replaces the HUD's ability state labels (a live language switch, D25).
+     *
+     * @param readyLabel the translated {@code hud.ability.ready} word
+     * @param cooldownLabel the translated {@code hud.ability.cooldown} pattern
+     */
+    public void setAbilityStateLabels(String readyLabel, String cooldownLabel) {
+        hud.setAbilityStateLabels(readyLabel, cooldownLabel);
+    }
+
+    /**
+     * Replaces the HUD's shield readout template (a live language switch, D25).
+     *
+     * @param shieldLabel the translated {@code hud.shield.charges} pattern
+     */
+    public void setShieldLabel(String shieldLabel) {
+        hud.setShieldLabel(shieldLabel);
+    }
+
+    /**
      * The coin renderer (its spin and flourish state).
      *
      * @return the pickup renderer
@@ -220,7 +248,7 @@ public final class GameRenderer {
         // The coins are ticked before the HUD so a coin taken this tick has already produced its
         // flourish when the counter next to the icon changes.
         pickups.tick(run.simulation().pickups(), particles);
-        hud.tick();
+        hud.tick(run);
         camera.tick();
         particles.update(1.0 / Playfield.TICK_RATE);
         double birdY = run.simulation().bird().y();

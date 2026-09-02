@@ -1,11 +1,17 @@
 package io.github.michelbr84.flapforge.render;
 
+import io.github.michelbr84.flapforge.ability.AbilityInstance;
+import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
+import io.github.michelbr84.flapforge.gameplay.run.ShieldSystem;
 import io.github.michelbr84.flapforge.render.TextPainter.Align;
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Stroke;
+import java.awt.geom.Arc2D;
 import java.awt.geom.Ellipse2D;
 
 /**
@@ -25,10 +31,23 @@ import java.awt.geom.Ellipse2D;
  * rather than having to count gates. A seeded run also shows its seed in small type at the
  * bottom, so a screenshot is enough to reproduce it (D12).
  *
+ * <p>M5 adds the ability panel in the top-left column (D9, D17). The badge carries a cooldown
+ * ring that <em>fills</em> as the ability recharges — a full ring means "usable now", which is the
+ * question a player asks mid-flight — with the charge pips of a charge-gated ability under it and,
+ * while the effect window runs, a duration bar instead of the cooldown readout. Below them the
+ * shield charges are small crests, one per charge, because a shield exists whenever
+ * {@code SHIELD_CHARGES} resolves above zero and therefore also without any ability equipped.
+ * Three flashes ride on top: a pulse on activation, a fading ring where a consumed shield charge
+ * was, and a red blink when the ability key was pressed and nothing happened
+ * ({@link #flashAbilityRefused()}). The first two are derived from the counters the simulation
+ * keeps, not from a fact the screen forwards, so a replayed run flashes on exactly the same ticks.
+ *
  * <p>The renderer never reads the string table (D18): the screen hands it the already-translated
- * patterns through {@link #setStreakLabel(String)} and {@link #setCoinLabel(String)} and this
- * class only substitutes the number. Both strings are rebuilt only when their number changes, so
- * a steady frame allocates nothing.
+ * patterns through {@link #setStreakLabel(String)}, {@link #setCoinLabel(String)},
+ * {@link #setAbilityName(String)}, {@link #setAbilityStateLabels(String, String)} and
+ * {@link #setShieldLabel(String)}, and this class only substitutes the number. Every string is
+ * rebuilt only when its number changes, and every shape, polygon and colour ramp is owned by the
+ * renderer, so a steady frame allocates nothing.
  */
 public final class HudRenderer {
 
@@ -55,18 +74,76 @@ public final class HudRenderer {
     /** Point size of the coin count. */
     public static final int COIN_SIZE = 15;
 
+    /** Centre x of the ability badge. */
+    public static final int ABILITY_CX = 30;
+    /** Centre y of the ability badge. */
+    public static final int ABILITY_CY = 80;
+    /** Outer radius of the cooldown ring. */
+    public static final int ABILITY_RADIUS = 17;
+    /** Centre y of the charge pips, under the badge. */
+    public static final int CHARGE_ROW_CY = ABILITY_CY + ABILITY_RADIUS + 8;
+    /** Radius of one charge pip. */
+    public static final int CHARGE_PIP_RADIUS = 4;
+    /** Horizontal distance between two charge pips. */
+    public static final int CHARGE_PIP_STEP = 11;
+    /** Left edge of the ability name, the state line and the duration bar. */
+    public static final int ABILITY_TEXT_X = ABILITY_CX + ABILITY_RADIUS + 9;
+    /** Width of the duration bar. */
+    public static final int DURATION_BAR_W = 92;
+    /** Height of the duration bar. */
+    public static final int DURATION_BAR_H = 6;
+    /** Centre y of the shield icon row. */
+    public static final int SHIELD_ROW_CY = CHARGE_ROW_CY + 20;
+    /** Left edge of the shield icon row. */
+    public static final int SHIELD_ROW_X = 16;
+    /** Width one shield icon occupies. */
+    public static final int SHIELD_ICON_STEP = 15;
+    /** Half-width of one shield icon. */
+    public static final int SHIELD_ICON_HALF = 5;
+    /** How long a consumed charge, an activation or a refusal is flashed, in ticks. */
+    public static final int FLASH_TICKS = 24;
+    /** Period of the refusal blink, in ticks. */
+    public static final int REFUSAL_BLINK_TICKS = 8;
+
     private static final Color SEED_COLOR = new Color(0x1C, 0x3A, 0x3E, 0xB0);
     private static final Color FLAME_CORE = new Color(0xFF, 0xE1, 0x8A);
     private static final Color FLAME_EDGE = new Color(0xFF, 0x8C, 0x2B);
     /** Gap between the flame and the streak text. */
     private static final int FLAME_GAP = 9;
 
+    private static final Color BADGE_BACK = new Color(0x10, 0x1C, 0x1E, 0xB4);
+    private static final Color RING_EMPTY = new Color(0x4A, 0x6A, 0x6C, 0xC0);
+    private static final Color RING_FULL = new Color(0x6F, 0xD1, 0xA8);
+    private static final Color RING_CHARGING = new Color(0x3E, 0x9C, 0xC0);
+    private static final Color RING_REFUSED = new Color(0xE8, 0x5A, 0x4A);
+    private static final Color GLYPH = new Color(0xF4, 0xF8, 0xF8);
+    private static final Color PIP_EMPTY = new Color(0x24, 0x38, 0x3A, 0xC8);
+    private static final Color SHIELD_FILL = new Color(0x7E, 0xC8, 0xF0);
+    private static final Color SHIELD_EMPTY = new Color(0x24, 0x38, 0x3A, 0xB0);
+    private static final Color DURATION_BACK = new Color(0x10, 0x1C, 0x1E, 0xA0);
+    private static final Stroke RING_STROKE = new BasicStroke(4f, BasicStroke.CAP_BUTT,
+            BasicStroke.JOIN_ROUND);
+    private static final Stroke FLASH_STROKE = new BasicStroke(2f);
+    private static final Stroke PIP_STROKE = new BasicStroke(1.5f);
+    private static final Color[] ACTIVATION_FADE = fadeRamp(RING_FULL);
+    private static final Color[] SHIELD_FADE = fadeRamp(SHIELD_FILL);
+
     private final Ellipse2D.Double coinShape = new Ellipse2D.Double();
+    private final Ellipse2D.Double pipShape = new Ellipse2D.Double();
+    private final Arc2D.Double ringShape = new Arc2D.Double(Arc2D.OPEN);
     private final int[] flameX = new int[3];
     private final int[] flameY = new int[3];
+    private final int[] glyphX = new int[4];
+    private final int[] glyphY = new int[4];
+    private final int[] shieldX = new int[5];
+    private final int[] shieldY = new int[5];
     private String readyHint;
     private String streakLabel = "";
     private String coinLabel = "";
+    private String abilityName = "";
+    private String abilityReadyLabel = "";
+    private String abilityCooldownLabel = "";
+    private String shieldLabel = "";
     private int streakStep;
     private int ticks;
     private long animTicks;
@@ -76,6 +153,16 @@ public final class HudRenderer {
     private String streakText = "";
     private int coinsShown = -1;
     private String coinsText = "";
+    private int cooldownShown = -1;
+    private String cooldownText = "";
+    private int shieldShownCount = -1;
+    private String shieldText = "";
+    private int shieldCharges = -1;
+    private int shieldFlashIndex;
+    private int shieldFlashTicks;
+    private int abilityActivations;
+    private int abilityFlashTicks;
+    private int refusedTicks;
 
     /**
      * Creates the HUD.
@@ -173,13 +260,147 @@ public final class HudRenderer {
         return streakStep > 0 && streak >= streakStep;
     }
 
-    /** Advances the blink and the coin spin by one tick. */
+    /**
+     * Sets the name of the equipped active ability, already translated by the screen (D18).
+     * An empty name hides the ability badge, which is what a run without an active ability shows.
+     *
+     * @param abilityName the name, or {@code null} for none
+     */
+    public void setAbilityName(String abilityName) {
+        this.abilityName = abilityName == null ? "" : abilityName;
+    }
+
+    /**
+     * The name of the ability the badge is about.
+     *
+     * @return the name, empty when no badge is drawn
+     */
+    public String abilityName() {
+        return abilityName;
+    }
+
+    /**
+     * Sets the two ability state labels, already translated by the screen (D18).
+     *
+     * @param readyLabel the word shown when the ability is off cooldown
+     * @param cooldownLabel the pattern of the cooldown readout, {@code {0}} standing for the
+     *     ticks left
+     */
+    public void setAbilityStateLabels(String readyLabel, String cooldownLabel) {
+        this.abilityReadyLabel = readyLabel == null ? "" : readyLabel;
+        this.abilityCooldownLabel = cooldownLabel == null ? "" : cooldownLabel;
+        this.cooldownShown = -1;
+    }
+
+    /**
+     * Sets the shield readout's template, already translated by the screen (D18).
+     *
+     * @param shieldLabel the pattern, {@code {0}} standing for the charges left
+     */
+    public void setShieldLabel(String shieldLabel) {
+        this.shieldLabel = shieldLabel == null ? "" : shieldLabel;
+        this.shieldShownCount = -1;
+    }
+
+    /**
+     * The shield readout as it is drawn.
+     *
+     * @return the text, empty while the run has no shield charge at all
+     */
+    public String shieldText() {
+        return shieldText;
+    }
+
+    /**
+     * The ability state line as it is drawn: the ready word, or the cooldown readout.
+     *
+     * @return the text, empty while no active ability is equipped
+     */
+    public String abilityStateText() {
+        return cooldownText;
+    }
+
+    /**
+     * Flashes the ability badge in the refusal colour: the player pressed the ability key and
+     * nothing happened (on cooldown, out of charges, or stripped by the run's rules, D9).
+     */
+    public void flashAbilityRefused() {
+        refusedTicks = FLASH_TICKS;
+    }
+
+    /**
+     * Whether the refusal flash is running.
+     *
+     * @return {@code true} while the badge is blinking red
+     */
+    public boolean isAbilityRefused() {
+        return refusedTicks > 0;
+    }
+
+    /**
+     * Whether the consumed-charge flash is running.
+     *
+     * @return {@code true} while a spent shield charge is being flashed
+     */
+    public boolean isShieldFlashing() {
+        return shieldFlashTicks > 0;
+    }
+
+    /**
+     * Whether the activation flash is running.
+     *
+     * @return {@code true} just after the ability was activated
+     */
+    public boolean isAbilityFlashing() {
+        return abilityFlashTicks > 0;
+    }
+
+    /** Advances the blink and the coin spin by one tick, watching nothing. */
     public void tick() {
+        tick(null);
+    }
+
+    /**
+     * Advances the blink, the coin spin and the three flashes by one tick, and watches the run
+     * for the two things that deserve one: a spent shield charge and an ability activation.
+     *
+     * <p>The flashes are derived from counters the simulation already keeps
+     * ({@code ShieldSystem.charges}, {@code AbilityInstance.activations}) rather than from a fact
+     * the screen forwards, so a HUD driven by a replayed run flashes at exactly the same ticks
+     * the live one did.
+     *
+     * @param run the run being played, or {@code null} outside one
+     */
+    public void tick(Run run) {
         ticks++;
         animTicks++;
         if (ticks >= BLINK_PERIOD_TICKS) {
             ticks = 0;
         }
+        if (shieldFlashTicks > 0) {
+            shieldFlashTicks--;
+        }
+        if (abilityFlashTicks > 0) {
+            abilityFlashTicks--;
+        }
+        if (refusedTicks > 0) {
+            refusedTicks--;
+        }
+        if (run == null) {
+            return;
+        }
+        int charges = run.simulation().shield().charges();
+        if (shieldCharges >= 0 && charges < shieldCharges) {
+            shieldFlashTicks = FLASH_TICKS;
+            shieldFlashIndex = charges;
+        }
+        shieldCharges = charges;
+        AbilityInstance active = run.simulation().abilities().active();
+        int activations = active == null ? 0 : active.activations();
+        if (activations > abilityActivations) {
+            abilityFlashTicks = FLASH_TICKS;
+        }
+        abilityActivations = activations;
     }
 
     /** Restarts the blink and the cached score, streak and coin text (a new run). */
@@ -192,6 +413,16 @@ public final class HudRenderer {
         streakText = "";
         coinsShown = -1;
         coinsText = "";
+        cooldownShown = -1;
+        cooldownText = "";
+        shieldShownCount = -1;
+        shieldText = "";
+        shieldCharges = -1;
+        shieldFlashTicks = 0;
+        shieldFlashIndex = 0;
+        abilityActivations = 0;
+        abilityFlashTicks = 0;
+        refusedTicks = 0;
     }
 
     /**
@@ -256,6 +487,9 @@ public final class HudRenderer {
                 ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
 
+        renderAbility(g, run, palette);
+        renderShield(g, run, palette);
+
         if (run.phase() == RunPhase.READY && promptVisible()) {
             g.setFont(Fonts.bold(16));
             TextPainter.drawOutlined(g, readyHint, Playfield.WIDTH / 2.0, HINT_BASELINE_Y,
@@ -268,6 +502,234 @@ public final class HudRenderer {
             g.setColor(SEED_COLOR);
             TextPainter.drawRight(g, seedText, Playfield.WIDTH - 10.0, SEED_BASELINE_Y);
         }
+    }
+
+    /**
+     * Draws the ability badge (M5, D9, D17): the cooldown ring, the glyph, the charge pips of a
+     * charge-gated ability, the duration bar while the effect is running, and the name and state
+     * beside them.
+     *
+     * <p>The ring <em>fills</em> as the ability recharges — a full ring means ready — because the
+     * question the player asks mid-flight is "can I use it now", not "how long has it been". The
+     * three flashes ride on top: a bright pulse on activation, a red blink when the key was
+     * pressed and nothing happened.
+     *
+     * <p>Nothing is allocated: the arc and the ellipse are scratch objects of this renderer, the
+     * glyph is an int polygon, and the state string is rebuilt only when its number changes.
+     *
+     * @param g the context
+     * @param run the run
+     * @param palette the world palette
+     */
+    private void renderAbility(Graphics2D g, Run run, WorldPalette palette) {
+        AbilityInstance active = run.simulation().abilities().active();
+        if (active == null) {
+            cooldownShown = -1;
+            cooldownText = "";
+            return;
+        }
+        double fraction = 1 - active.cooldownFraction(run.simulation().stats());
+        boolean ready = active.isReady();
+        // The blink starts lit: the answer to "why did nothing happen" has to be on screen on the
+        // very frame the key was pressed, not a sixth of a second later.
+        boolean refused = refusedTicks > 0
+                && ((FLASH_TICKS - refusedTicks) / REFUSAL_BLINK_TICKS) % 2 == 0;
+
+        double left = ABILITY_CX - ABILITY_RADIUS;
+        double top = ABILITY_CY - ABILITY_RADIUS;
+        double size = 2.0 * ABILITY_RADIUS;
+        pipShape.setFrame(left, top, size, size);
+        g.setColor(BADGE_BACK);
+        g.fill(pipShape);
+
+        Stroke old = g.getStroke();
+        g.setStroke(RING_STROKE);
+        ringShape.setArc(left + 2, top + 2, size - 4, size - 4, 90, -360, Arc2D.OPEN);
+        g.setColor(RING_EMPTY);
+        g.draw(ringShape);
+        if (fraction > 0) {
+            ringShape.setArc(left + 2, top + 2, size - 4, size - 4, 90,
+                    -360 * MathUtil.clamp(fraction, 0, 1), Arc2D.OPEN);
+            g.setColor(refused ? RING_REFUSED : (ready ? RING_FULL : RING_CHARGING));
+            g.draw(ringShape);
+        }
+        if (abilityFlashTicks > 0) {
+            double grow = ABILITY_RADIUS + 5.0 * (FLASH_TICKS - abilityFlashTicks) / FLASH_TICKS;
+            g.setStroke(FLASH_STROKE);
+            g.setColor(fade(ACTIVATION_FADE, abilityFlashTicks));
+            pipShape.setFrame(ABILITY_CX - grow, ABILITY_CY - grow, 2 * grow, 2 * grow);
+            g.draw(pipShape);
+        }
+        g.setStroke(old);
+        drawSpark(g, ABILITY_CX, ABILITY_CY, ABILITY_RADIUS * 0.42,
+                refused ? RING_REFUSED : (ready ? GLYPH : ProceduralArt.TEXT_MUTED));
+
+        Color outline = ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX);
+        if (!abilityName.isEmpty()) {
+            g.setFont(Fonts.bold(12));
+            TextPainter.drawOutlined(g, abilityName, ABILITY_TEXT_X, ABILITY_CY - 4.0, Align.LEFT,
+                    ProceduralArt.TEXT_LIGHT, outline, 2);
+        }
+
+        if (active.isActive()) {
+            double span = active.durationFraction(run.simulation().stats());
+            g.setColor(DURATION_BACK);
+            g.fillRoundRect(ABILITY_TEXT_X, ABILITY_CY + 3, DURATION_BAR_W, DURATION_BAR_H, 4, 4);
+            g.setColor(RING_FULL);
+            g.fillRoundRect(ABILITY_TEXT_X, ABILITY_CY + 3,
+                    (int) Math.round(DURATION_BAR_W * span), DURATION_BAR_H, 4, 4);
+            cooldownShown = -1;
+            cooldownText = "";
+        } else {
+            int remaining = active.cooldownRemaining();
+            if (remaining != cooldownShown) {
+                cooldownShown = remaining;
+                cooldownText = remaining == 0 ? abilityReadyLabel
+                        : abilityCooldownLabel.replace("{0}", Integer.toString(remaining));
+            }
+            if (!cooldownText.isEmpty()) {
+                g.setFont(Fonts.bold(11));
+                TextPainter.drawOutlined(g, cooldownText, ABILITY_TEXT_X, ABILITY_CY + 11.0,
+                        Align.LEFT, ready ? RING_FULL : ProceduralArt.TEXT_MUTED, outline, 2);
+            }
+        }
+
+        int maxCharges = active.maxCharges();
+        if (maxCharges > 0) {
+            int held = active.charges();
+            double startX = ABILITY_CX - (maxCharges - 1) * CHARGE_PIP_STEP / 2.0;
+            for (int i = 0; i < maxCharges; i++) {
+                double cx = startX + i * CHARGE_PIP_STEP;
+                pipShape.setFrame(cx - CHARGE_PIP_RADIUS, CHARGE_ROW_CY - CHARGE_PIP_RADIUS,
+                        2.0 * CHARGE_PIP_RADIUS, 2.0 * CHARGE_PIP_RADIUS);
+                g.setColor(i < held ? RING_FULL : PIP_EMPTY);
+                g.fill(pipShape);
+                g.setStroke(PIP_STROKE);
+                g.setColor(RING_EMPTY);
+                g.draw(pipShape);
+                g.setStroke(old);
+            }
+        }
+    }
+
+    /**
+     * Draws the shield charges as small icons and their localised readout, plus the flash a
+     * consumed charge leaves behind (D9: the charges are stat-driven, so this row appears for a
+     * bare {@code SHIELD_CHARGES} upgrade with no ability equipped).
+     *
+     * @param g the context
+     * @param run the run
+     * @param palette the world palette
+     */
+    private void renderShield(Graphics2D g, Run run, WorldPalette palette) {
+        ShieldSystem shield = run.simulation().shield();
+        int max = shield.maxCharges();
+        if (max <= 0) {
+            shieldShownCount = -1;
+            shieldText = "";
+            return;
+        }
+        int held = shield.charges();
+        for (int i = 0; i < max; i++) {
+            double cx = SHIELD_ROW_X + i * SHIELD_ICON_STEP + SHIELD_ICON_HALF;
+            drawShieldIcon(g, cx, SHIELD_ROW_CY, i < held ? SHIELD_FILL : SHIELD_EMPTY);
+        }
+        if (shieldFlashTicks > 0 && shieldFlashIndex < max) {
+            double cx = SHIELD_ROW_X + shieldFlashIndex * SHIELD_ICON_STEP + SHIELD_ICON_HALF;
+            double grow = SHIELD_ICON_HALF
+                    + 7.0 * (FLASH_TICKS - shieldFlashTicks) / FLASH_TICKS;
+            Stroke old = g.getStroke();
+            g.setStroke(FLASH_STROKE);
+            g.setColor(fade(SHIELD_FADE, shieldFlashTicks));
+            pipShape.setFrame(cx - grow, SHIELD_ROW_CY - grow, 2 * grow, 2 * grow);
+            g.draw(pipShape);
+            g.setStroke(old);
+        }
+        if (held != shieldShownCount) {
+            shieldShownCount = held;
+            shieldText = shieldLabel.isEmpty() ? Integer.toString(held)
+                    : shieldLabel.replace("{0}", Integer.toString(held));
+        }
+        g.setFont(Fonts.bold(11));
+        TextPainter.drawOutlined(g, shieldText,
+                SHIELD_ROW_X + max * (double) SHIELD_ICON_STEP + 4, SHIELD_ROW_CY + 4.0,
+                Align.LEFT, ProceduralArt.TEXT_LIGHT,
+                ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
+    }
+
+    /**
+     * One shield icon: a five-point crest, filled through this renderer's polygon arrays.
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param color the fill
+     */
+    private void drawShieldIcon(Graphics2D g, double cx, double cy, Color color) {
+        double w = SHIELD_ICON_HALF;
+        double h = 7;
+        shieldX[0] = (int) Math.round(cx - w);
+        shieldY[0] = (int) Math.round(cy - h);
+        shieldX[1] = (int) Math.round(cx + w);
+        shieldY[1] = (int) Math.round(cy - h);
+        shieldX[2] = (int) Math.round(cx + w);
+        shieldY[2] = (int) Math.round(cy + h * 0.2);
+        shieldX[3] = (int) Math.round(cx);
+        shieldY[3] = (int) Math.round(cy + h);
+        shieldX[4] = (int) Math.round(cx - w);
+        shieldY[4] = (int) Math.round(cy + h * 0.2);
+        g.setColor(color);
+        g.fillPolygon(shieldX, shieldY, 5);
+    }
+
+    /**
+     * The four-point spark inside the ability badge, filled through this renderer's polygon
+     * arrays so the glyph costs no allocation.
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param r the half-diagonal
+     * @param color the fill
+     */
+    private void drawSpark(Graphics2D g, double cx, double cy, double r, Color color) {
+        glyphX[0] = (int) Math.round(cx);
+        glyphY[0] = (int) Math.round(cy - r);
+        glyphX[1] = (int) Math.round(cx + r * 0.42);
+        glyphY[1] = (int) Math.round(cy);
+        glyphX[2] = (int) Math.round(cx);
+        glyphY[2] = (int) Math.round(cy + r);
+        glyphX[3] = (int) Math.round(cx - r * 0.42);
+        glyphY[3] = (int) Math.round(cy);
+        g.setColor(color);
+        g.fillPolygon(glyphX, glyphY, 4);
+    }
+
+    /**
+     * The fade of a flash, precomputed per tick of the window so a flashing frame allocates no
+     * colour (D18).
+     *
+     * @param base the opaque colour
+     * @return one colour per remaining-tick count, index {@code 0} fully transparent
+     */
+    private static Color[] fadeRamp(Color base) {
+        Color[] ramp = new Color[FLASH_TICKS + 1];
+        for (int i = 0; i <= FLASH_TICKS; i++) {
+            ramp[i] = new Color(base.getRed(), base.getGreen(), base.getBlue(),
+                    MathUtil.clamp((int) Math.round(255.0 * i / FLASH_TICKS), 0, 255));
+        }
+        return ramp;
+    }
+
+    /**
+     * A colour faded out over the flash window.
+     *
+     * @param ramp the precomputed ramp
+     * @param ticksLeft how much of the flash is left
+     * @return the faded colour
+     */
+    private static Color fade(Color[] ramp, int ticksLeft) {
+        return ramp[MathUtil.clamp(ticksLeft, 0, FLASH_TICKS)];
     }
 
     /**

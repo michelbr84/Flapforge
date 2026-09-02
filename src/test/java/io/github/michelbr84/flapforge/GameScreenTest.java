@@ -3,15 +3,23 @@ package io.github.michelbr84.flapforge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.michelbr84.flapforge.app.FrameLimiter;
 import io.github.michelbr84.flapforge.app.GameLoop;
 import io.github.michelbr84.flapforge.app.NullPresenter;
+import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.content.RunFactory;
+import io.github.michelbr84.flapforge.content.StringKey;
+import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
+import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import io.github.michelbr84.flapforge.input.InputQueue;
 import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.input.Keys;
@@ -26,6 +34,8 @@ import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
+import io.github.michelbr84.flapforge.ui.screens.SeededRunSource;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -317,6 +327,116 @@ class GameScreenTest {
         assertTrue(over.promptVisible(), "shown after 60 ticks");
         ticks(60);
         assertFalse(over.promptVisible(), "hidden again after 120");
+    }
+
+    // ------------------------------------------------------------------ abilities (M5)
+
+    /**
+     * Replaces the screen on the stack with one whose runs carry a loadout, built from the shipped
+     * content so the numbers under test are the shipped ones.
+     *
+     * @param activeAbilityId the active ability to equip
+     * @param rules the rules the run carries
+     */
+    private void openGameWith(String activeAbilityId, RuleSet rules) {
+        GameContent content = GameContent.load();
+        RunFactory runs = new RunFactory(content);
+        SeededRunSource source = seed -> runs.newRun(RunConfig.builder(seed)
+                .mode(RunMode.SEEDED)
+                .activeAbilityId(activeAbilityId)
+                .rules(rules)
+                .build());
+        screens.pop();
+        ticks(GRACE);
+        game = new GameScreen(screens, source, SeedSequence.from(42L));
+        screens.push(game);
+        ticks(GRACE);
+    }
+
+    @Test
+    void theAbilityKeyActivatesTheEquippedActiveAbility() {
+        openGameWith("double_flap", RuleSet.EMPTY);
+        assertEquals("double_flap", game.run().simulation().abilities().active().id());
+        assertEquals(2, game.run().simulation().abilities().active().charges(),
+                "the double flap ships two charges at level 1");
+
+        tap(Keys.SPACE);
+        fly(20);
+        double before = game.run().simulation().bird().vy();
+        assertTrue(before > 0, "the bird is falling twenty ticks after its flap");
+
+        tap(Keys.X);
+        assertEquals(1, game.run().simulation().abilities().active().charges(),
+                "the press spent a charge");
+        assertEquals(1, game.run().stats().abilitiesUsed().getOrDefault("double_flap", 0),
+                "and the run counted the use");
+        assertTrue(game.run().simulation().bird().vy() < 0,
+                "the double flap cancelled the fall and flapped again (D9)");
+        assertEquals("", game.lastAbilityRefusal(), "an accepted press is not a refusal");
+        assertFalse(game.renderer().hud().isAbilityRefused());
+        assertTrue(game.renderer().hud().isAbilityFlashing(),
+                "the HUD flashes the activation");
+    }
+
+    @Test
+    void theRightMouseButtonActivatesTheAbilityToo() {
+        openGameWith("double_flap", RuleSet.EMPTY);
+        tap(Keys.SPACE);
+        fly(20);
+        input.offer(new RawInput.MouseDown(Keys.BUTTON_RIGHT, 200, 300));
+        input.offer(new RawInput.MouseUp(Keys.BUTTON_RIGHT, 200, 300));
+        ticks(1);
+        assertEquals(1, game.run().simulation().abilities().active().charges(),
+                "the right button is the ability button (E29)");
+    }
+
+    @Test
+    void anAbilityOnCooldownIsRefusedWithACue() {
+        openGameWith("dash", RuleSet.EMPTY);
+        tap(Keys.SPACE);
+        fly(10);
+        tap(Keys.X);
+        assertTrue(game.run().simulation().abilities().active().isActive(), "the dash is running");
+
+        // A second press while the burst runs and the 600-tick cooldown is on buys nothing.
+        tap(Keys.X);
+        assertEquals(1, game.run().stats().abilitiesUsed().getOrDefault("dash", 0),
+                "the second press did not activate anything");
+        assertTrue(game.renderer().hud().isAbilityRefused(), "the badge blinks the refusal");
+        assertEquals(Strings.active().get(StringKey.TOAST_ABILITY_COOLDOWN),
+                game.lastAbilityRefusal());
+    }
+
+    @Test
+    void anAbilityTheRulesStripIsRefusedWithTheRule() {
+        // NO_DEFENSIVE_ABILITIES strips the invulnerability ability outright (D9), so the run
+        // carries no active ability at all and the cue has to name the rule, not the cooldown.
+        openGameWith("invulnerability", RuleSet.of(RuleFlag.NO_DEFENSIVE_ABILITIES));
+        assertNull(game.run().simulation().abilities().active(), "the ability was stripped");
+        assertEquals(List.of("invulnerability"), game.run().simulation().abilities().strippedIds());
+        assertEquals("", game.renderer().hud().abilityName(),
+                "a stripped ability gets no HUD badge");
+
+        tap(Keys.SPACE);
+        fly(5);
+        tap(Keys.X);
+        assertTrue(game.renderer().hud().isAbilityRefused());
+        assertEquals(Strings.active().format(StringKey.TOAST_ABILITY_BLOCKED,
+                        Strings.active().get(StringKey.RULE_NO_DEFENSIVE_ABILITIES)),
+                game.lastAbilityRefusal(),
+                "the cue names the rule that took the ability away");
+    }
+
+    @Test
+    void withoutAnAbilityThePressSaysThereIsNothingToUse() {
+        // The default screen of this test class plays the classic seam: no loadout at all.
+        tap(Keys.SPACE);
+        fly(5);
+        tap(Keys.X);
+        assertTrue(game.renderer().hud().isAbilityRefused());
+        assertEquals(Strings.active().get(StringKey.TOAST_ABILITY_NONE),
+                game.lastAbilityRefusal());
+        assertEquals("", game.renderer().hud().abilityName());
     }
 
     @Test

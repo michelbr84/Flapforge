@@ -2,6 +2,7 @@ package io.github.michelbr84.flapforge.progression;
 
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
+import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
@@ -21,6 +22,11 @@ import java.util.Objects;
  *
  * <p>Nothing here writes: a run configuration is a snapshot, and a snapshot of a mutable profile
  * has to be taken at a point in time — the moment the run starts.
+ *
+ * <p>The abilities travel as ids plus {@code profile.passiveSlotBonus} (E3), not as a resolved
+ * loadout: how many of the selected passives fit depends on the bird, which the content layer
+ * resolves ({@code RunFactory.loadout}), and what the rules allow depends on the world, the tier
+ * and the challenge, which the simulation strips defensively at run start (D9).
  */
 public final class RunLoadout {
 
@@ -48,6 +54,7 @@ public final class RunLoadout {
                 .tierId(selected.tierId)
                 .activeAbilityId(selected.activeAbilityId)
                 .passiveAbilityIds(selected.passiveAbilityIds)
+                .passiveSlotBonus(profile.passiveSlotBonus)
                 .abilityLevels(profile.abilityLevels)
                 .permanentEffects(upgradeEffects(profile, content))
                 .upgradeLevelsTotal(profile.upgradeLevelsTotal());
@@ -82,8 +89,24 @@ public final class RunLoadout {
      * @return the resolved sheet of a run started right now
      */
     public static StatSheet previewStats(PlayerProfile profile, GameContent content) {
+        return previewRun(profile, content).simulation().stats();
+    }
+
+    /**
+     * The run the profile would start right now, for a screen that wants to show what the next
+     * run will actually be (D8, D9, D17).
+     *
+     * <p>It is a real {@code Run}, not a summary of one: the selection screen reads its stat sheet
+     * for the breakdown and its {@code RuleSet} for the abilities the run's world, tier and
+     * challenge would strip, and both are then the numbers and the rules the bird will fly with.
+     *
+     * @param profile the profile to read
+     * @param content the loaded content
+     * @return the run, never started
+     */
+    public static Run previewRun(PlayerProfile profile, GameContent content) {
         RunConfig config = configFor(profile, content, profile.lastSeed, RunMode.STANDARD);
-        return new RunFactory(content).newRun(config).simulation().stats();
+        return new RunFactory(content).newRun(config);
     }
 
     /**

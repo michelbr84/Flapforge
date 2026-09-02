@@ -1,57 +1,107 @@
 {
-  "_comment": "M4 stub with the FINAL unlock and cost blocks (plan A.0.1 E19). Authored now: id, kind, behavior, tags, unlock and one level entry per level carrying its cost - the strict validator resolves every ability: reference with them, the shop prices levels with them and the E3 cap rule (base cap 2 + the single ability_cap grant <= 3 levels) is checked against them. M5 fills effects, cooldownTicks, durationTicks and params in place, and switches on the BehaviorRegistry check for 'behavior'. Level 1 comes with the unlock and costs 0; levels 2 and 3 cost 2x and 4x the ability's purchase price.",
+  "_comment": "M5 completes the M4 stub in place (plan A.0.1 E19): the unlock and cost blocks are carried over, and effects, cooldownTicks, durationTicks and params are filled in beside them. The one price M5 changed is coin_magnet's, which the per-ability measurement showed was worth a fraction of what it cost (see its comment). Effects of a PASSIVE apply for the whole run; effects of an ACTIVE apply only while its duration runs (D9). Every params key is declared by the behaviour in ability/behaviors and checked by ContentValidator against BehaviorRegistry, so a typo here is a content error. Level 1 comes with the unlock and costs 0; levels 2 and 3 cost 2x and 4x the ability's purchase price and are capped by profile.abilityLevelCap (E3: base 2 + the single ability_cap grant).",
   "abilities": [
     { "id": "double_flap", "kind": "ACTIVE", "behavior": "double_flap", "tags": ["MOVEMENT"],
-      "levels": [ { "cost": 0 }, { "cost": 300 }, { "cost": 600 } ],
+      "levels": [
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "flapMultiplier": 1.5, "charges": 2, "rechargeEveryGates": 5 },
+          "cost": 0 },
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "flapMultiplier": 1.5, "charges": 3, "rechargeEveryGates": 5 },
+          "cost": 300 },
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "flapMultiplier": 1.6, "charges": 3, "rechargeEveryGates": 4 },
+          "cost": 600 } ],
       "effects": [],
       "unlock": { "type": "default" } },
     { "id": "shield", "kind": "PASSIVE", "behavior": "shield", "tags": ["DEFENSIVE"],
-      "levels": [ { "cost": 0 }, { "cost": 400 }, { "cost": 800 } ],
-      "effects": [],
+      "levels": [
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "invulnTicks": 45, "regenEveryGates": 0 },
+          "cost": 0 },
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "invulnTicks": 45, "regenEveryGates": 15 },
+          "cost": 400 },
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "invulnTicks": 60, "regenEveryGates": 10 },
+          "cost": 800 } ],
+      "effects": [ { "stat": "SHIELD_CHARGES", "op": "FLAT_ADD", "value": 1 } ],
       "unlock": { "type": "any_of", "conditions": [
         { "type": "runs", "value": 5 },
         { "type": "purchase", "amount": 200 }
       ] } },
     { "id": "dash", "kind": "ACTIVE", "behavior": "dash", "tags": ["MOVEMENT"],
-      "levels": [ { "cost": 0 }, { "cost": 500 }, { "cost": 1000 } ],
-      "effects": [],
+      "levels": [
+        { "cooldownTicks": 600, "durationTicks": 20,
+          "params": { "invulnExtraTicks": 0 },
+          "cost": 0 },
+        { "cooldownTicks": 500, "durationTicks": 26,
+          "params": { "invulnExtraTicks": 6 },
+          "cost": 500 },
+        { "cooldownTicks": 400, "durationTicks": 32,
+          "params": { "invulnExtraTicks": 12 },
+          "cost": 1000 } ],
+      "effects": [ { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 2.5 } ],
       "unlock": { "type": "any_of", "conditions": [
         { "type": "best_gates", "value": 10 },
         { "type": "purchase", "amount": 250 }
       ] } },
-    { "id": "coin_magnet", "kind": "PASSIVE", "behavior": "coin_magnet", "tags": ["ECONOMY"],
-      "levels": [ { "cost": 0 }, { "cost": 500 }, { "cost": 1000 } ],
-      "effects": [],
+    { "_comment": "Priced from measurement, not from symmetry (docs/BALANCING.md, M5 per-ability table): with the M5 coin trail laid on the safe band the magnet is worth +0.13 coins per run over 200 average-bot seeds, so it is the cheapest ability in the shop (120 / 240 / 480) instead of costing as much as the dash. It becomes a real purchase with the M6 coin modifiers and the M7 obstacle families, which put coins off the flight line.",
+      "id": "coin_magnet", "kind": "PASSIVE", "behavior": "coin_magnet", "tags": ["ECONOMY"],
+      "levels": [
+        { "cooldownTicks": 0, "durationTicks": 0, "params": { "extraRadius": 0 }, "cost": 0 },
+        { "cooldownTicks": 0, "durationTicks": 0, "params": { "extraRadius": 40 }, "cost": 240 },
+        { "cooldownTicks": 0, "durationTicks": 0, "params": { "extraRadius": 70 },
+          "cost": 480 } ],
+      "effects": [ { "stat": "MAGNET_RADIUS", "op": "FLAT_ADD", "value": 90 } ],
       "unlock": { "type": "any_of", "conditions": [
         { "type": "coins_earned_total", "value": 500 },
-        { "type": "purchase", "amount": 250 }
+        { "type": "purchase", "amount": 120 }
       ] } },
     { "id": "slow_time", "kind": "ACTIVE", "behavior": "slow_time", "tags": ["TEMPO"],
-      "levels": [ { "cost": 0 }, { "cost": 700 }, { "cost": 1400 } ],
-      "effects": [],
+      "levels": [
+        { "cooldownTicks": 900, "durationTicks": 90, "params": {}, "cost": 0 },
+        { "cooldownTicks": 800, "durationTicks": 120, "params": {}, "cost": 700 },
+        { "cooldownTicks": 700, "durationTicks": 150, "params": {}, "cost": 1400 } ],
+      "effects": [ { "stat": "TIME_SCALE", "op": "MULTIPLY", "value": 0.5 } ],
       "unlock": { "type": "any_of", "conditions": [
         { "type": "level", "value": 4 },
         { "type": "purchase", "amount": 350 }
       ] } },
     { "id": "emergency_recovery", "kind": "PASSIVE", "behavior": "emergency_recovery",
       "tags": ["DEFENSIVE", "REVIVE"],
-      "levels": [ { "cost": 0 }, { "cost": 800 }, { "cost": 1600 } ],
-      "effects": [],
+      "levels": [
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "invulnTicks": 90, "kickMultiplier": 1.0 },
+          "cost": 0 },
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "invulnTicks": 105, "kickMultiplier": 1.15 },
+          "cost": 800 },
+        { "cooldownTicks": 0, "durationTicks": 0,
+          "params": { "invulnTicks": 120, "kickMultiplier": 1.3 },
+          "cost": 1600 } ],
+      "effects": [ { "stat": "REVIVES", "op": "FLAT_ADD", "value": 1 } ],
       "unlock": { "type": "any_of", "conditions": [
         { "type": "total_gates", "value": 150 },
         { "type": "purchase", "amount": 400 }
       ] } },
     { "id": "score_multiplier", "kind": "ACTIVE", "behavior": "score_multiplier",
       "tags": ["ECONOMY"],
-      "levels": [ { "cost": 0 }, { "cost": 900 }, { "cost": 1800 } ],
-      "effects": [],
+      "levels": [
+        { "cooldownTicks": 1200, "durationTicks": 300, "params": {}, "cost": 0 },
+        { "cooldownTicks": 1050, "durationTicks": 360, "params": {}, "cost": 900 },
+        { "cooldownTicks": 900, "durationTicks": 420, "params": {}, "cost": 1800 } ],
+      "effects": [ { "stat": "SCORE_MULT", "op": "MULTIPLY", "value": 2 } ],
       "unlock": { "type": "any_of", "conditions": [
         { "type": "best_gates", "value": 20 },
         { "type": "purchase", "amount": 450 }
       ] } },
     { "id": "invulnerability", "kind": "ACTIVE", "behavior": "invulnerability",
       "tags": ["DEFENSIVE"],
-      "levels": [ { "cost": 0 }, { "cost": 1400 }, { "cost": 2800 } ],
+      "levels": [
+        { "cooldownTicks": 1500, "durationTicks": 120, "params": {}, "cost": 0 },
+        { "cooldownTicks": 1300, "durationTicks": 150, "params": {}, "cost": 1400 },
+        { "cooldownTicks": 1100, "durationTicks": 180, "params": {}, "cost": 2800 } ],
       "effects": [],
       "unlock": { "type": "any_of", "conditions": [
         { "type": "challenge", "id": "one_life_1" },

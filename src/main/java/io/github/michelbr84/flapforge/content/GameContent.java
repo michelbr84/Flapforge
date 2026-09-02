@@ -95,7 +95,7 @@ public final class GameContent {
     /** The kinds whose systems already exist; every other kind is authored but not yet playable. */
     private static final Set<ContentKind> PLAYABLE_KINDS = Collections.unmodifiableSet(EnumSet.of(
             ContentKind.BIRD, ContentKind.COSMETIC, ContentKind.UPGRADE, ContentKind.TREE,
-            ContentKind.TIER, ContentKind.FEATURE, ContentKind.WORLD));
+            ContentKind.TIER, ContentKind.FEATURE, ContentKind.WORLD, ContentKind.ABILITY));
 
     private final Set<String> files;
     private final Registry<BirdDef> birds;
