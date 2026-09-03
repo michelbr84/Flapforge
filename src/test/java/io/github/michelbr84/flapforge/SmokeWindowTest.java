@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assumptions.abort;
 
 import io.github.michelbr84.flapforge.app.AwtInputBridge;
 import io.github.michelbr84.flapforge.audio.AudioManager;
-import io.github.michelbr84.flapforge.audio.NullAudio;
+import io.github.michelbr84.flapforge.audio.MusicSequencer;
 import io.github.michelbr84.flapforge.app.BufferStrategyPresenter;
 import io.github.michelbr84.flapforge.app.FrameLimiter;
 import io.github.michelbr84.flapforge.app.GameApplication;
@@ -55,6 +55,7 @@ import io.github.michelbr84.flapforge.render.HudRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.render.WorldStyle;
+import io.github.michelbr84.flapforge.support.CaptureAudioBackend;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
@@ -63,7 +64,10 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Toggle;
+import io.github.michelbr84.flapforge.ui.screens.AchievementsScreen;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
+import io.github.michelbr84.flapforge.ui.screens.BossBanner;
+import io.github.michelbr84.flapforge.ui.screens.ChallengesScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
@@ -290,8 +294,10 @@ class SmokeWindowTest {
             store.load();
             Strings strings = Strings.load("en");
             Strings.use(strings);
-            // E30.j: the smoke rig never opens a sound device.
-            audio = new AudioManager(new NullAudio());
+            // E30.j: the smoke rig never opens a sound device — the capture backend records and
+            // mixes exactly what a real mixer would play, with no thread and no line (M8, D19:
+            // the run-music assertions below listen to it).
+            audio = new AudioManager(new CaptureAudioBackend());
             GameContent content = null;
             ProgressionManager progression = null;
             ProgressionRules progressionRules = null;
@@ -1173,6 +1179,15 @@ class SmokeWindowTest {
 
             // Iron Forge: fly until a gear or a piston is on screen, capture it, keep flying.
             GameScreen forge = play(rig, driver, menu, "iron_forge", WorldStyle.FACTORY);
+            // M8: the run started its world loop. The capture backend is the mix, so the loop
+            // being audible costs no sound device.
+            CaptureAudioBackend music = (CaptureAudioBackend) rig.audio.backend();
+            assertTrue(music.loopPlayList().stream().anyMatch(played ->
+                            played.id().equals(MusicSequencer.idForWorld("iron_forge"))
+                                    && played.gain() > 0.0f),
+                    "the forge run plays its world loop: " + music.loopPlayList());
+            assertTrue(rms(music.mixedLoopSeconds(0.25)) > 0.01,
+                    "the forge loop is audible in the rig's mix");
             WorldFlight forgeFlight = new WorldFlight(rig, forge);
             assertTrue(forgeFlight.fly(WORLD_WAIT_FRAMES, () -> onScreen(forge, ObstacleKind.GEAR)
                     || onScreen(forge, ObstacleKind.PISTON)),
@@ -1232,6 +1247,115 @@ class SmokeWindowTest {
             System.out.println("[smoke] void: " + voidFlight);
             leaveRun(rig, driver, menu);
 
+            rig.requestCloseAndVerify();
+        }
+    }
+
+    /**
+     * The M8 loop through the toolkit: the Challenges screen opened from the menu with a real
+     * click, its list stepped with real arrow keys to the corridor challenge, and Play starting
+     * that challenge's run — flown on the perfect bot's decisions until the boss warns, fights
+     * and is cleared, with the banner state, the HUD countdown and the objective line captured at
+     * each step; then the Achievements screen opened and its three tabs stepped with real arrow
+     * keys. The frames a reviewer looks at go to {@code build/smoke/}.
+     *
+     * <p>The challenge and a starter achievement set are granted outright in the test's home, so
+     * the screens have something to show; the boss flight retries on the game-over strip like the
+     * M7 flight does.
+     */
+    @Test
+    void theChallengesAndAchievementsShowWithTheToolkitAndAChallengeBossIsFlown() throws Exception {
+        requireDisplay();
+        try (Rig rig = new Rig("Flapforge smoke test (m8)", false, true)) {
+            PlayerProfile profile = rig.save.profile();
+            // What the smoke run is about to show: a playable challenge and a few held
+            // achievements, granted outright in the test's own home.
+            profile.unlock("challenge:boss_corridor_1");
+            profile.unlock("cosmetic:classic:ember");
+            profile.achievements.put("first_flight", new PlayerProfile.AchievementRecord(0L));
+            profile.achievements.put("gates_25", new PlayerProfile.AchievementRecord(0L));
+            MainMenuScreen menu = new MainMenuScreen(rig.context,
+                    new ContentRunFactory(GameContent.load(), RunMode.SEEDED, () -> profile),
+                    SeedSequence.of(42));
+            rig.start(menu);
+            rig.frames(30);
+            focusCanvasOrAbort(rig);
+            Driver driver = new Driver(rig);
+
+            // Menu -> Challenges; step the list to the corridor challenge with real arrow keys,
+            // one Right per challenge like the world picker is stepped.
+            driver.click(menu.challengesButton(),
+                    () -> rig.screens.top() instanceof ChallengesScreen);
+            ChallengesScreen challenges = (ChallengesScreen) rig.screens.top();
+            rig.frames(GRACE);
+            driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
+            List<String> challengeIds = GameContent.load().challenges().ids();
+            while (!"boss_corridor_1".equals(challenges.selected().id())) {
+                String next = challengeIds.get(challengeIds.indexOf(challenges.selected().id())
+                        + 1);
+                driver.tap(KeyEvent.VK_RIGHT, () -> next.equals(challenges.selected().id()));
+            }
+            assertNotNull(challenges.playSource(), "the granted challenge offers a run");
+            assertTrue(saveShot("challenges", rig) >= 2, "the challenges frame is uniform");
+
+            // A real click on Play starts the challenge's own run.
+            driver.click(challenges.playButton(), () -> rig.screens.top() instanceof GameScreen);
+            GameScreen game = (GameScreen) rig.screens.top();
+            rig.frames(GRACE);
+            assertEquals(RunMode.CHALLENGE, game.run().config().mode());
+            assertEquals("boss_corridor_1", game.run().config().challengeId());
+            assertEquals("green_fields", game.run().config().worldId());
+
+            // Fly until the banner telegraphs, fights and clears, capturing each state; the HUD
+            // countdown and the objective line ride along.
+            WorldFlight flight = new WorldFlight(rig, game);
+            BossBanner banner = game.bossBanner();
+            assertTrue(flight.fly(WORLD_WAIT_FRAMES,
+                            () -> banner.phase() == BossBanner.Phase.WARNING),
+                    () -> "no boss warning: " + flight);
+            assertTrue(saveShot("challenge-boss-warning", rig) >= 2,
+                    "the warning frame is uniform");
+            assertFalse(game.renderer().hud().bossText().isEmpty(),
+                    "the HUD runs its countdown beside the banner");
+            assertFalse(game.renderer().hud().objectiveText().isEmpty(),
+                    "the objective line is up during a challenge");
+
+            assertTrue(flight.fly(WORLD_WAIT_FRAMES,
+                            () -> banner.phase() == BossBanner.Phase.ACTIVE),
+                    () -> "the fight never started: " + flight);
+            assertTrue(saveShot("challenge-boss", rig) >= 2, "the boss frame is uniform");
+
+            assertTrue(flight.fly(WORLD_WAIT_FRAMES,
+                            () -> banner.phase() == BossBanner.Phase.CLEARED),
+                    () -> "the boss never cleared: " + flight);
+            assertTrue(saveShot("challenge-boss-cleared", rig) >= 2,
+                    "the cleared frame is uniform");
+            assertEquals(Strings.active().get(StringKey.HUD_OBJECTIVE_COMPLETE),
+                    game.renderer().hud().objectiveText(), "the objective latched on the clear");
+            System.out.println("[smoke] boss_corridor_1: " + flight);
+
+            leaveRun(rig, driver, menu);
+
+            // Menu -> Achievements: the three tabs stepped with real arrow keys.
+            driver.click(menu.achievementsButton(),
+                    () -> rig.screens.top() instanceof AchievementsScreen);
+            AchievementsScreen achievements = (AchievementsScreen) rig.screens.top();
+            rig.frames(GRACE);
+            driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
+            assertEquals(AchievementsScreen.TAB_ACHIEVEMENTS, achievements.tabBar().selectedId());
+            assertTrue(saveShot("achievements", rig) >= 2, "the achievements frame is uniform");
+            driver.tap(KeyEvent.VK_RIGHT, () -> achievements.tabBar().selectedId()
+                    .equals(AchievementsScreen.TAB_MILESTONES));
+            assertTrue(saveShot("achievements-milestones", rig) >= 2,
+                    "the milestones frame is uniform");
+            driver.tap(KeyEvent.VK_RIGHT, () -> achievements.tabBar().selectedId()
+                    .equals(AchievementsScreen.TAB_COLLECTIONS));
+            assertTrue(saveShot("achievements-collections", rig) >= 2,
+                    "the collections frame is uniform");
+            assertEquals(8, achievements.bars().size(), "one bar per collection category");
+
+            driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+            rig.frames(GRACE);
             rig.requestCloseAndVerify();
         }
     }
@@ -1370,7 +1494,7 @@ class SmokeWindowTest {
                         lastStartFrame = frames;
                         tap();
                     }
-                } else if (run.phase() == RunPhase.FLYING && run.tick() != decidedTick) {
+                } else if (flies(run.phase()) && run.tick() != decidedTick) {
                     decidedTick = run.tick();
                     if (pilot.decide(run).flap()) {
                         tap();
@@ -1396,6 +1520,20 @@ class SmokeWindowTest {
                     + ", best gates " + bestGates + ", now " + game.run().phase() + " at gate "
                     + game.run().stats().gatesPassed();
         }
+    }
+
+    /**
+     * Whether a run phase has the bird airborne and flying: every phase that ticks the
+     * simulation like {@code FLYING} (D11), which includes the boss countdown and the fight
+     * itself — a bot that only flaps in {@code FLYING} falls to the ground during
+     * {@code BOSS_WARNING}'s suppressed spawns and never reaches the fight.
+     *
+     * @param phase the phase to test
+     * @return {@code true} when the phase flies the bird
+     */
+    private static boolean flies(RunPhase phase) {
+        return phase == RunPhase.FLYING || phase == RunPhase.BREATHER
+                || phase == RunPhase.BOSS_WARNING || phase == RunPhase.BOSS;
     }
 
     /**
@@ -1639,6 +1777,18 @@ class SmokeWindowTest {
      * of distinct colours of the capture, or of the render when the capture is uniform or
      * unavailable (logged as a warning: the backbuffer could not be verified).
      */
+    /** Root-mean-square level of an interleaved sample buffer (the music-audible check). */
+    private static double rms(float[] samples) {
+        if (samples.length == 0) {
+            return 0.0;
+        }
+        double sum = 0.0;
+        for (float sample : samples) {
+            sum += (double) sample * sample;
+        }
+        return Math.sqrt(sum / samples.length);
+    }
+
     private static int saveShot(String name, Rig rig) throws Exception {
         int w = rig.window.canvasWidth();
         int h = rig.window.canvasHeight();

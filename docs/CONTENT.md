@@ -46,8 +46,9 @@ was supplied, and cross-reference rules that point into a file that was not supp
 shipped set is checked in full.
 
 `GameContent.playable(kind)` is the other half: content can be authored, validated and visible
-before its system exists. Abilities became playable in M5, worlds in M7; challenges and
-achievements do in M8. One kind answers per id: `playable(FEATURE, id)` is false while
+before its system exists. Abilities became playable in M5, worlds in M7, challenges in M8 (with
+`BossEncounter` and `ObjectiveEvaluator`); achievements do with the M8 evaluator. One kind
+answers per id: `playable(FEATURE, id)` is false while
 `GameContent.featureMilestone(id)` names a milestone — `modifiers` named M6 until the draft overlay shipped and is live now, `seeded_runs`
 names M9. A feature is *buyable* before that, which is what the plan asks for, so the shop labels
 it with the milestone rather than presenting a switch that does nothing. The UI asks these to show
@@ -383,6 +384,122 @@ and ambience) unless `--world` pins another; `ContentFeasibilityTest` (`simTest`
 expert survives 2 400 ticks of every pattern in ≥ 30 % of 50 seeds and reaches `boss.atGate` in
 every world × tier at the same rate, and `docs/BALANCING.md` §10 records the table.
 
+### A challenge (M8)
+
+One entry of `challenges.json`. Every field:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | the id (`challenge:<id>` in the unlock graph, recorded in `profile.challenges`) |
+| `world`, `tier`, `curve` | where and how hard the run plays; the tier and curve override the world's own. **E6: the world is a place, never a requirement** — three shipped challenges play in worlds a fresh profile does not own, and the screen labels the world |
+| `allowOffers` | whether modifier drafts are offered during the run (the E7 boss guard sits on top of this) |
+| `flags`, `effects` | the rule flags and the `CHALLENGE` layer stat modifiers the run starts under |
+| `forcedModifiers` | modifier ids the run starts with, taken one at a time under the authored rules; the validator rejects an id that resolves to nothing, more copies than a card's `maxStacks`, two cards that exclude each other, and a card whose `requiresFlagsAbsent` names a flag the challenge itself turns on (a broken list would silently lose a card at run start) |
+| `forcedPattern` | the only pattern the run streams, looped from the first spawn, or absent (M7) |
+| `boss` | the challenge's *own* boss block (same shape as a world's), or absent — a challenge never fights its world's boss (E26), so a boss here only sets `objectiveMet` and pays nothing on the boss terms |
+| `objective` | `{type, value}`: `SURVIVE_GATES` (pass N gates), `SURVIVE_TICKS` (fly N ticks), `COLLECT_COINS` (take N coins), `REACH_POINTS` (score N points) or `BOSS_CLEARED` (`value` is `1`); judged every tick, latched once, and the run continues after it is met |
+| `rewards` | `{coins, unlocks[]}` — what the **first** completion pays (E11); every completion after that pays only the economy's `challengeBonus` |
+| `unlock` | the condition that opens `challenge:<id>` |
+
+**Validator rules a new challenge must satisfy:** known `world`/`tier`/`curve` ids; a
+`BOSS_CLEARED` objective needs a `boss` block on the challenge (E26); a boss whose `atGate` is
+beyond a `SURVIVE_GATES` objective is rejected (E14 — the run would be won before reaching it);
+a challenge with both a boss and a `forcedPattern` needs a scoring pattern (`scoringSteps` true
+and at least one scoring step, E14, otherwise `atGate` is unreachable); the rule-contradiction
+checks of §4 apply to the challenge's flags and effects.
+
+**Authoring and testing.** Write the entry, run `./gradlew contentCheck`, then measure:
+
+```bash
+./gradlew balancing -PtoolArgs="--challenge my_challenge_1 --skill expert --seeds 50"
+./gradlew balancing -PtoolArgs="--challenge all --skill all --seeds 50"
+```
+
+`--challenge <id|all>` plays the challenge as the player would — its world, tier, curve, flags,
+effects, forced cards, forced pattern and boss — and prints the objective and boss clear rates,
+the phases reached and the deaths by kind. `ContentFeasibilityTest` (`simTest`) asserts every
+shipped challenge's objective and every world boss at ≥ 30 % expert success, and
+`docs/BALANCING.md` §11 records the table. The strings (`challenge.<id>.name`/`.desc`) go into
+both `strings/en.json` and `strings/pt_BR.json`.
+
+### An achievement (M8)
+
+One entry of `achievements.json`: `{id, hidden, condition, reward}`. The `condition` is
+`{counter, scope, op, value}`:
+
+| Scope | The counter names | Read through |
+| --- | --- | --- |
+| `LIFETIME` | a `StatisticKey` field (`totalRuns`), one entry of a map counter (`bossClears.void`, `bestGatesByTier.hard`), the size of a list (`bossesCleared`), or a profile-root scalar (`level`, `xp`, `prestigeCount`; E5) | `Statistics.resolve(profile, counter)` |
+| `RUN` | exactly one of `run.gatesPassed`, `run.points`, `run.streakBest`, `run.coinsCollected` | the run that just finished, only ever judged inside `ProgressionManager.apply` — the purchase pass has no run and never grants a `RUN` achievement |
+| `COLLECTION` | `collection.<category>.percent` with category one of `birds, abilities, worlds, challenges, cosmetics, achievements, upgrades, all` | `CollectionProgress` |
+
+`op` is one of `GTE`, `LTE`, `EQ` (compare ops). An achievement fires once — an already-held id
+is skipped — records `achievements.<id>` with the timestamp, pays its `reward` coins through the
+wallet, and hands `reward.unlocks` to the unlock step. `hidden: true` changes nothing in the
+evaluation; only the display is withheld (a `???` row and no milestone bar) until it fires. The
+validator checks the counter name against its scope (including every `LIFETIME` map key and
+every collection category) and every reward unlock id.
+
+**How to add one.** Append the entry, add the two `achievement.<id>.name`/`.desc` strings to
+both string files, run `./gradlew contentCheck`; `AchievementEvaluatorTest` is the place for a
+new shape of condition, and a threshold achievable in one run belongs in
+`ProgressionManagerTest`'s purchase-pass assertions (E17: a purchase can fire achievements).
+
+### A music block (M8)
+
+The `music` object of a `worlds.json` world (a world without one is silent, and the menu always
+plays Green Fields' loop): `{tempo, scale, seed, layers}`.
+
+| Field | Meaning |
+| --- | --- |
+| `tempo` | beats per minute, `60..200` (`MusicDef.MIN_TEMPO`/`MAX_TEMPO` — the render cost is bounded by it) |
+| `scale` | one of `major_pent`, `minor_pent`, `dorian`, `phrygian`, `whole_tone` — the semitone vocabulary both the validator and `MusicSequencer` read from `MusicDef.SCALES`, so the two can never disagree |
+| `seed` | the sequencer seed; each layer draws from its own stream derived from it, so a world always sounds like itself and two renders are byte-identical |
+| `layers` | any subset of `bass`, `lead`, `arp`, `pad`, `drums`, in `MusicDef.LAYERS` order |
+
+The plan's §4 example pins only the *shape* of the block; the per-world values are a free
+choice, and the shipped Green Fields block (`seed` 11, `layers` `bass`/`lead`/`drums`)
+deliberately differs from that example's illustration (`seed` 1, `layers` `bass`/`lead` — same
+`tempo` 112 and `scale` `major_pent`). The other four worlds are not pinned by the plan at all.
+
+The sequencer renders a deterministic 8-bar loop (10–30 ms per world, budget 150 ms,
+`MusicSequencerTest` prints and checks it); during a boss the same block is re-rendered at
+×1.15 tempo (capped at 170 BPM) and the mixer crossfades on `BossStarted`/`BossCleared`. How to
+add or retune one: edit the block, run `./gradlew contentCheck` (tempo bounds, scale and layer
+names, seed presence), then `./gradlew test --tests '*MusicSequencerTest*'` to hear it through
+`CaptureAudioBackend` and re-check the render budget.
+
+### A font asset (M8)
+
+`assets/manifest.json` is the drop-in path of D18: ids resolve only through the manifest, never
+by scanning directories. The one shipped entry is the UI font:
+
+```json
+{
+  "id": "font/ui",
+  "path": "assets/fonts/Nunito-VariableFont_wght.ttf",
+  "kind": "font",
+  "license": "OFL-1.1",
+  "source": "https://github.com/google/fonts/tree/main/ofl/nunito",
+  "licenseFile": "assets/fonts/OFL.txt"
+}
+```
+
+`AssetManager.font("font/ui")` decodes it with `Font.createFont(TRUETYPE_FONT, …)` and
+`BootSequence`'s first step installs it through `Fonts.install` — lazily, never a static
+initialiser (E10). A missing entry, a missing file or a bad font leaves the logical `SansSerif`
+in place, so the game still runs. To swap the font: drop the file under `assets/fonts/`, point
+the entry's `path` at it, keep `kind: "font"`, fill `license`/`source`/`licenseFile`, record the
+licence in `THIRD_PARTY_NOTICES.md`, and run `./gradlew assetValidator` — it re-checks every
+entry's path, kind and licence file. Bold is a derived style on the single face, so a
+variable font's default instance is what ships.
+
+The plan's §4 example wrote `Nunito-Regular.ttf` with `licenseFile` `assets/fonts/LICENSE`; the
+shipped entry is the same family and licence as the variable face `Nunito-VariableFont_wght.ttf`
+with `OFL.txt` — the plan's M8 file list says `assets/fonts/*` without pinning the face, so the
+choice of file names is free as long as the entry's shape (`id`, `path`, `kind`, `license`,
+`source`, `licenseFile`) stays.
+
 ---
 
 ## 4. What the validator checks
@@ -422,6 +539,15 @@ multiplier, so the rule describes what the tier plays), a piston's `telegraphTic
 and a bolt's safe band within reach of the previous lethal column's band — no further than the
 scroll between them (`dx − width − 5` px). E14: a challenge with a boss and a forced pattern needs
 that pattern to score (`scoringSteps` true and a scoring step), or `boss.atGate` is unreachable.
+
+**Bosses (M8).** Every boss block — a world's or a challenge's — has `warningTicks ≥ 60` (one
+second of banner and empty sky) and `surviveTicks ≥ 300` (about one loop of a 480 px phase at
+the classic scroll); shorter values are errors. A `BOSS_CLEARED` objective needs a `boss` block on
+the challenge itself, because a challenge never fights its world's boss (E26). A boss whose
+`atGate` lies beyond a `SURVIVE_GATES` objective is rejected (E14): the run would be won before the
+fight; `atGate` at or below the objective value is fine, and `COLLECT_COINS` / `REACH_POINTS`
+objectives put no bound on it. No rule anywhere asks for a challenge's `world` to be unlocked
+(E6): three shipped challenges play in worlds a fresh profile does not own.
 
 **Worlds (M7).** The ambient wind takes a wind zone's ranges (`windX` in `[-60, 60]` px/s,
 `windY` in `[-900, 900]` px/s²), the spawn table has a positive weight, and a `ruleCycles` block

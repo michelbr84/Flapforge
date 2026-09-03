@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.gameplay.run.RewardContext;
 import io.github.michelbr84.flapforge.gameplay.run.RewardSummary;
@@ -378,52 +379,79 @@ class ProgressionManagerTest {
         assertEquals(1, profile.statistics.dailiesPlayed);
     }
 
+    /**
+     * M8 (E17): the hook is the shipped {@link AchievementEvaluator}, so one finished run over
+     * Green Fields grants {@code first_flight} (one run, lifetime scope), stamps the injected
+     * time, pays its 25 coins through the wallet and lets the unlock step grant the M6 default
+     * modifiers. A second run re-grants neither.
+     */
     @Test
     void hooksGrantAchievementsAndUnlocksAndStampTheTime() {
+        GameContent content = GameContent.load();
         ProgressionManager manager = new ProgressionManager(time,
-                p -> List.of("first_flight", "first_flight"), p -> List.of("bird:swift"));
+                AchievementEvaluator.of(content), UnlockEvaluator.of(content));
+        long before = profile.wallet.getOrDefault(COINS, 0L);
+
         ProgressionOutcome outcome = manager.apply(profile, run(6), rules);
         assertEquals(List.of("first_flight"), outcome.achievementsUnlocked(),
-                "an achievement is granted once");
-        assertEquals(List.of("bird:swift"), outcome.unlocksGranted());
+                "the real evaluator fires exactly the one-run achievements");
+        assertEquals(coinsPerRun + 25, profile.wallet.get(COINS) - before,
+                "the run's reward plus the achievement's coin reward reach the wallet");
         assertEquals(time.epochMillis(),
                 profile.achievements.get("first_flight").unlockedAtEpochMs);
-        assertTrue(profile.isUnlocked("bird:swift"));
+        assertFalse(outcome.unlocksGranted().isEmpty(), "the unlock step still runs");
+        for (String granted : outcome.unlocksGranted()) {
+            assertTrue(granted.startsWith("modifier:"), granted);
+        }
+        assertTrue(profile.isUnlocked(outcome.unlocksGranted().get(0)));
 
         time.advance(60_000);
-        manager.apply(profile, run(8), rules);
+        ProgressionOutcome again = manager.apply(profile, run(8), rules);
+        assertEquals(List.of(), again.achievementsUnlocked(),
+                "an achievement is granted once in a profile's life");
         assertEquals(1_700_000_000_000L,
                 profile.achievements.get("first_flight").unlockedAtEpochMs,
                 "an achievement already held keeps its timestamp");
     }
 
+    /**
+     * M8 (E17): the hook is the shipped {@link AchievementEvaluator}, so a purchase is propagated
+     * at once and is able to fire a {@code COLLECTION} achievement: owning every bird but one,
+     * buying the last one completes {@code collection.birds} and {@code collect_all_birds} fires
+     * in the very call that charged the bird, stamped with the injected time and paid.
+     */
     @Test
     void purchaseTriggersAchievementsAndUnlocks() {
-        // E17: M4 asserts the unlock half of D14's promise — a purchase is propagated at once,
-        // not at the end of the next run. The achievement half is asserted here with a stub hook
-        // and lands for real in M8, when AchievementEvaluator ships.
         GameContent content = GameContent.load();
-        List<PlayerProfile> achievementCalls = new ArrayList<>();
-        ProgressionManager manager = new ProgressionManager(time, p -> {
-            achievementCalls.add(p);
-            return List.of();
-        }, UnlockEvaluator.of(content));
+        ProgressionManager manager = new ProgressionManager(time,
+                AchievementEvaluator.of(content), UnlockEvaluator.of(content));
         UnlockManager shop = new UnlockManager(manager, SaveTrigger.NONE);
+        for (BirdDef bird : content.birds()) {
+            if (!"heavy".equals(bird.id())) {
+                profile.unlock("bird:" + bird.id());
+            }
+        }
         Wallet.of(profile).add(COINS, 1000);
+        long price = shop.priceOf("bird:heavy", content);
+        assertTrue(price > 0, "the bird is for sale");
 
         PurchaseResult bought = shop.purchase(profile, "bird:heavy", content);
 
         assertTrue(bought.ok(), () -> "refused with " + bought.status());
-        assertEquals(1, achievementCalls.size(), "the achievement hook runs on every purchase");
-        assertSame(profile, achievementCalls.get(0));
-        assertEquals("cosmetic:heavy:default", bought.outcome().unlocksGranted().get(0),
+        assertEquals(List.of("collect_all_birds"), bought.outcome().achievementsUnlocked(),
+                "buying the last bird completes the collection and fires the achievement");
+        assertEquals(time.epochMillis(),
+                profile.achievements.get("collect_all_birds").unlockedAtEpochMs);
+        assertEquals(500, profile.wallet.get(COINS)
+                - (1000 - price), "the achievement's coin reward is paid in the same call");
+        assertTrue(bought.outcome().unlocksGranted().contains("cosmetic:heavy:default"),
                 "buying the bird makes its default palette earned, in the same call");
-        // Everything after it is the M6 default-modifier set, which is content rather than part
-        // of PlayerProfile.DEFAULT_UNLOCKED and is therefore granted by the first evaluation the
-        // profile ever goes through — here, the one this purchase triggers.
-        for (String granted : bought.outcome().unlocksGranted().subList(1,
-                bought.outcome().unlocksGranted().size())) {
-            assertTrue(granted.startsWith("modifier:"), granted);
+        // The other birds were granted without their palettes, so the unlock step of this same
+        // call also earns those defaults, and with them whatever content conditions a fuller
+        // collection satisfies (the M6 default-modifier set, ability grants, ...). What matters
+        // is that every grant is real and now owned.
+        for (String granted : bought.outcome().unlocksGranted()) {
+            assertTrue(profile.isUnlocked(granted), granted);
         }
         assertTrue(profile.isUnlocked("cosmetic:heavy:default"));
         assertEquals(List.of(ProgressionManager.Step.ACHIEVEMENTS,
@@ -487,6 +515,90 @@ class ProgressionManagerTest {
         assertEquals(1, mult.xpMult());
         assertEquals(1, mult.tierRewardMult());
         assertEquals(2, mult.dailyRewardMult());
+    }
+
+    /**
+     * M8 (E26, E32.a): against the shipped content, a first Green Fields boss clear pays
+     * {@code bossBonus + boss.reward.coins} and grants {@code world:wind_valley}; a repeat pays
+     * {@code bossBonus} alone and grants nothing. The summary's terms add up to the wallet
+     * delta, level rewards aside.
+     */
+    @Test
+    void aFirstBossClearPaysItsRewardAndGrantsItsUnlockOnce() {
+        GameContent content = GameContent.load();
+        ProgressionRules shipped = ProgressionRules.fromContent(content);
+        ProgressionManager manager = new ProgressionManager(time,
+                ProgressionManager.AchievementHook.NONE, UnlockEvaluator.of(content));
+        long before = profile.wallet.getOrDefault(COINS, 0L);
+
+        ProgressionOutcome first = manager.apply(profile,
+                runBuilder(31).points(31).ticksAlive(3000).boss("green_fields").build(), shipped);
+        RewardSummary paid = first.rewardSummary();
+        assertEquals(150 + 200, paid.bossCoins(), "bossBonus 150 + boss.reward.coins 200");
+        assertEquals(20 + 25 + 62 + 31 + 350, paid.baseCoins());
+        assertEquals(paid.participation() + paid.firstRunBonus() + paid.gateCoins()
+                + paid.pointCoins() + paid.streakCoins() + paid.bossCoins()
+                + paid.challengeCoins(), paid.baseCoins(), "the terms sum to the base");
+        long levelGrants = 0;
+        for (long grant : first.levelRewardsGranted().values()) {
+            levelGrants += grant;
+        }
+        assertEquals(before + paid.coins() + levelGrants, profile.wallet.get(COINS),
+                "the wallet moved by the summary plus the level rewards, nothing double-counted");
+        assertEquals(paid.coins() + levelGrants, profile.statistics.coinsEarned);
+        assertTrue(profile.isUnlocked("world:wind_valley"), "boss.reward.unlocks granted");
+        assertTrue(first.unlocksGranted().contains("world:wind_valley"));
+        assertEquals(List.of(ProgressionManager.Step.values().length),
+                List.of(manager.lastSteps().size()), "D14's order is untouched");
+
+        ProgressionOutcome again = manager.apply(profile,
+                runBuilder(32).points(32).ticksAlive(3000).boss("green_fields").build(), shipped);
+        assertEquals(150, again.rewardSummary().bossCoins(), "a repeat pays bossBonus only");
+        assertFalse(again.unlocksGranted().contains("world:wind_valley"), "granted once");
+        assertEquals(2L, profile.statistics.bossClears.get("green_fields"));
+    }
+
+    /**
+     * M8 (E11): a first challenge completion pays {@code challengeBonus + rewards.coins} and
+     * grants the cosmetic; a repeat pays {@code challengeBonus} alone.
+     */
+    @Test
+    void aFirstChallengeCompletionPaysItsRewardAndGrantsItsUnlockOnce() {
+        GameContent content = GameContent.load();
+        ProgressionRules shipped = ProgressionRules.fromContent(content);
+        ProgressionManager manager = new ProgressionManager(time,
+                ProgressionManager.AchievementHook.NONE, UnlockEvaluator.of(content));
+
+        ProgressionOutcome first = manager.apply(profile, runBuilder(30).points(30)
+                .ticksAlive(2400).challenge("no_shield_1", true).build(), shipped);
+        RewardSummary paid = first.rewardSummary();
+        assertTrue(first.challengeFirstCompleted());
+        assertEquals(100 + 200, paid.challengeCoins(),
+                "challengeBonus 100 + rewards.coins 200 (E11)");
+        assertEquals(0, paid.bossCoins());
+        assertTrue(profile.isUnlocked("cosmetic:classic:ember"), "rewards.unlocks granted");
+        assertTrue(first.unlocksGranted().contains("cosmetic:classic:ember"));
+        long grants = 0;
+        for (long grant : first.levelRewardsGranted().values()) {
+            grants += grant;
+        }
+        assertEquals(paid.coins() + grants, profile.wallet.get(COINS));
+
+        ProgressionOutcome again = manager.apply(profile, runBuilder(33).points(33)
+                .ticksAlive(2500).challenge("no_shield_1", true).build(), shipped);
+        assertFalse(again.challengeFirstCompleted());
+        assertEquals(100, again.rewardSummary().challengeCoins(), "a repeat pays the bonus only");
+        assertFalse(again.unlocksGranted().contains("cosmetic:classic:ember"));
+        assertEquals(2, profile.statistics.challengesCompleted);
+
+        // A challenge boss never pays the world terms (E26): a boss_corridor_1 completion has
+        // an empty bossesCleared and pays challenge coins only.
+        ProgressionOutcome corridor = manager.apply(profile, runBuilder(25).points(25)
+                .ticksAlive(3000).challenge("boss_corridor_1", true).build(), shipped);
+        assertEquals(0, corridor.rewardSummary().bossCoins());
+        assertEquals(100 + 500, corridor.rewardSummary().challengeCoins());
+        assertTrue(profile.isUnlocked("tier:nightmare"));
+        assertTrue(profile.statistics.bossesCleared.isEmpty(), "no world was cleared");
     }
 
     @Test

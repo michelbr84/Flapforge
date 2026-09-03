@@ -108,8 +108,32 @@ Both return a `ProgressionOutcome`: plain facts (rewards, levels, achievements, 
 challenge and daily flags) and nothing else. `progression` never imports `event` (E31.b); the
 screen that asked maps the facts to events and to wording.
 
-The achievement step is a hook that stays empty until M8; the unlock step is `UnlockEvaluator`
-from M4 on.
+The achievement step is `AchievementEvaluator` (M8, D13): every `achievements.json` definition
+is one condition `counter op value` in one of three scopes. **`LIFETIME`** reads the profile
+through `Statistics.resolve` — a scalar (`totalRuns`), one entry of a map counter
+(`bossClears.void`, `bestGatesByTier.hard`), the size of a list (`bossesCleared`) or a
+profile-root scalar (`level`, `xp`, `prestigeCount`; E5). **`RUN`** reads the run that just
+finished (`run.gatesPassed`, `run.points`, `run.streakBest`, `run.coinsCollected`) and is only
+ever judged inside `apply`, where there is a finished run — the purchase pass has none and never
+grants one. **`COLLECTION`** reads `collection.<category>.percent` through `CollectionProgress`.
+An achievement fires once (an already-held id is skipped), is recorded with the injected
+timestamp, pays its `reward` coins through the wallet (counted in `coinsEarned`, E32.a) and
+hands its reward's unlocks to the unlock step below. The `hidden` flag changes nothing in the
+evaluation — a secret achievement is judged like any other and only its *display* is withheld
+until it fires (a `???` row in the screen, no milestone bar). `progressOf` is the Milestones
+tab's number: `current` clamped into `[0, target]`, where a `RUN`-scoped achievement reports the
+best matching lifetime statistic (`run.streakBest → streakBest`, `run.gatesPassed → bestGates`,
+`run.points → bestPoints`) and an already-held one reports `target / target`. The unlock step is
+`UnlockEvaluator` from M4 on, and from M8 it starts with the unlocks a first clear pays outright
+(E11, E26): `boss.reward.unlocks` of every world cleared for the first time and
+`challenge.rewards.unlocks` of a first completion, then the evaluator's own pass. The matching
+coins ride the reward formula — `boss.reward.coins` into the boss term, `challenge.rewards.coins`
+into the challenge term — through the `RewardContext` the reward step builds before anything is
+written (`firstBossClearCoins`, `firstChallengeCoins`), so a repeat clear pays the economy's
+`bossBonus` / `challengeBonus` alone and grants nothing. The amounts come from
+`ProgressionRules.fromContent(content)` (`FirstClearRewards`); `fromEconomy` keeps the pre-M8
+shape with none. A *challenge* boss writes neither `bossesCleared` nor the boss terms: it only
+sets `objectiveMet`, and the challenge pays.
 
 ---
 
@@ -172,10 +196,15 @@ nothing.
 
 A world is an unlockable like a bird: `world:green_fields` is a default, every other world is
 `any_of[world_cleared <previous world>, purchase N]` — Wind Valley 350, Iron Forge 700, Storm Sky
-1 200, the Void 2 000 coins. `world_cleared` is written only by a *world* boss (E26), and bosses
-land in M8, so today the chain is walked by purchase; the boss route pays the same edge for free
-once it exists, plus `boss.reward.coins` and, for Wind Valley, `tree:forge`. Either way the graph
-keeps a cumulative path (§5 of `docs/CONTENT.md`), so a player can never be locked out of a world.
+1 200, the Void 2 000 coins. `world_cleared` is written only by a *world* boss (E26). From M8
+the boss route is live: surviving a world's encounter (`BossEncounter`, D11) records the world in
+`bossesCleared`, and the unlock step grants the same edge for free plus `boss.reward.coins` (200,
+300, 400, 500, 800) and, for Wind Valley, `tree:forge`; `UnlockChainTest` walks the Green Fields
+clear into `world:wind_valley`. The purchase route stays, so the graph keeps a cumulative path
+(§5 of `docs/CONTENT.md`) and a player can never be locked out of a world. A challenge is played
+in its world whether or not the world is owned (E6): `RunLoadout.challengeConfigFor` never checks
+it, and `ChallengeRunSource` builds the run from the profile's bird, palette and loadout under the
+challenge's world, tier, rules, forced cards and boss.
 
 Owning a world makes it selectable: the bird selection screen's world row shows the five worlds
 in `order`, the hazards each spawns and, for a locked one, the cheapest way in; selecting writes
@@ -316,7 +345,7 @@ consequences worth knowing:
 
 ## 6. The screens
 
-Three screens spend what the sections above earn (D17). All three read the same evaluators, so
+Five screens spend what the sections above earn (D17). All five read the same evaluators, so
 the words the player reads and the arithmetic the run uses cannot drift apart.
 
 | Screen | What it shows | What it writes |
@@ -324,12 +353,14 @@ the words the player reads and the arithmetic the run uses cannot drift apart.
 | `BirdSelectionScreen` | the seven birds as a `CardGrid` with a procedural portrait in the selected palette, the archetype, and — for a locked one — the **cheapest** way to open it in words; the palette swatches with their conditions; the tier picker with the locked tiers marked (E19); the loadout row — one active chip, one chip per passive slot the bird and the `passive_slot` grant give, and a fixed chip per innate passive — with the ability panel beside it (level, next level's price, and what each level does); and the stat breakdown of the run that would start right now | `SelectionManager` (bird, palette, tier, loadout), `UnlockManager` (Buy), `UpgradeManager.buyAbilityLevel` |
 | `UpgradeTreeScreen` | one tab per tree, nodes laid out by tier with a line from every prerequisite, each card carrying level/maximum, what one level does in words, the price of the next level and its state (tree locked / prerequisite missing / affordable / maxed / already unlocked); a locked tree shows its condition instead | `UpgradeManager.buy` |
 | `ShopScreen` | everything with a `purchase` branch the profile does not own, grouped into four tabs (birds, abilities, worlds, features), cheapest first, each with its price and whether the wallet covers it; an offer that is not playable yet says which milestone it arrives in | `UnlockManager.purchase` |
+| `ChallengesScreen` (M8) | the seven challenges in content order with a detail block — the world (labelled, never checked for unlocks, E6), the tier, the objective in words, the rewards, the forced modifiers and the challenge's own boss when it has one; each row carries the record `challenges.<id>` holds (attempted/completed) | pushes a `GameScreen` over itself through `ChallengeRunSource` (`RunLoadout.challengeConfigFor`), the profile's bird, palette and loadout under the challenge's world, tier, rules, forced cards and boss |
+| `AchievementsScreen` (M8) | the three D13 tabs: *Achievements* — every definition in content order, unlocked ones with their unlock date, locked ones dimmed, hidden ones a `???` until they fire, header counting them; *Milestones* — the level progress bar, then the next five thresholds among unclaimed level rewards and not-yet-fired lifetime-threshold achievements, nearest first, each with a `progressOf` bar (hidden achievements stay out of the list); *Collections* — one bar per category of `CollectionProgress`, owned over total with the floored percentage, `all` last | nothing — a read-only view, like `StatisticsScreen` |
 
 **Nothing pretends to work (E19).** Three places carry a milestone note instead:
 
 | Where | What it says |
 | --- | --- |
-| `ShopScreen` | challenges and achievements *Arrives in M8*, and — per id, from `GameContent.featureMilestone` — `feature:seeded_runs` *M9*, which is buyable and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for it. Abilities carried the same note until M5 turned them on, `feature:modifiers` until M6 did, and the four worlds behind Green Fields until M7 did |
+| `ShopScreen` | — per id, from `GameContent.featureMilestone` — only `feature:seeded_runs` *Arrives in M9* is left, which is buyable and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for it. Abilities carried the same note until M5 turned them on, `feature:modifiers` until M6 did, the four worlds behind Green Fields until M7 did, and challenges and achievements until M8 did (`BossEncounter`/`ObjectiveEvaluator` and `AchievementEvaluator`) |
 | `UpgradeTreeScreen` | nothing any more. The seven nodes whose whole effect is `ABILITY_COOLDOWN_MULT`, `ABILITY_DURATION_MULT`, `SHIELD_CHARGES` or `REVIVES`, or whose grant is `ABILITY_CAP` / `PASSIVE_SLOT`, carried *Arrives in M5* on the card and on the stat row; M5 consumes all of them and the note is gone |
 | `BirdSelectionScreen` | the ability line still names the bird's innate passives, without a milestone note: Ironbeak's −20 % `COIN_MULT` buys a shield that is live from M5 (`docs/BALANCING.md` §7.1 measures it at +96 % gates for the `average` bot) |
 
@@ -391,6 +422,10 @@ cumulative conditions read "since prestige", so nothing condition-derived is gra
 | `UpgradeTreeScreenTest` | the tabs, a locked tree's condition, the tier layout and prerequisites, a bought level moving wallet, card and live stats, every refusal, and a node whose grant is already owned |
 | `ShopScreenTest` | the four tabs, cheapest first, affordability, a purchase leaving the list, the three modifier legendaries at 300 coins each, and the milestone note on what is not playable yet |
 | `ModifierDirectorTest`, `ModifierPoolTest`, `SynergyResolverTest`, `ModifierChoiceOverlayTest` | the draft the feature gate opens: the schedule, the breather, the freeze, the hold, forced cards under the authored rules, the weighted draw, E12's two halves of eligibility and E16's two-entry rule |
+| `AchievementEvaluatorTest` (M8) | the three scopes, every counter shape (scalar, map entry, list size, profile root), the compare ops, a `RUN` achievement never granted by the purchase pass, `progressOf`'s lifetime bests for `RUN` conditions and the full bar for an already-held id |
+| `CollectionProgressTest` (M8) | per-category owned/total and the floored percentage, `all` last, agreement with `UnlockEvaluator`'s counter arithmetic |
+| `ProgressionManagerTest`, `UnlockChainTest` (M8) | a first world clear granting `boss.reward` and paying the boss term (E26: a challenge boss grants neither), a first challenge completion paying `challenge.rewards` (E11) and repeats paying the bonus alone, hidden achievements evaluating like any other, and E17's purchase-fired achievements |
+| `AchievementsScreenTest`, `ChallengesScreenTest` (M8) | the three tabs (unlock dates, `???` rows, the five milestone bars, the collection bars), and the challenge list's detail block, records and locked state with E6's no-unlock-check rule |
 | `ProceduralRenderTest`, `SmokeWindowTest` | the three screens headless in both languages, and through a real window with the Robot buying the cheapest bird |
 
 Run them with `./gradlew test` and `./gradlew simTest`.

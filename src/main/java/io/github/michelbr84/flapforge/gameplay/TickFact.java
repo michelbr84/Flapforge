@@ -166,16 +166,46 @@ public sealed interface TickFact {
     record ModifierSkipped(int offerIndex) implements TickFact {
     }
 
-    /** A boss warning started. */
-    record BossWarning() implements TickFact {
+    /**
+     * A boss warning started (D11, M8): {@code boss.atGate} was reached, spawning is suppressed
+     * for {@code warningTicks} and the run is in {@code BOSS_WARNING}. The presentation renders
+     * the banner and the HUD countdown from this fact.
+     *
+     * @param bossId the owner's id — the world of a world boss, the challenge of a challenge boss
+     * @param worldId the world the encounter clears, or {@code null} for a challenge boss (E26)
+     * @param warningTicks flying ticks until the fight starts
+     */
+    record BossWarning(String bossId, String worldId, int warningTicks) implements TickFact {
     }
 
-    /** A boss encounter started. */
-    record BossStarted() implements TickFact {
+    /**
+     * A boss encounter started (D11, M8): the phases are streaming and the run is in
+     * {@code BOSS} for {@code surviveTicks} flying ticks.
+     *
+     * @param bossId the owner's id
+     * @param surviveTicks flying ticks the fight lasts
+     */
+    record BossStarted(String bossId, int surviveTicks) implements TickFact {
     }
 
-    /** A boss encounter was survived. */
-    record BossCleared() implements TickFact {
+    /**
+     * A boss encounter was survived (D11, M8). {@code Run} records a world boss in
+     * {@code RunStats.bossesCleared} from this fact; a challenge boss ({@code worldId == null})
+     * only satisfies a {@code BOSS_CLEARED} objective (E26).
+     *
+     * @param bossId the owner's id
+     * @param worldId the world cleared, or {@code null} for a challenge boss
+     */
+    record BossCleared(String bossId, String worldId) implements TickFact {
+    }
+
+    /**
+     * The challenge objective was met (D11, M8). Emitted once per run; the run continues, and
+     * {@code RunStats.objectiveMet} stays set whatever happens afterwards.
+     *
+     * @param challengeId the challenge
+     */
+    record ObjectiveMet(String challengeId) implements TickFact {
     }
 
     /**

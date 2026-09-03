@@ -74,13 +74,14 @@ public final class PistonRenderer {
             double pulse = triangle(animTicks, PULSE_TICKS);
             double urgency = 0.45 + 0.55 * piston.phaseProgress();
             double a = GLOW_PEAK * urgency * (0.55 + 0.45 * pulse);
-            g.setColor(glow(palette.accent(), a));
+            g.setColor(glow(Accessibility.tone(palette.accent(), Accessibility.Role.DANGER), a));
             double reach = piston.length();
             rect.setFrame(x - 2, top ? 0 : Playfield.GROUND_Y - reach, w + 4, reach);
             g.fill(rect);
             // A tip mark where the head will stop: the far end of the reach.
             double tipY = top ? reach : Playfield.GROUND_Y - reach;
-            g.setColor(glow(palette.accent(), Math.min(1, a + 0.3)));
+            g.setColor(glow(Accessibility.tone(palette.accent(), Accessibility.Role.DANGER),
+                    Math.min(1, a + 0.3)));
             rect.setFrame(x - 6, tipY - 1.5, w + 12, 3);
             g.fill(rect);
         }

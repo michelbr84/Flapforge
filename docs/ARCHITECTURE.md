@@ -495,6 +495,63 @@ moment it is in the window, both sides of a gear from the chord its circle cuts 
 bird's x range — and `BotPilot` picks a gear's side by where the column after it leads and what
 a flap arc fits in. Production never imports `harness`.
 
+## Bosses, challenges and the achievement pipeline `[M8]`
+
+**`BossEncounter` (D11, E7, E26).** A small state machine owned by the run's simulation, driven
+by the tick the spawner already runs on. `RunConfig.bossEnabled` gates the whole thing: on for
+every profile run, challenge, balancing cell and feasibility row, pinned off by
+`RunConfig.classic` so the published headless hash never meets the Green Fields boss at gate 30.
+When the run reaches `boss.atGate` the encounter enters `BOSS_WARNING` for `warningTicks` —
+spawning is suppressed (`ObstacleSpawner.setSuppressed`), a `TickFact.BossWarning` carrying the
+boss and world ids goes out — then `BOSS`, where the phases stream through the same
+`PatternStreamer` machinery in order and loop back to phase 1 until `surviveTicks` of flying
+time have passed (scoring steps keep scoring, coins, streaks and the difficulty curve keep
+going; `phasesReached` is the furthest phase, monotonic across the wrap), then a single
+`BossCleared`: the remaining boss columns scroll out and ordinary spawning resumes 1.5 gate
+intervals behind the last phase column, with the resume floor keeping that first column at the
+right edge instead of inside the playfield. Dying during the encounter clears nothing; a clear
+granted is kept at run end even if the bird crashes later. A *world* boss writes
+`RunStats.bossesCleared` and pays `boss.reward`; a *challenge* boss (`worldId == null`) writes
+neither — it only sets the flag a `BOSS_CLEARED` objective reads (E26). The modifier director
+reads `DraftWorld.bossPending()`/`bossActive()` so a schedule gate falling inside
+`BOSS_WARNING`/`BOSS` defers its offer to the first spawn interval after the clear (E7), and
+every per-tick field of the encounter — phase, timers, pattern index — folds into the
+simulation's state hash.
+
+**`ObjectiveEvaluator` (D11).** A pure function from the run's tallies to a verdict, evaluated
+every tick: `SURVIVE_GATES`, `SURVIVE_TICKS`, `COLLECT_COINS`, `REACH_POINTS` and
+`BOSS_CLEARED` over `RunStats` (`gatesPassed`, `ticksAlive`, `coinsCollected`, `points`,
+`bossesCleared`/the flag above). It latches once — one `TickFact.ObjectiveMet`, whatever the
+tick that satisfies it also does — and the run continues after the objective is met; the banner
+and the game-over strip are the player-facing half. The evaluator owns no state of its own, so
+there is nothing to hash.
+
+**The achievement pipeline (D13, D14, E17).** The write path stays the M3 one;
+`AchievementEvaluator` fills the hook that milestone left empty. `ProgressionManager.apply`
+runs rewards → wallet → XP/level → statistics → challenge record → daily record →
+achievements → unlocks in order, and that order is load-bearing: achievements are judged on the
+statistics the pass just wrote, and unlocks on the achievements they may depend on.
+`AchievementEvaluator` is a pure listing pass — scope-resolved conditions over
+`Statistics.resolve` (`LIFETIME`), the finished `RunResult` (`RUN`), and
+`CollectionProgress.percent` (`COLLECTION`) — returning ids in content order, so the same
+profile and run always grant the same ids in the same order; granting, recording and paying
+stay in the manager. `applyPurchase` re-runs the trailing achievements → unlocks steps after
+every purchase, which is what makes buying the last bird fire its collection achievement
+immediately (E17). `ProgressionOutcome` carries plain facts (E31.b): the ids, the levels, the
+coin grants — and the screens convert those into events and toasts, where a newly earned
+achievement names the coins it paid and a granted unlock names itself.
+
+**The sequencer (D19).** `audio.MusicSequencer` renders a world's `music` block into a
+deterministic 8-bar loop — every layer drawing from its own seeded stream, note tails wrapped
+across the loop point, peak-normalised — synchronously at boot (menu) and run start (world),
+never on a new thread; the boss variant is the same block at ×1.15 tempo, re-rendered on
+`BossStarted`/`BossCleared`. It plays through the existing mixer: `SoftwareMixer.playLooping`
+keeps one looping voice per id (retargeted, never stacked) and every gain change — volume
+slider, mute, the pause duck, the boss crossfade — is a linear ramp of `MUSIC_RAMP_FRAMES`
+against a target, so two equal ramps at one target crossfade without a dip. A slide of the
+music volume to zero stops the loop instead of leaving it at the old gain, and raising it
+re-issues the loop the screens last asked for.
+
 ## Package tree with milestone tags
 
 The tree below is the authoritative file plan (Appendix A §3 of the

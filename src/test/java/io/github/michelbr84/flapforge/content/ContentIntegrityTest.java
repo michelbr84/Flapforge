@@ -551,8 +551,9 @@ class ContentIntegrityTest {
         assertTrue(SHIPPED.playable(ContentKind.WORLD, "green_fields"));
         assertTrue(SHIPPED.playable(ContentKind.WORLD, "storm_sky"), "worlds landed in M7");
         assertTrue(SHIPPED.playable(ContentKind.WORLD, "void"));
-        assertFalse(SHIPPED.playable(ContentKind.CHALLENGE), "challenges land in M8");
-        assertFalse(SHIPPED.playable(ContentKind.ACHIEVEMENT), "achievements land in M8");
+        assertTrue(SHIPPED.playable(ContentKind.CHALLENGE), "challenges landed in M8");
+        assertTrue(SHIPPED.playable(ContentKind.ACHIEVEMENT),
+                "achievements landed with the M8 evaluator");
     }
 
     /** E21: {@code aliases.json} ships empty, with the per-field shape ready for the first rename. */

@@ -87,11 +87,16 @@ public final class ToneSynth {
     public static final String PISTON_TELEGRAPH = "piston_telegraph";
     /** The bird flew into a wind zone (M7). */
     public static final String WIND = "wind";
+    /** A boss encounter was survived (M8). */
+    public static final String BOSS_CLEARED = "boss_cleared";
+    /** A challenge objective was met mid-run (M8). */
+    public static final String OBJECTIVE_MET = "objective_met";
 
     /** Every id this synth knows, in a stable order (warm-up and tests iterate it). */
     public static final List<String> IDS = List.of(FLAP, SCORE, COIN, CRASH, ABILITY, SHIELD,
             REVIVE, UI_MOVE, UI_SELECT, UI_BACK, UNLOCK, BOSS_WARNING, RULE_SHIFT, STREAK, SYNERGY,
-            LEVEL_UP, LIGHTNING_WARNING, THUNDER, PISTON_TELEGRAPH, WIND);
+            LEVEL_UP, LIGHTNING_WARNING, THUNDER, PISTON_TELEGRAPH, WIND, BOSS_CLEARED,
+            OBJECTIVE_MET);
 
     /** Shortest buffer the synth will produce, in samples (guards against degenerate specs). */
     private static final int MIN_SAMPLES = 64;
@@ -255,7 +260,13 @@ public final class ToneSynth {
             Map.entry(PISTON_TELEGRAPH, new Spec().wave(Wave.TRIANGLE).notes(220.0, 293.66)
                     .durationMs(200.0).noise(0.2, 0.35).envelope(2.0, 0.45, 1).peak(0.5)),
             Map.entry(WIND, new Spec().wave(Wave.SINE).notes(180.0).durationMs(520.0).sweep(1.8)
-                    .noise(0.85, 0.05).envelope(40.0, 0.6, 1).peak(0.45)));
+                    .noise(0.85, 0.05).envelope(40.0, 0.6, 1).peak(0.45)),
+            Map.entry(BOSS_CLEARED, new Spec().wave(Wave.SQUARE)
+                    .notes(261.63, 329.63, 392.0, 523.25, 659.25, 783.99).durationMs(720.0)
+                    .detune(0.004).envelope(4.0, 0.30, 0).peak(0.66)),
+            Map.entry(OBJECTIVE_MET, new Spec().wave(Wave.TRIANGLE)
+                    .notes(659.25, 783.99, 1046.50, 1318.51).durationMs(420.0).detune(0.003)
+                    .envelope(3.0, 0.35, 0).peak(0.60)));
 
     /** Root note of the fallback blip, before the per-id transposition. */
     private static final double UNKNOWN_ROOT = 523.25;

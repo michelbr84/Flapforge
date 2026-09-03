@@ -126,6 +126,28 @@ public final class RunLoadout {
     }
 
     /**
+     * The configuration of a challenge run on a profile (D11, M8): everything the profile owns
+     * — the selected bird and palette, the equipped abilities, the upgrade layer, the owned
+     * modifiers — under the challenge's own world, tier, flags, forced modifiers and offer
+     * switch ({@link RunFactory#challengeConfig}). Nothing here asks whether the world is
+     * unlocked: a challenge run is self-contained (E6); the screen that offers it checks the
+     * challenge's own unlock.
+     *
+     * @param profile the profile to read
+     * @param content the loaded content
+     * @param seed the run seed
+     * @param challengeId the challenge
+     * @return the configuration, in {@link RunMode#CHALLENGE}
+     * @throws io.github.michelbr84.flapforge.content.UnknownIdException when no challenge
+     *     carries the id
+     */
+    public static RunConfig challengeConfigFor(PlayerProfile profile, GameContent content,
+            long seed, String challengeId) {
+        return new RunFactory(content).challengeConfig(
+                configFor(profile, content, seed, RunMode.CHALLENGE), challengeId);
+    }
+
+    /**
      * The stat sheet the next run would resolve, for the selection screen (D8, D17: "stat
      * breakdown by source").
      *

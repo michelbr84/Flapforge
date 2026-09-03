@@ -67,8 +67,9 @@ import java.util.Objects;
  *
  * <p>Some of what is for sale cannot be used yet: {@link GameContent#playable} reports which kinds
  * have systems behind them today (E19), and an offer whose kind does not says so on its card
- * ("Arrives in M8"). It is still bought and still counts for the unlock graph — a challenge bought
- * now is a challenge already owned when M8 lands, the way a world bought before M7 was.
+ * ("Arrives in M9"). It is still bought and still counts for the unlock graph — a challenge bought
+ * before M8 was a challenge already owned when M8 landed, the way a world bought before M7 was.
+ * From M8 every kind plays and only {@code feature:seeded_runs} still carries the note.
  */
 public final class ShopScreen implements Screen {
 
@@ -112,12 +113,11 @@ public final class ShopScreen implements Screen {
 
     /**
      * Which milestone each not-yet-playable kind arrives in (E19). Features are not here: they
-     * differ per id and are answered by {@link GameContent#featureMilestone}.
+     * differ per id and are answered by {@link GameContent#featureMilestone}. Abilities (M5),
+     * worlds (M7), challenges and achievements (M8) have all left the table; it stays so a
+     * later build that stages a kind again has its slot.
      */
-    private static final Map<ContentKind, String> MILESTONES = Map.of(
-            ContentKind.ABILITY, "M5",
-            ContentKind.CHALLENGE, "M8",
-            ContentKind.ACHIEVEMENT, "M8");
+    private static final Map<ContentKind, String> MILESTONES = Map.of();
 
     private final ScreenManager screens;
     private final Strings strings;

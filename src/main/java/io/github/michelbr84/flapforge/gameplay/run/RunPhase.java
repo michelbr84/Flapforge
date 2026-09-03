@@ -16,9 +16,16 @@ public enum RunPhase {
     CHOOSING_MODIFIER,
     /** Countdown after a choice; bird held, obstacles frozen. */
     RESUME_HOLD,
-    /** Boss banner; spawning suppressed. */
+    /**
+     * Boss banner (M8): {@code boss.atGate} was passed, spawning is suppressed for
+     * {@code warningTicks} and the simulation keeps running — the bird flies through empty sky.
+     */
     BOSS_WARNING,
-    /** Boss patterns streaming. */
+    /**
+     * Boss patterns streaming (M8): the phases loop through the spawner until
+     * {@code surviveTicks} of flying time have passed; scoring, coins, streaks and the difficulty
+     * curve all keep going.
+     */
     BOSS,
     /** Lethal hit taken; the bird falls to the ground line while the world is frozen. */
     DYING,

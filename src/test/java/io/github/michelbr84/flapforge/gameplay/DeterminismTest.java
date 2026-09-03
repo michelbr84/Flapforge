@@ -287,11 +287,18 @@ class DeterminismTest {
                     Run run = factory.newRun(config);
                     BotPilot bot = new BotPilot(preset, seed);
                     int shifts = 0;
+                    int decisionsBeforeBoss = Integer.MAX_VALUE;
                     List<Integer> landings = new java.util.ArrayList<>();
                     for (int t = 0; t < 6000 && !run.isFinished(); t++) {
                         RunInput input = run.phase() == RunPhase.CHOOSING_MODIFIER
                                 ? new RunInput(false, false, choice, false) : bot.decide(run);
-                        run.tick(input);
+                        TickReport report = run.tick(input);
+                        if (report.has(TickFact.BossWarning.class)) {
+                            // M8: the invariance holds up to the boss. The fight is timed in
+                            // ticks, so how many phase steps it places — and where the streams
+                            // resume after it — depends on the scroll the build flies at.
+                            decisionsBeforeBoss = run.simulation().spawner().spawnCount();
+                        }
                         WorldEffects effects = run.simulation().worldEffects();
                         if (effects.shifts() > shifts) {
                             shifts = effects.shifts();
@@ -301,7 +308,9 @@ class DeterminismTest {
                             }
                         }
                     }
-                    List<Long> decisions = run.simulation().spawner().decisionHashes();
+                    List<Long> all = run.simulation().spawner().decisionHashes();
+                    List<Long> decisions = all.subList(0, Math.min(all.size(),
+                            decisionsBeforeBoss));
                     if (reference == null) {
                         reference = decisions;
                     } else {
@@ -322,6 +331,71 @@ class DeterminismTest {
         assertTrue(landedRuns > 0, "ALL_OBSTACLES_MOVE never landed: the check would be vacuous");
         assertTrue(landingSpawnDiffered,
                 "the flag landed on the same spawn in every run of every seed: nothing was tested");
+    }
+
+    /**
+     * M8: a boss run replays tick for tick — the warning, the phases, the clear and the air
+     * after it — and the perfect pilot really does meet the Green Fields boss within the budget,
+     * or the claim would cover nothing.
+     */
+    @Test
+    void aBossRunIsReproducible() {
+        RunFactory factory = new RunFactory(GameContent.load());
+        RunConfig config = RunConfig.builder(42).build();
+        assertTrue(config.bossEnabled());
+        HeadlessRunner.Outcome a = HeadlessRunner.run(factory.newRun(config),
+                new BotPilot(BotPilot.Preset.PERFECT, 42), 5000, true);
+        HeadlessRunner.Outcome b = HeadlessRunner.run(factory.newRun(config),
+                new BotPilot(BotPilot.Preset.PERFECT, 42), 5000, true);
+        assertEquals(a.hashes(), b.hashes());
+        assertEquals(a.result().counters(), b.result().counters());
+        assertEquals(a.result().stats().bossesCleared(), b.result().stats().bossesCleared());
+        assertEquals(a.result().stats().phasesReached(), b.result().stats().phasesReached());
+        assertTrue(a.result().stats().phasesReached() > 0,
+                "the perfect pilot reaches gate 30 and the fight starts: " + a.result().stats());
+
+        Run pinned = factory.newRun(RunConfig.classic(42));
+        HeadlessRunner.run(pinned, new BotPilot(BotPilot.Preset.PERFECT, 42), 5000);
+        assertEquals(0, pinned.stats().phasesReached(), "the pinned classic run has no boss");
+        assertFalse(pinned.simulation().boss().hasBoss());
+        // The two runs draw the same obstacles until the warning: the boss changes nothing
+        // before it exists, and the state hash of a boss run differs only because it folds the
+        // encounter and the streamer (D12), which the pinned run does not carry.
+        List<Long> beforeBoss = decisionsBeforeBoss(factory, config, BotPilot.Preset.PERFECT, 42);
+        assertTrue(beforeBoss.size() > 20, "the warning comes after gate 30: " + beforeBoss.size());
+        assertEquals(beforeBoss, pinned.simulation().spawner().decisionHashes()
+                .subList(0, beforeBoss.size()));
+    }
+
+    /**
+     * E32.d up to the boss (M8): the spawn decisions of a boss run depend on the seed alone
+     * until the warning starts, however the run is flown. The fight is timed in ticks, so its
+     * step count — and the streams after it — legitimately depend on the scroll the build flies
+     * at; the assertion is on the prefix before the warning.
+     */
+    @Test
+    void theSpawnDecisionsBeforeTheBossDependOnlyOnTheSeed() {
+        RunFactory factory = new RunFactory(GameContent.load());
+        RunConfig config = RunConfig.builder(23).build();
+        List<Long> perfect = decisionsBeforeBoss(factory, config, BotPilot.Preset.PERFECT, 1);
+        List<Long> expert = decisionsBeforeBoss(factory, config, BotPilot.Preset.EXPERT, 2);
+        int common = Math.min(perfect.size(), expert.size());
+        assertTrue(common > 12, "the two runs must share more than twelve spawns, was " + common);
+        assertEquals(perfect.subList(0, common), expert.subList(0, common));
+    }
+
+    /** The decision hashes drawn before the boss warning, or the whole run if none came. */
+    private static List<Long> decisionsBeforeBoss(RunFactory factory, RunConfig config,
+            BotPilot.Preset preset, long pilotSeed) {
+        Run run = factory.newRun(config);
+        BotPilot bot = new BotPilot(preset, pilotSeed);
+        for (int t = 0; t < 5000 && !run.isFinished(); t++) {
+            TickReport report = run.tick(bot.decide(run));
+            if (report.has(TickFact.BossWarning.class)) {
+                break;
+            }
+        }
+        return run.simulation().spawner().decisionHashes();
     }
 
     private static List<Long> decisionsOf(RunFactory factory, RunConfig config,

@@ -13,6 +13,7 @@ import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
+import io.github.michelbr84.flapforge.render.Accessibility;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -141,6 +142,7 @@ public final class SettingsScreen implements Screen {
     private Settings working;
     private ListView languageList;
     private ListView fpsList;
+    private ListView colorBlindList;
     private Button restore;
     private Button back;
     private String shownLanguage;
@@ -220,6 +222,9 @@ public final class SettingsScreen implements Screen {
                 v -> working.showFps = v), y);
 
         y = addHeader(StringKey.SETTINGS_SECTION_GAME, y);
+        y = addRow(toggle("highContrast", StringKey.SETTINGS_HIGH_CONTRAST, working.highContrast,
+                v -> working.highContrast = v), y);
+        y = addRow(colourBlindRow(), y);
         y = addRow(toggle("reduceFlashing", StringKey.SETTINGS_REDUCE_FLASHING,
                 working.reduceFlashing, v -> working.reduceFlashing = v), y);
         y = addRow(textScaleRow(), y);
@@ -273,6 +278,44 @@ public final class SettingsScreen implements Screen {
             apply();
         });
         return fpsList;
+    }
+
+    /**
+     * The colour-blind palette row (M8): one entry per name {@link Settings} accepts, labelled
+     * through the string table so both languages carry it.
+     *
+     * @return the list
+     */
+    private ListView colourBlindRow() {
+        colorBlindList = new ListView(strings.get(StringKey.SETTINGS_COLOR_BLIND_PALETTE),
+                colourBlindOptions(),
+                Math.max(0, Settings.COLOR_BLIND_PALETTES.indexOf(working.colorBlindPalette)));
+        colorBlindList.setOnChange(index -> {
+            working.colorBlindPalette = Settings.COLOR_BLIND_PALETTES.get(index);
+            apply();
+        });
+        return colorBlindList;
+    }
+
+    private List<String> colourBlindOptions() {
+        List<String> out = new ArrayList<>(Settings.COLOR_BLIND_PALETTES.size());
+        for (String palette : Settings.COLOR_BLIND_PALETTES) {
+            out.add(colourBlindName(palette));
+        }
+        return out;
+    }
+
+    private String colourBlindName(String palette) {
+        switch (palette) {
+            case "protanopia":
+                return strings.get(StringKey.SETTINGS_COLOR_BLIND_PROTANOPIA);
+            case "deuteranopia":
+                return strings.get(StringKey.SETTINGS_COLOR_BLIND_DEUTERANOPIA);
+            case "tritanopia":
+                return strings.get(StringKey.SETTINGS_COLOR_BLIND_TRITANOPIA);
+            default:
+                return strings.get(StringKey.SETTINGS_COLOR_BLIND_NONE);
+        }
     }
 
     private Slider textScaleRow() {
@@ -403,6 +446,15 @@ public final class SettingsScreen implements Screen {
      */
     public ListView maxFpsList() {
         return fpsList;
+    }
+
+    /**
+     * The colour-blind palette row (M8).
+     *
+     * @return the list
+     */
+    public ListView colorBlindList() {
+        return colorBlindList;
     }
 
     /**
@@ -584,6 +636,8 @@ public final class SettingsScreen implements Screen {
         Fonts.setTextScale(working.textScale);
         ProceduralArt.setSmoothing(working.smoothing);
         ParticleSystem.setDefaultReduceFlashing(working.reduceFlashing);
+        Accessibility.setHighContrast(working.highContrast);
+        Accessibility.setPalette(working.colorBlindPalette);
         String resolved = working.resolvedLanguage(GameContext.systemLanguage());
         if (!resolved.equals(strings.language())) {
             strings.reload(resolved);
@@ -633,8 +687,11 @@ public final class SettingsScreen implements Screen {
         toggles.get("showFps").setValueQuietly(working.showFps);
         toggles.get("reduceFlashing").setValueQuietly(working.reduceFlashing);
         toggles.get("holdToFlap").setValueQuietly(working.holdToFlap);
+        toggles.get("highContrast").setValueQuietly(working.highContrast);
         languageList.selectQuietly(Math.max(0, Settings.LANGUAGES.indexOf(working.language)));
         fpsList.selectQuietly(Math.max(0, FPS_OPTIONS.indexOf(working.maxFps)));
+        colorBlindList.selectQuietly(
+                Math.max(0, Settings.COLOR_BLIND_PALETTES.indexOf(working.colorBlindPalette)));
     }
 
     /** Re-reads every visible label from the string table (a language switch). */
@@ -654,6 +711,9 @@ public final class SettingsScreen implements Screen {
         label(toggles.get("showFps"), StringKey.SETTINGS_SHOW_FPS);
         label(toggles.get("reduceFlashing"), StringKey.SETTINGS_REDUCE_FLASHING);
         label(toggles.get("holdToFlap"), StringKey.SETTINGS_HOLD_TO_FLAP);
+        label(toggles.get("highContrast"), StringKey.SETTINGS_HIGH_CONTRAST);
+        colorBlindList.setLabel(strings.get(StringKey.SETTINGS_COLOR_BLIND_PALETTE));
+        colorBlindList.setOptions(colourBlindOptions());
         for (Map.Entry<StringKey, Label> entry : headerByKey.entrySet()) {
             entry.getValue().setText(strings.get(entry.getKey()));
         }

@@ -22,14 +22,18 @@ import java.util.Objects;
  * @param unlocksGranted namespaced unlock ids granted by this pass
  * @param challengeFirstCompleted whether this run completed its challenge for the first time (E11)
  * @param dailyRecorded whether the run counted as an attempt of the daily pick (E27)
+ * @param achievementRewardsGranted the coins each unlocked achievement paid, by achievement id
+ *     (M8, E32.a: paid through the wallet and counted in {@code coinsEarned}); an achievement
+ *     that pays no coins is absent
  */
 public record ProgressionOutcome(RewardSummary rewardSummary, List<Integer> levelUps,
         Map<String, Long> levelRewardsGranted, List<String> achievementsUnlocked,
-        List<String> unlocksGranted, boolean challengeFirstCompleted, boolean dailyRecorded) {
+        List<String> unlocksGranted, boolean challengeFirstCompleted, boolean dailyRecorded,
+        Map<String, Long> achievementRewardsGranted) {
 
     /** Nothing happened: no rewards, no levels, no unlocks. */
     public static final ProgressionOutcome EMPTY = new ProgressionOutcome(RewardSummary.NONE,
-            List.of(), Map.of(), List.of(), List.of(), false, false);
+            List.of(), Map.of(), List.of(), List.of(), false, false, Map.of());
 
     /**
      * Copies the collections into deterministic, unmodifiable ones.
@@ -41,6 +45,7 @@ public record ProgressionOutcome(RewardSummary rewardSummary, List<Integer> leve
      * @param unlocksGranted the unlocks
      * @param challengeFirstCompleted the first-completion flag
      * @param dailyRecorded the daily flag
+     * @param achievementRewardsGranted the coins the achievements paid
      */
     public ProgressionOutcome {
         Objects.requireNonNull(rewardSummary, "rewardSummary");
@@ -49,6 +54,53 @@ public record ProgressionOutcome(RewardSummary rewardSummary, List<Integer> leve
                 Collections.unmodifiableMap(new LinkedHashMap<>(levelRewardsGranted));
         achievementsUnlocked = List.copyOf(achievementsUnlocked);
         unlocksGranted = List.copyOf(unlocksGranted);
+        achievementRewardsGranted = Collections.unmodifiableMap(
+                new LinkedHashMap<>(achievementRewardsGranted));
+    }
+
+    /**
+     * The pre-M8 shape: an outcome whose achievements paid nothing.
+     *
+     * @param rewardSummary the rewards
+     * @param levelUps the levels crossed
+     * @param levelRewardsGranted the level grants
+     * @param achievementsUnlocked the achievements
+     * @param unlocksGranted the unlocks
+     * @param challengeFirstCompleted the first-completion flag
+     * @param dailyRecorded the daily flag
+     */
+    public ProgressionOutcome(RewardSummary rewardSummary, List<Integer> levelUps,
+            Map<String, Long> levelRewardsGranted, List<String> achievementsUnlocked,
+            List<String> unlocksGranted, boolean challengeFirstCompleted,
+            boolean dailyRecorded) {
+        this(rewardSummary, levelUps, levelRewardsGranted, achievementsUnlocked, unlocksGranted,
+                challengeFirstCompleted, dailyRecorded, Map.of());
+    }
+
+    /**
+     * The coins the achievements of this pass paid, summed (E32.a).
+     *
+     * @return the total, 0 when no achievement paid anything
+     */
+    public long achievementCoins() {
+        long total = 0;
+        for (Long coins : achievementRewardsGranted.values()) {
+            total += coins == null ? 0 : coins;
+        }
+        return total;
+    }
+
+    /**
+     * The coins the level rewards of this pass paid, summed over every currency.
+     *
+     * @return the total, 0 when no level paid anything
+     */
+    public long levelRewardCoins() {
+        long total = 0;
+        for (Long coins : levelRewardsGranted.values()) {
+            total += coins == null ? 0 : coins;
+        }
+        return total;
     }
 
     /**

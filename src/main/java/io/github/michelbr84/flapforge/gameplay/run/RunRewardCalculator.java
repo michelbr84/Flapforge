@@ -25,11 +25,14 @@ import java.util.Objects;
  * </pre>
  *
  * <p>The modifier streak bonuses landed in M6 and are read from
- * {@link RunStats#modifierStreakCoins()}. One group of terms still has no data behind it and is
- * pinned to 0 with a hook rather than silently dropped: the first-clear boss and first-completion
- * challenge rewards ({@code worlds.json} M7, {@code challenges.json} M8). They are folded into
- * {@link RewardSummary#bossCoins()} and {@link RewardSummary#challengeCoins()} so the breakdown
- * keeps its shape when they land.
+ * {@link RunStats#modifierStreakCoins()}. The first-clear boss and first-completion challenge
+ * rewards landed in M8 and are read from the context — {@link RewardContext#firstBossClearCoins()}
+ * and {@link RewardContext#firstChallengeCoins()}, resolved by the progression layer from
+ * {@code worlds.json} and {@code challenges.json}, which this class never opens. They are folded
+ * into {@link RewardSummary#bossCoins()} and {@link RewardSummary#challengeCoins()} beside the
+ * economy's per-clear bonuses. {@code bosses} counts world bosses only ({@code
+ * RunStats.bossesCleared}): a challenge boss never enters either boss term, nor the XP one
+ * (E26).
  *
  * <p>Participation is gated (E32.a) so an instant-retry dive that passes no gate and lasts less
  * than {@value #PARTICIPATION_TICKS} ticks earns nothing; the first-run bonus is not gated, so a
@@ -73,9 +76,7 @@ public final class RunRewardCalculator {
         long gateCoins = rewards.coinsPerGate() * gates;
         long pointCoins = rewards.coinsPerPoint() * points;
         long streakCoins = (rewards.streak().coins() + modifierStreakBonus(stats)) * steps;
-        // TODO(M8): + Σ world.boss.reward.coins over ctx.firstBossClears() (BossEncounter lands in M8).
         long bossCoins = rewards.bossBonus() * bosses + firstBossClearCoins(ctx);
-        // TODO(M8): + challenge.rewards.coins when ctx.firstChallengeCompletion().
         long challengeCoins = (stats.objectiveMet() ? rewards.challengeBonus() : 0)
                 + firstChallengeCompletionCoins(ctx);
 
@@ -115,24 +116,28 @@ public final class RunRewardCalculator {
     }
 
     /**
-     * The first-clear reward of the world bosses this run cleared (E32.a). {@code worlds.json}
-     * lands in M7, so no boss can carry a {@code reward} yet.
+     * The first-clear reward of the world bosses this run cleared (E32.a, M8): the sum of
+     * {@code boss.reward.coins} over {@link RewardContext#firstBossClears()}, resolved by the
+     * progression layer into {@link RewardContext#firstBossClearCoins()}. A context with first
+     * clears but no coins resolved (a test, a tool without content) pays 0 here and still pays
+     * the economy's {@code bossBonus}.
      *
-     * @param ctx the reward context (it names the worlds cleared for the first time)
+     * @param ctx the reward context
      * @return the coins the first clears pay
      */
     private static long firstBossClearCoins(RewardContext ctx) {
-        return 0;
+        return ctx.firstBossClears().isEmpty() ? 0 : ctx.firstBossClearCoins();
     }
 
     /**
-     * The first-completion reward of the run's challenge (E11). {@code challenges.json} lands in
-     * M8, so the term is 0 until then.
+     * The first-completion reward of the run's challenge (E11, M8): the challenge's
+     * {@code rewards.coins}, paid once, on the run that completes it first; every completion
+     * after that pays {@code challengeBonus} alone.
      *
      * @param ctx the reward context
      * @return the coins the first completion pays
      */
     private static long firstChallengeCompletionCoins(RewardContext ctx) {
-        return 0;
+        return ctx.firstChallengeCompletion() ? ctx.firstChallengeCoins() : 0;
     }
 }

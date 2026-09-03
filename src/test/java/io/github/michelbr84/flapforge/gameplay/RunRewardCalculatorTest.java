@@ -236,6 +236,59 @@ class RunRewardCalculatorTest {
                 "and the extra 40 coins are the only difference the card makes");
     }
 
+    /**
+     * M8, E32.a: the first-clear boss and first-completion challenge terms the milestone before
+     * pinned to zero, read from the context the progression layer resolves.
+     */
+    @Test
+    void firstClearCoinsRideTheBossAndChallengeTerms() {
+        RunStats stats = new RunStats();
+        stats.setGatesPassed(30);
+        stats.setPoints(30);
+        stats.addBossCleared("green_fields");
+        stats.setObjectiveMet(true);
+        for (int i = 0; i < 1800; i++) {
+            stats.tickAlive();
+        }
+        RunResult result = new RunResult(
+                RunConfig.builder(1).mode(RunMode.CHALLENGE).challengeId("no_shield_1").build(),
+                stats, Map.of());
+        RewardContext first = new RewardContext(false, true, Set.of("green_fields"), 1, 1, 1, 1)
+                .withFirstClearCoins(200, 300);
+        RewardSummary summary = RunRewardCalculator.compute(result, ECONOMY, first);
+        assertEquals(150 + 200, summary.bossCoins(), "bossBonus plus boss.reward.coins");
+        assertEquals(100 + 300, summary.challengeCoins(),
+                "challengeBonus plus challenge.rewards.coins");
+        assertEquals(20 + 60 + 30 + 350 + 400, summary.coins());
+
+        RewardContext repeat = new RewardContext(false, false, Set.of(), 1, 1, 1, 1)
+                .withFirstClearCoins(200, 300);
+        RewardSummary again = RunRewardCalculator.compute(result, ECONOMY, repeat);
+        assertEquals(150, again.bossCoins(), "no first clear: the resolved coins are ignored");
+        assertEquals(100, again.challengeCoins(), "no first completion: bonus only (E11)");
+    }
+
+    /** E26: a challenge boss is not a world boss — neither boss term nor the boss XP pays. */
+    @Test
+    void aChallengeBossPaysNoneOfTheWorldBossTerms() {
+        RunStats stats = new RunStats();
+        stats.setGatesPassed(25);
+        stats.setPoints(25);
+        stats.setObjectiveMet(true);
+        stats.setPhasesReached(1);
+        for (int i = 0; i < 2400; i++) {
+            stats.tickAlive();
+        }
+        RunResult result = new RunResult(RunConfig.builder(1).mode(RunMode.CHALLENGE)
+                .challengeId("boss_corridor_1").build(), stats, Map.of());
+        RewardContext ctx = new RewardContext(false, true, Set.of(), 1, 1, 1, 1)
+                .withFirstClearCoins(0, 500);
+        RewardSummary summary = RunRewardCalculator.compute(result, ECONOMY, ctx);
+        assertEquals(0, summary.bossCoins(), "bossesCleared is empty for a challenge boss");
+        assertEquals(100 + 500, summary.challengeCoins());
+        assertEquals(15 + 250, summary.xp(), "no xp.bossBonus either");
+    }
+
     /** Two stacks of the same bonus pay twice, because the director sums them per stack. */
     @Test
     void stackedStreakBonusesPayPerStack() {

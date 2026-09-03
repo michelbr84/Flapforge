@@ -18,6 +18,7 @@ import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.gameplay.SimContext;
+import io.github.michelbr84.flapforge.gameplay.TickFact;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.gameplay.obstacle.Gear;
 import io.github.michelbr84.flapforge.gameplay.obstacle.LightningStrike;
@@ -47,6 +48,7 @@ import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import io.github.michelbr84.flapforge.progression.UnlockManager;
 import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.progression.Wallet;
+import io.github.michelbr84.flapforge.render.Accessibility;
 import io.github.michelbr84.flapforge.render.AssetManager;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.DarknessOverlay;
@@ -62,8 +64,11 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
+import io.github.michelbr84.flapforge.ui.screens.AchievementsScreen;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.BootScreen;
+import io.github.michelbr84.flapforge.ui.screens.BossBanner;
+import io.github.michelbr84.flapforge.ui.screens.ChallengesScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
@@ -351,6 +356,36 @@ class ProceduralRenderTest {
                 assertTrue(distinctColours(shop, 2) >= 2, "shop is uniform in " + language);
                 byLanguage.put(language + "-shop", copy(shop));
 
+                // M8: the two progression screens and the boss banner's three states.
+                Fixture played = Fixture.played();
+                BufferedImage challenges = renderScreen(sm -> new ChallengesScreen(sm,
+                        Strings.active(), GameContent.load(), played.profile), 5);
+                assertTrue(distinctColours(challenges, 2) >= 2,
+                        "challenges is uniform in " + language);
+                byLanguage.put(language + "-challenges", copy(challenges));
+
+                for (int tab = 0; tab < 3; tab++) {
+                    final int tabIndex = tab;
+                    BufferedImage achievements = renderScreen(sm -> {
+                        AchievementsScreen screen = new AchievementsScreen(sm, Strings.active(),
+                                GameContent.load(), played.profile, played.rules);
+                        screen.tabBar().select(tabIndex);
+                        return screen;
+                    }, 5);
+                    assertTrue(distinctColours(achievements, 2) >= 2,
+                            "achievements tab " + tab + " is uniform in " + language);
+                    byLanguage.put(language + "-achievements-" + tab, copy(achievements));
+                }
+
+                for (BossBanner.Phase state : new BossBanner.Phase[] {
+                        BossBanner.Phase.WARNING, BossBanner.Phase.ACTIVE,
+                        BossBanner.Phase.CLEARED}) {
+                    BufferedImage bannerFrame = renderBanner(state);
+                    assertTrue(distinctColours(bannerFrame, 2) >= 2,
+                            state + " banner is uniform in " + language);
+                    byLanguage.put(language + "-boss-" + state, copy(bannerFrame));
+                }
+
                 for (Phase phase : Phase.values()) {
                     Rig rig = new Rig();
                     rig.driveTo(phase);
@@ -391,6 +426,50 @@ class ProceduralRenderTest {
                 "the shop must look different in the two languages");
         assertFalse(identical(byLanguage.get("en-draft"), byLanguage.get("pt_BR-draft")),
                 "the modifier draft must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-challenges"),
+                        byLanguage.get("pt_BR-challenges")),
+                "the challenges screen must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-achievements-0"),
+                        byLanguage.get("pt_BR-achievements-0")),
+                "the achievements grid must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-achievements-1"),
+                        byLanguage.get("pt_BR-achievements-1")),
+                "the milestones tab must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-achievements-2"),
+                        byLanguage.get("pt_BR-achievements-2")),
+                "the collections tab must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-boss-WARNING"),
+                        byLanguage.get("pt_BR-boss-WARNING")),
+                "the boss warning must look different in the two languages");
+    }
+
+    /**
+     * Draws the boss banner alone in one of its three visible states over a flat ground, the way
+     * the game screen draws it over its world.
+     *
+     * @param phase the state to draw
+     * @return the frame
+     */
+    private static BufferedImage renderBanner(BossBanner.Phase phase) {
+        BossBanner banner = new BossBanner(Strings.active());
+        banner.announce(new TickFact.BossWarning("boss_corridor_1", null, 120));
+        if (phase == BossBanner.Phase.ACTIVE) {
+            banner.announce(new TickFact.BossStarted("boss_corridor_1", 900));
+        } else if (phase == BossBanner.Phase.CLEARED) {
+            banner.announce(new TickFact.BossCleared("boss_corridor_1", null));
+        }
+        BufferedImage image = new BufferedImage(Playfield.WIDTH, Playfield.HEIGHT,
+                BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            ProceduralArt.prepare(g);
+            g.setColor(new Color(0x14, 0x2A, 0x2C));
+            g.fillRect(0, 0, image.getWidth(), image.getHeight());
+            banner.render(g, WorldPalette.GREEN_FIELDS);
+        } finally {
+            g.dispose();
+        }
+        return image;
     }
 
     @Test
@@ -839,6 +918,8 @@ class ProceduralRenderTest {
     private static final Path RENDER_DIR = Path.of("build", "render");
     /** Minimum L1 distance between the colour histograms of two worlds' frames. */
     private static final double WORLD_DISTANCE = 0.25;
+    /** Slack for a luminance target mapped back through 8-bit RGB channels. */
+    private static final double LUMA_ROUNDING = 1.0;
 
     @Test
     void everyWorldRendersEveryKindInBothPosesAndLooksDifferent() throws IOException {
@@ -913,6 +994,138 @@ class ProceduralRenderTest {
         assertTrue(Math.abs(luminance(pipe) - luminance(sky)) > 25,
                 () -> "the gate must stand out from the sky under the veil: pipe "
                         + Integer.toHexString(pipe) + " sky " + Integer.toHexString(sky));
+    }
+
+    // ------------------------------------------------------------------ accessibility (M8, D17)
+
+    @Test
+    void highContrastCapsTheVeilAndRedrawsTheFrame() throws IOException {
+        Accessibility.clear();
+        GameContent content = GameContent.load();
+        BufferedImage plain;
+        double uncappedAlpha;
+        try {
+            WorldRig rig = new WorldRig(content, "storm_sky");
+            rig.add(PipeGate.standard(305, 200, 128, null));
+            rig.frame(0.0);
+            plain = copy(rig.image);
+            uncappedAlpha = rig.renderer.darkness().alphaAt(325, 150,
+                    rig.run.simulation().bird().y());
+        } finally {
+            Accessibility.clear();
+        }
+
+        BufferedImage highContrast;
+        double cappedAlpha;
+        try {
+            Accessibility.setHighContrast(true);
+            WorldRig rig = new WorldRig(content, "storm_sky");
+            rig.add(PipeGate.standard(305, 200, 128, null));
+            rig.frame(0.0);
+            highContrast = copy(rig.image);
+            cappedAlpha = rig.renderer.darkness().alphaAt(325, 150,
+                    rig.run.simulation().bird().y());
+        } finally {
+            Accessibility.clear();
+        }
+
+        assertTrue(uncappedAlpha > Accessibility.HIGH_CONTRAST_DARKNESS,
+                () -> "storm_sky's own veil is heavier than the cap: " + uncappedAlpha);
+        assertTrue(cappedAlpha <= Accessibility.HIGH_CONTRAST_DARKNESS + 1e-9,
+                () -> "high contrast caps the veil at " + Accessibility.HIGH_CONTRAST_DARKNESS
+                        + ", got " + cappedAlpha);
+        assertTrue(distance(histogram(plain), histogram(highContrast)) > 0.02,
+                "high contrast redraws the frame (outlines, panels, veil)");
+    }
+
+    @Test
+    void everyColourBlindPaletteKeepsTheRequiredPairsSeparate() throws IOException {
+        Accessibility.clear();
+        GameContent content = GameContent.load();
+        WorldDef world = content.worlds().get("green_fields");
+        WorldPalette authored = WorldPalette.from(world.palette());
+
+        BufferedImage plain;
+        try {
+            WorldRig rig = new WorldRig(content, "green_fields");
+            rig.placeEveryKind();
+            plain = copy(rig.frame(0.0));
+        } finally {
+            Accessibility.clear();
+        }
+
+        for (String name : new String[] {"protanopia", "deuteranopia", "tritanopia"}) {
+            try {
+                Accessibility.setPalette(name);
+                WorldPalette shifted = Accessibility.palette(authored);
+                double background = Accessibility.luminance(shifted.skyBottom());
+                double hazard = Accessibility.luminance(shifted.pipe());
+                // The guarantee itself is pinned: 60 luma between hazard and background, 45
+                // between a semantic tone and its base (the Javadoc promise, plan section 4).
+                // The numbers are literals on purpose — read from the contract, not from the
+                // class under test — and two-sided, so neither a weaker nor a stronger constant
+                // passes; LUMA_ROUNDING covers the 8-bit RGB rounding of a luminance target
+                // mapped back through whole channels.
+                assertTrue(Math.abs(Math.abs(hazard - background) - 60.0) <= LUMA_ROUNDING,
+                        () -> name + ": hazard vs background luma " + hazard + " " + background);
+                double danger = Accessibility.luminance(
+                        Accessibility.tone(shifted.pipe(), Accessibility.Role.DANGER));
+                // A floor, not a pin: a tone that saturates at 0 or 255 shrinks this gap while
+                // both pins above still hold.
+                assertTrue(Math.abs(danger - hazard) >= 45.0 - LUMA_ROUNDING,
+                        () -> name + ": telegraph vs hazard luma " + danger + " " + hazard);
+                double accent = Accessibility.luminance(shifted.accent());
+                double coin = Accessibility.luminance(
+                        Accessibility.tone(shifted.accent(), Accessibility.Role.COIN));
+                assertTrue(Math.abs(Math.abs(coin - accent) - 45.0) <= LUMA_ROUNDING,
+                        () -> name + ": coin vs accent luma " + coin + " " + accent);
+
+                // The transform reaches the whole frame, not just the semantic tones.
+                WorldRig rig = new WorldRig(content, "green_fields");
+                rig.placeEveryKind();
+                BufferedImage frame = copy(rig.frame(0.0));
+                assertTrue(distance(histogram(plain), histogram(frame)) > 0.02,
+                        () -> name + " repaints the world");
+            } finally {
+                Accessibility.clear();
+            }
+        }
+    }
+
+    @Test
+    void everyScreenReflowsAtOneAndAHalfTextScale() {
+        double previous = Fonts.textScale();
+        try {
+            Fonts.setTextScale(1.5);
+            assertEquals(1.5, Fonts.textScale(), 1e-9);
+
+            assertTrue(distinctColours(renderScreen(MainMenuScreen::new, 5), 2) >= 2,
+                    "menu overflows at 1.5x text");
+            assertTrue(distinctColours(renderScreen(SettingsScreen::new, 5), 2) >= 2,
+                    "settings overflows at 1.5x text");
+            Meta meta = Meta.spent();
+            assertTrue(distinctColours(renderScreen(meta::birds, 5), 2) >= 2,
+                    "bird selection overflows at 1.5x text");
+            assertTrue(distinctColours(renderScreen(meta::upgrades, 5), 2) >= 2,
+                    "upgrade trees overflow at 1.5x text");
+            assertTrue(distinctColours(renderScreen(meta::shop, 5), 2) >= 2,
+                    "shop overflows at 1.5x text");
+            Fixture played = Fixture.played();
+            assertTrue(distinctColours(renderScreen(played::summary, 5), 2) >= 2,
+                    "run summary overflows at 1.5x text");
+            assertTrue(distinctColours(renderScreen(played::statistics, 5), 2) >= 2,
+                    "statistics overflows at 1.5x text");
+            assertTrue(distinctColours(renderScreen(sm -> new ChallengesScreen(sm,
+                    Strings.active(), GameContent.load(), played.profile), 5), 2) >= 2,
+                    "challenges overflows at 1.5x text");
+            assertTrue(distinctColours(renderScreen(sm -> new AchievementsScreen(sm,
+                    Strings.active(), GameContent.load(), played.profile, played.rules), 5), 2)
+                    >= 2, "achievements overflows at 1.5x text");
+            assertTrue(distinctColours(new Rig().frame(1.0), 2) >= 2,
+                    "the run HUD overflows at 1.5x text");
+        } finally {
+            Fonts.setTextScale(previous);
+        }
     }
 
     @Test

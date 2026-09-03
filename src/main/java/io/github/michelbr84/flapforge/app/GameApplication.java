@@ -3,6 +3,7 @@ package io.github.michelbr84.flapforge.app;
 import io.github.michelbr84.flapforge.Flapforge;
 import io.github.michelbr84.flapforge.audio.AudioBackend;
 import io.github.michelbr84.flapforge.audio.AudioManager;
+import io.github.michelbr84.flapforge.audio.MusicSequencer;
 import io.github.michelbr84.flapforge.audio.NullAudio;
 import io.github.michelbr84.flapforge.audio.SoundBank;
 import io.github.michelbr84.flapforge.content.ContentAdapters;
@@ -12,6 +13,7 @@ import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.TimeSource;
@@ -28,7 +30,9 @@ import io.github.michelbr84.flapforge.persistence.SavePaths;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
+import io.github.michelbr84.flapforge.progression.AchievementEvaluator;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
+import io.github.michelbr84.flapforge.progression.ProgressionOutcome;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.progression.SelectionManager;
 import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
@@ -36,6 +40,7 @@ import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.render.AssetManager;
 import io.github.michelbr84.flapforge.render.AssetResolver;
 import io.github.michelbr84.flapforge.render.DebugOverlay;
+import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.ui.Screen;
@@ -109,6 +114,15 @@ public final class GameApplication {
 
     /** Seed of a headless run started without {@code --seed} (the CI reference seed, D12). */
     public static final long DEFAULT_HEADLESS_SEED = 42L;
+
+    /**
+     * World whose loop the menu plays (M8, D19): the plan's menu music is Green Fields at
+     * −6 dB, which is {@link MusicSequencer#MENU_GAIN}.
+     */
+    public static final String MENU_WORLD = "green_fields";
+
+    /** Manifest id of the bundled UI font (D18, §4). */
+    public static final String FONT_ID = "font/ui";
 
     /** Cached display refresh rate in Hz; {@code 0} means "not resolved yet". */
     private static volatile int refreshRateHz;
@@ -400,19 +414,23 @@ public final class GameApplication {
         if (content.aliases() == null || content.aliases().isEmpty()) {
             return SaveManager.ProfileAliasStep.NONE;
         }
-        String currency = ProgressionRules.fromEconomy(content.economy()).primaryCurrency();
+        String currency = ProgressionRules.fromContent(content).primaryCurrency();
         return profile -> UpgradeManager.reconcile(profile, content.aliases(), currency);
     }
 
     /**
-     * Grants, once at startup, every unlock the loaded profile already satisfies (D13, D14).
+     * Grants, once at startup, every unlock and every achievement the loaded profile already
+     * satisfies (D13, D14).
      *
-     * <p>The evaluator otherwise runs only at the end of a run and after a purchase, so a profile
-     * written before an unlockable existed — every profile carried over from M3 into M4, and any
-     * profile at all after a threshold is lowered or a new unlockable ships — would open the game
-     * with what it has already earned still locked, and the shop would sell it. The pass is
-     * {@link ProgressionManager#applyPurchase}, which is exactly D14's "achievements → unlocks →
-     * dirty" tail, and the profile is written back only when something was actually granted.
+     * <p>The evaluators otherwise run only at the end of a run and after a purchase, so a profile
+     * written before an unlockable existed — every profile carried over from M3 into M4, every
+     * profile carried into M8 with its lifetime statistics already past an achievement's
+     * threshold, and any profile at all after a threshold is lowered or a new unlockable ships —
+     * would open the game with what it has already earned still locked, and the shop would sell
+     * it. The pass is {@link ProgressionManager#applyPurchase}, which is exactly D14's
+     * "achievements → unlocks → dirty" tail (it judges no run, so the {@code RUN}-scoped
+     * achievements wait for their run), and the profile is written back only when something was
+     * actually granted.
      *
      * @param save the manager holding the loaded profile
      * @param progression the write path
@@ -422,14 +440,23 @@ public final class GameApplication {
         if (profile == null) {
             return;
         }
-        List<String> granted = progression.applyPurchase(profile).unlocksGranted();
-        if (granted.isEmpty()) {
+        ProgressionOutcome outcome = progression.applyPurchase(profile);
+        List<String> granted = outcome.unlocksGranted();
+        List<String> achievements = outcome.achievementsUnlocked();
+        if (granted.isEmpty() && achievements.isEmpty()) {
             // The pass wrote nothing, so the profile is not dirty: leaving the mark on would make
             // the 60-second autosave rewrite an unchanged file once per session (D15).
             progression.clearDirty();
             return;
         }
-        System.out.println("save unlocked what was already earned: " + String.join(", ", granted));
+        if (!granted.isEmpty()) {
+            System.out.println("save unlocked what was already earned: "
+                    + String.join(", ", granted));
+        }
+        if (!achievements.isEmpty()) {
+            System.out.println("save granted the achievements already earned: "
+                    + String.join(", ", achievements));
+        }
         if (save.save()) {
             progression.markSaveQueued();
         }
@@ -519,12 +546,14 @@ public final class GameApplication {
         for (String repair : profileLoad.repairs()) {
             System.out.println("save repaired: " + repair);
         }
-        // The unlock evaluator is the unlock step of D14's pipeline, for a finished run and for a
-        // purchase alike; the achievement hook stays empty until M8.
+        // The two evaluators are the achievement and unlock steps of D14's pipeline, for a
+        // finished run and for a purchase alike (M4, M8).
         ProgressionManager progression = new ProgressionManager(timeSource,
-                ProgressionManager.AchievementHook.NONE, UnlockEvaluator.of(content));
+                AchievementEvaluator.of(content), UnlockEvaluator.of(content));
         grantWhatIsAlreadyEarned(save, progression);
-        ProgressionRules progressionRules = ProgressionRules.fromEconomy(content.economy());
+        // fromContent, not fromEconomy (M8): the boss and challenge first-clear rewards live in
+        // worlds.json and challenges.json, and the write path pays and grants them from here.
+        ProgressionRules progressionRules = ProgressionRules.fromContent(content);
         InputQueue input = new InputQueue(settings.bindings());
 
         GameWindow window;
@@ -583,8 +612,16 @@ public final class GameApplication {
         // Boot -> menu (M2). The warm-up runs on its own daemon thread, never on the loop, and
         // opening the mixer line is the slowest step of it (D19).
         List<BootSequence.Step> steps = BootSequence.defaultSteps();
+        // D18/D25: the bundled OFL font is installed before the sizes are rasterised, so the warm
+        // up measures the face the game will actually draw with. Loading it is lazy — this boot
+        // step, never a static initialiser (E10) — and a manifest without the entry (or a file
+        // that will not decode) leaves the logical SansSerif in place.
+        steps.set(0, new BootSequence.Step(StringKey.BOOT_FONTS, () -> {
+            assets.font(FONT_ID).ifPresent(Fonts::install);
+            BootSequence.warmUpFonts();
+        }));
         steps.add(new BootSequence.Step(StringKey.BOOT_AUDIO,
-                () -> openAudio(audio, assets, threads)));
+                () -> openAudio(audio, assets, threads, content)));
         BootSequence boot = new BootSequence(threads.bootExecutor(), steps);
         ContentRunFactory runs = runFactory(content, seeds, bootContext);
         pinWorld(runs, content, save.profile(), progression);
@@ -717,20 +754,32 @@ public final class GameApplication {
     }
 
     /**
-     * The {@code BOOT_AUDIO} step: opens the output device and decodes every cue, on the boot
-     * thread, while the splash is on screen (D19).
+     * The {@code BOOT_AUDIO} step: opens the output device, decodes every cue and renders the
+     * menu loop, on the boot thread, while the splash is on screen (D19, M8).
      *
      * <p>{@code --no-audio} and a machine with no usable output line both end in {@link NullAudio}
-     * after a single logged line (E30.j), so this never throws and never blocks the loop.
+     * after a single logged line (E30.j), so this never throws and never blocks the loop. The
+     * menu loop is the Green Fields one, rendered synchronously here — the boot thread, not a new
+     * one and not the mixing thread — so the menu's first frame can start it without a hitch
+     * (D19); a world run renders its own loop at run start, in {@code GameScreen}.
      *
      * @param audio the manager the opened backend is installed on
      * @param assets the manifest the sound bank resolves through
      * @param threads the owner of the daemon mixing thread
+     * @param content the shipped content, which names the menu loop's music block
      */
-    private void openAudio(AudioManager audio, AssetManager assets, Threads threads) {
+    private void openAudio(AudioManager audio, AssetManager assets, Threads threads,
+            GameContent content) {
         audio.setBackend(AudioBackend.create(!options.noAudio(), threads.audioThreadFactory(),
                 manifestSoundBank(assets), null));
         audio.warmUpBlocking();
+        if (content.has(GameContent.WORLDS) && content.worlds().contains(MENU_WORLD)) {
+            WorldDef menu = content.worlds().get(MENU_WORLD);
+            if (menu.music() != null) {
+                audio.prepareMusic(MusicSequencer.idForWorld(MENU_WORLD),
+                        MusicSequencer.render(menu.music()));
+            }
+        }
     }
 
     private void shutdown(FramePresenter presenter, AwtInputBridge bridge, GameWindow window,

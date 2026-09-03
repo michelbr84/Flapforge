@@ -5,28 +5,53 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Font;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * The asset door (D18): the shipped manifest is empty, so every renderer falls back to procedural
- * art; a manifest that points at something that is not there produces an <em>error</em>, never an
- * exception; and ids resolve through the manifest only — nothing scans a directory.
+ * The asset door (D18): the shipped manifest carries exactly the bundled OFL font (M8) and
+ * nothing else, so every renderer still falls back to procedural art; a manifest that points at
+ * something that is not there produces an <em>error</em>, never an exception; and ids resolve
+ * through the manifest only — nothing scans a directory.
  */
 class AssetManagerTest {
 
     private static final String EMPTY = "{\"version\": 1, \"assets\": []}";
 
     @Test
-    void theShippedManifestIsEmptyAndParsesWithoutErrors() {
+    void theShippedManifestCarriesOnlyTheFontAndParsesWithoutErrors() {
         AssetManager assets = AssetManager.fromClasspath();
 
-        assertTrue(assets.entries().isEmpty(),
-                "the shipped manifest must stay empty: " + assets.entries().keySet());
         assertTrue(assets.errors().isEmpty(), () -> String.join("\n", assets.errors()));
+        assertEquals(1, assets.entries().size(),
+                "the shipped manifest ships only the UI font: " + assets.entries().keySet());
+        AssetManager.Entry entry = assets.entries().get("font/ui");
+        assertNotNull(entry, "font/ui is declared");
+        assertEquals(AssetManager.Kind.FONT, entry.kind());
+        assertTrue(entry.path().endsWith(".ttf"), entry.path());
+        assertTrue(entry.license().contains("OFL"), entry.license());
+        // Every id the renderers ask for besides the font stays a procedural miss, not an error.
         assertEquals(Optional.empty(), assets.sprite("bird/classic"));
         assertFalse(assets.has("bird/classic"));
+        assertTrue(assets.errors().isEmpty(), "a miss is not an error");
+    }
+
+    @Test
+    void theShippedFontDecodesIntoAUsableFace() {
+        AssetManager assets = AssetManager.fromClasspath();
+
+        Optional<Font> font = assets.font("font/ui");
+        assertTrue(font.isPresent(), () -> String.join("\n", assets.errors()));
+        Font face = font.get();
+        assertEquals(1, face.getSize(), "a createFont face starts at size 1");
+        assertTrue(face.canDisplay('ç'), "the font must carry the Portuguese cedilla");
+        assertTrue(face.canDisplay('ã'), "the font must carry the Portuguese tilde a");
+        Font bold = face.deriveFont(Font.BOLD, 15f);
+        assertEquals(Font.BOLD, bold.getStyle(), "bold is a derived style on one face");
+        assertEquals(15, bold.getSize());
+        assertTrue(assets.errors().isEmpty(), () -> String.join("\n", assets.errors()));
     }
 
     @Test
@@ -119,6 +144,20 @@ class AssetManagerTest {
 
         assets.clearCache();
         assertTrue(assets.sprite("test/sheet").isPresent(), "a cleared cache reloads");
+    }
+
+    @Test
+    void aFontRequestForANonFontEntryIsAnErrorNotACrash() {
+        AssetManager assets = AssetManager.fromJson("{\"version\": 1, \"assets\": ["
+                + "{\"id\": \"not/a/font\", \"path\": \"sprites/test_sheet.png\","
+                + " \"kind\": \"SPRITE\", \"license\": \"CC0-1.0\", \"source\": \"test\"}]}");
+
+        assertEquals(Optional.empty(), assets.font("not/a/font"));
+        assertEquals(Optional.empty(), assets.font("undeclared"));
+        assertEquals(1, assets.errors().size(), () -> String.join("\n", assets.errors()));
+        assertTrue(assets.errors().get(0).contains("not a font"), assets.errors().get(0));
+        assertEquals(Optional.empty(), assets.font("not/a/font"),
+                "the failure is cached, the error is recorded once");
     }
 
     @Test

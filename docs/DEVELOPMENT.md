@@ -80,7 +80,10 @@ classpath under `/assets/`, it carries a licence, and it starts with the
 magic number of its kind (PNG for sprites and sheets, RIFF/WAVE for audio,
 TrueType/OpenType for fonts). Parse errors count as problems. Exit status 1
 on any problem, 0 for the shipped empty manifest — run it before adding an
-art or sound pack through the manifest.
+art or sound pack through the manifest. From M8 the manifest is no longer
+empty: the `font/ui` entry ships the bundled OFL font (`assets/fonts/`), which
+`BootSequence` installs through `Fonts.install` before any screen paints; see
+`docs/CONTENT.md` ("A font asset") for the entry's fields and how to swap it.
 
 ### The balancing tool's world flags `[M7]`
 
@@ -91,10 +94,14 @@ art or sound pack through the manifest.
 | `--world ID` / `--world all` | the world of every run, or every world of `worlds.json` in order |
 | `--tier ID` / `--tier all` | the tier, or every tier of `difficulty.json` |
 | `--pattern ID` / `--pattern all` | stream one pattern of `patterns.json` in isolation, looped from the first spawn, in the pattern's own world unless `--world` is given; `none` (default) plays the world's spawn table |
+| `--challenge ID` / `--challenge all` `[M8]` | play a challenge of `challenges.json` as the player would — its world, tier, curve, flags, effects, forced cards, forced pattern and boss — and print the objective and boss clear rates, the phases reached and the deaths by kind; how `docs/BALANCING.md` §11.1 is produced |
+| `--boss ID` / `--boss all` `[M8]` | a world boss encounter on its own, started at the boss (`RunSetup.startingAtBoss`: the warning fires at the first gate and the curve is shifted so that gate plays under the difficulty of the authored `atGate`), so the cell measures the fight and not the road to it; how §11.2 is produced |
+| `--drafts` | enable modifier drafts (off by default, so a cell measures the base run) |
 | `--skill NAME` | `novice`, `average`, `expert`, `perfect` or `all` |
 
 The deaths line groups obstacle deaths by kind (`PIPE_GATE`, `GEAR`, `PISTON`,
-`LIGHTNING`), which is how `docs/BALANCING.md` §10 is produced.
+`LIGHTNING`) plus the non-obstacle exits (`alive` = the tick budget reached),
+which is how `docs/BALANCING.md` §10 and §11 are produced.
 
 ## Launch flags
 
@@ -115,7 +122,7 @@ watchdog, D4). Without a display a windowed launch prints
 | `--no-window` | run without a window (headless); with nothing to simulate yet it returns at once | M0 |
 | `--help`, `-h` | print the usage text and exit | M0 |
 | `--seed N` | fixed RNG seed for a reproducible run | M1 |
-| `--headless-run N` | simulate N frames with no window; M0 prints a summary line (`headless-run frames=N ticks=N presents=N seed=S`), from M1 the last line is `hash=<hex>` (the state hash CI compares across OS/JDK) | M0 (hash: M1) |
+| `--headless-run N` | simulate N frames with no window; M0 prints a summary line (`headless-run frames=N ticks=N presents=N seed=S`), from M1 the last line is `hash=<hex>` (the state hash CI compares across OS/JDK). The run behind the line is the *pinned classic configuration* (`RunConfig.classic`): classic bird, Green Fields, normal tier, no abilities, no drafts and — from M8 — no boss (`RunConfig.bossEnabled` is off there and on for every profile run, every challenge, the balancing tool and the feasibility tests). It reaches 36 gates and Green Fields' boss is at gate 30, so the pin is what keeps `hash=eaaa01685261a433` for `--headless-run 3000 --seed 42` where M1 recorded it. A session without a profile (`ContentRunFactory` with no supplier) plays the same pinned configuration. | M0 (hash: M1; boss pin: M8) |
 | `--no-audio` | never open a sound device: `AudioBackend.create` returns `NullAudio` without touching the sound system. Use it in scripts, on CI and on machines whose audio stack is slow to open; the game plays exactly the same, silently. A machine where no line opens ends up here anyway, after one line on stderr. | M2 |
 | `--lang CODE` | UI language for this launch: `auto` (default locale), `en`, `pt_BR`. Overrides `settings.language`; an unknown code is ignored and `auto` applies. The language can also be changed live in Settings, and both take effect immediately (the menu behind the settings screen re-labels itself). | M2 |
 | `--home DIR` | profile directory (`settings.json`, and from M3 `save.json`) instead of the per-OS default. Always pass it in tests and scripts so nothing writes to the real profile. | M2 (settings) |

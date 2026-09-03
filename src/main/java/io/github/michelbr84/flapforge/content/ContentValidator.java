@@ -19,6 +19,7 @@ import io.github.michelbr84.flapforge.content.defs.GrantType;
 import io.github.michelbr84.flapforge.content.defs.LevelRewardDef;
 import io.github.michelbr84.flapforge.content.defs.ModifierDef;
 import io.github.michelbr84.flapforge.content.defs.ModifiersDef;
+import io.github.michelbr84.flapforge.content.defs.MusicDef;
 import io.github.michelbr84.flapforge.content.defs.ObjectiveType;
 import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.PatternDef;
@@ -121,6 +122,16 @@ public final class ContentValidator {
     public static final int MIN_STEP_DX = 100;
     /** Smallest distance a boss phase has to span, in px (§4 feasibility). */
     public static final int MIN_BOSS_PATTERN_DX = 480;
+    /**
+     * The shortest boss warning (M8): one second of banner and empty sky. Below it the fight
+     * starts before the columns of the run have scrolled out and the warning is not a warning.
+     */
+    public static final int MIN_BOSS_WARNING_TICKS = 60;
+    /**
+     * The shortest boss fight (M8): five seconds, about one loop of a {@value #MIN_BOSS_PATTERN_DX}
+     * px phase at the classic scroll. Below it the encounter is a single pattern, not a boss.
+     */
+    public static final int MIN_BOSS_SURVIVE_TICKS = 300;
     /**
      * Slack taken off the scroll between a column and the bolt after it before the bolt's
      * travel is checked, in px: the half-width of the bolt column and the bird box's own
@@ -789,6 +800,43 @@ public final class ContentValidator {
                         def.patterns().get(p));
             }
             checkBoss(content, errors, at + "/boss", def.boss(), true);
+            checkMusic(errors, at + "/music", def.id(), def.music());
+        }
+    }
+
+    /**
+     * A world's music block (§4, M8): the tempo is bounded (the sequencer's render cost grows as
+     * it falls), the scale is one the sequencer can play and the layers are voices it knows, with
+     * at least one of them — a block that names nothing would render silence.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the block
+     * @param worldId the world the block belongs to, for the message
+     * @param music the block, or {@code null} for a world without music
+     */
+    private static void checkMusic(List<String> errors, String at, String worldId, MusicDef music) {
+        if (music == null) {
+            return;
+        }
+        if (music.tempo() < MusicDef.MIN_TEMPO || music.tempo() > MusicDef.MAX_TEMPO) {
+            errors.add(at + "/tempo: world '" + worldId + "' asks for " + music.tempo()
+                    + " BPM, outside [" + MusicDef.MIN_TEMPO + ", " + MusicDef.MAX_TEMPO + "]");
+        }
+        if (!MusicDef.isKnownScale(music.scale())) {
+            errors.add(at + "/scale: world '" + worldId + "' names unknown scale '"
+                    + music.scale() + "' (known: " + String.join(", ", MusicDef.SCALES.keySet())
+                    + ")");
+        }
+        if (music.layers().isEmpty()) {
+            errors.add(at + "/layers: world '" + worldId + "' names no layer; the loop would be"
+                    + " silence");
+        }
+        for (int i = 0; i < music.layers().size(); i++) {
+            String layer = music.layers().get(i);
+            if (!MusicDef.isKnownLayer(layer)) {
+                errors.add(at + "/layers/" + i + ": world '" + worldId + "' names unknown layer '"
+                        + layer + "' (known: " + String.join(", ", MusicDef.LAYERS) + ")");
+            }
         }
     }
 
@@ -923,6 +971,16 @@ public final class ContentValidator {
         }
         if (boss.patterns().isEmpty()) {
             errors.add(at + "/patterns: a boss needs at least one pattern");
+        }
+        // M8 sanity: a warning short enough to be missed is not a warning, and a fight shorter
+        // than one loop of a phase is a pattern, not a boss.
+        if (boss.warningTicks() < MIN_BOSS_WARNING_TICKS) {
+            errors.add(at + "/warningTicks: " + boss.warningTicks() + " is less than the "
+                    + MIN_BOSS_WARNING_TICKS + " ticks a boss warning needs");
+        }
+        if (boss.surviveTicks() < MIN_BOSS_SURVIVE_TICKS) {
+            errors.add(at + "/surviveTicks: " + boss.surviveTicks() + " is less than the "
+                    + MIN_BOSS_SURVIVE_TICKS + " ticks a boss fight needs");
         }
     }
 
@@ -1561,14 +1619,42 @@ public final class ContentValidator {
                     def.rewardsOrNone().unlocks());
             checkContradictions(errors, at, "challenge '" + def.id() + "'", def.flags(),
                     def.effects(), def.objective().type());
-            // TODO(M8): a BOSS_CLEARED objective must carry a boss block once boss encounters
-            // exist; boss_corridor_1 is authored with its final rewards and gets its boss then.
+            // No rule here, or anywhere, asks for the challenge's world to be unlocked (E6): the
+            // world is a place the run happens in, not a requirement of it.
             checkBoss(content, errors, at + "/boss", def.boss(), false);
+            checkObjectiveAgainstBoss(errors, at, def);
             if (def.forcedPattern() != null) {
                 checkPattern(content, errors, at + "/forcedPattern", def.forcedPattern(), false);
                 checkForcedPatternScores(content, errors, at, def);
             }
             checkForcedModifiers(content, errors, at, def);
+        }
+    }
+
+    /**
+     * The objective against the boss block (M8, E14). A {@code BOSS_CLEARED} objective is about
+     * the boss the run actually spawns (D11), so the challenge has to carry one — the world's
+     * boss never plays in a challenge (E26). And a boss placed past a {@code SURVIVE_GATES}
+     * objective is a boss the run is judged before reaching: the player completes the challenge
+     * and then meets a fight that pays nothing, so it is rejected. {@code atGate} at or below the
+     * objective value is fine, and a {@code REACH_POINTS} or {@code COLLECT_COINS} objective
+     * puts no bound on it.
+     *
+     * @param errors where to append problems
+     * @param at the pointer of the challenge
+     * @param def the challenge
+     */
+    private static void checkObjectiveAgainstBoss(List<String> errors, String at,
+            ChallengeDef def) {
+        if (def.objective().type() == ObjectiveType.BOSS_CLEARED && def.boss() == null) {
+            errors.add(at + "/objective: a BOSS_CLEARED objective needs a boss block on the"
+                    + " challenge, because a challenge never fights its world's boss (E26)");
+        }
+        if (def.boss() != null && def.objective().type() == ObjectiveType.SURVIVE_GATES
+                && def.boss().atGate() > def.objective().value()) {
+            errors.add(at + "/boss/atGate: " + def.boss().atGate() + " is beyond the"
+                    + " SURVIVE_GATES objective of " + def.objective().value()
+                    + ", so the boss is unreachable before the challenge is won (E14)");
         }
     }
 

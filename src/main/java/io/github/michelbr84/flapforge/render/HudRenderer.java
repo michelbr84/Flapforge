@@ -1,8 +1,11 @@
 package io.github.michelbr84.flapforge.render;
 
 import io.github.michelbr84.flapforge.ability.AbilityInstance;
+import io.github.michelbr84.flapforge.content.defs.ObjectiveType;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.gameplay.run.BossEncounter;
+import io.github.michelbr84.flapforge.gameplay.run.ObjectiveEvaluator;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.gameplay.run.ShieldSystem;
@@ -143,6 +146,20 @@ public final class HudRenderer {
     public static final int WORLD_FLYING_BASELINE_Y = STREAK_BONUS_BASELINE_Y + 16;
     /** Flying ticks the world name stays up after the first flap (M7). */
     public static final int WORLD_NAME_TICKS = 120;
+    /** Baseline of the boss countdown (M8, D17), under the world-name line. */
+    public static final int BOSS_TIMER_BASELINE_Y = WORLD_FLYING_BASELINE_Y + 16;
+    /** Baseline of the boss phase readout, under the countdown. */
+    public static final int BOSS_PHASE_BASELINE_Y = BOSS_TIMER_BASELINE_Y + 15;
+    /** Point size of the boss countdown. */
+    public static final int BOSS_TIMER_SIZE = 14;
+    /** Point size of the boss phase readout. */
+    public static final int BOSS_PHASE_SIZE = 11;
+    /** Right edge of the objective line (M8), flush with the seed line. */
+    public static final int OBJECTIVE_X = Playfield.WIDTH - 10;
+    /** Baseline of the objective line, level with the coin counter. */
+    public static final int OBJECTIVE_BASELINE_Y = COIN_ICON_CY + 5;
+    /** Point size of the objective line. */
+    public static final int OBJECTIVE_SIZE = 12;
 
     private static final Color SEED_COLOR = new Color(0x1C, 0x3A, 0x3E, 0xB0);
     private static final Color FLAME_CORE = new Color(0xFF, 0xE1, 0x8A);
@@ -211,6 +228,24 @@ public final class HudRenderer {
     private int abilityActivations;
     private int abilityFlashTicks;
     private int refusedTicks;
+    private String bossWarningLabel = "";
+    private String bossFightLabel = "";
+    private String bossPhaseLabel = "";
+    private int bossSecondsShown = -1;
+    private String bossText = "";
+    private int bossPhaseShown = -1;
+    private String bossPhaseText = "";
+    private String objectiveGatesLabel = "";
+    private String objectiveTicksLabel = "";
+    private String objectiveCoinsLabel = "";
+    private String objectivePointsLabel = "";
+    private String objectiveBossLabel = "";
+    private String objectiveCompleteLabel = "";
+    private ObjectiveType objectiveTypeShown;
+    private long objectiveCurrentShown = -1;
+    private long objectiveTargetShown = -1;
+    private boolean objectiveMetShown;
+    private String objectiveText = "";
 
     /**
      * Creates the HUD.
@@ -389,6 +424,73 @@ public final class HudRenderer {
      */
     public String shieldText() {
         return shieldText;
+    }
+
+    /**
+     * Sets the boss countdown's labels (M8, D17), already translated by the screen (D18): the
+     * warning pattern and the fight pattern, each with {@code {0}} standing for the seconds left,
+     * and the phase pattern with {@code {0}} standing for the furthest phase reached.
+     *
+     * @param warningLabel the warning pattern
+     * @param fightLabel the fight pattern
+     * @param phaseLabel the phase pattern
+     */
+    public void setBossLabels(String warningLabel, String fightLabel, String phaseLabel) {
+        this.bossWarningLabel = warningLabel == null ? "" : warningLabel;
+        this.bossFightLabel = fightLabel == null ? "" : fightLabel;
+        this.bossPhaseLabel = phaseLabel == null ? "" : phaseLabel;
+        this.bossSecondsShown = -1;
+        this.bossPhaseShown = -1;
+    }
+
+    /**
+     * The boss countdown as it is drawn.
+     *
+     * @return the text, empty while no boss countdown runs
+     */
+    public String bossText() {
+        return bossText;
+    }
+
+    /**
+     * The boss phase readout as it is drawn.
+     *
+     * @return the text, empty while the fight has placed no phase step
+     */
+    public String bossPhaseText() {
+        return bossPhaseText;
+    }
+
+    /**
+     * Sets the challenge objective's labels (M8, D17), already translated by the screen (D18):
+     * one pattern per countable type — each with {@code {0}} the progress and {@code {1}} the
+     * target — the static text of a boss objective, and the line shown once the objective is met.
+     *
+     * @param gatesLabel the gate objective pattern
+     * @param ticksLabel the tick objective pattern
+     * @param coinsLabel the coin objective pattern
+     * @param pointsLabel the point objective pattern
+     * @param bossLabel the boss objective text
+     * @param completeLabel the text shown once the objective is met
+     */
+    public void setObjectiveLabels(String gatesLabel, String ticksLabel, String coinsLabel,
+            String pointsLabel, String bossLabel, String completeLabel) {
+        this.objectiveGatesLabel = gatesLabel == null ? "" : gatesLabel;
+        this.objectiveTicksLabel = ticksLabel == null ? "" : ticksLabel;
+        this.objectiveCoinsLabel = coinsLabel == null ? "" : coinsLabel;
+        this.objectivePointsLabel = pointsLabel == null ? "" : pointsLabel;
+        this.objectiveBossLabel = bossLabel == null ? "" : bossLabel;
+        this.objectiveCompleteLabel = completeLabel == null ? "" : completeLabel;
+        this.objectiveTypeShown = null;
+    }
+
+    /**
+     * The objective line as it is drawn.
+     *
+     * @return the text, empty while the run is not a challenge
+     */
+    public String objectiveText() {
+        return objectiveText;
     }
 
     /**
@@ -572,6 +674,15 @@ public final class HudRenderer {
         streakBonusText = "";
         buildChips.clear();
         synergyChips.clear();
+        bossSecondsShown = -1;
+        bossText = "";
+        bossPhaseShown = -1;
+        bossPhaseText = "";
+        objectiveTypeShown = null;
+        objectiveCurrentShown = -1;
+        objectiveTargetShown = -1;
+        objectiveMetShown = false;
+        objectiveText = "";
     }
 
     /**
@@ -626,7 +737,9 @@ public final class HudRenderer {
                 g.setFont(Fonts.bold(11));
                 TextPainter.drawOutlined(g, streakBonusText, Playfield.WIDTH / 2.0,
                         STREAK_BONUS_BASELINE_Y, Align.CENTER,
-                        isStreakHot(streak) ? FLAME_CORE : ProceduralArt.TEXT_MUTED,
+                        isStreakHot(streak)
+                                ? Accessibility.tone(FLAME_CORE, Accessibility.Role.COIN)
+                                : ProceduralArt.TEXT_MUTED,
                         ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
             }
         }
@@ -648,6 +761,8 @@ public final class HudRenderer {
         renderAbility(g, run, palette);
         renderShield(g, run, palette);
         renderBuild(g);
+        renderBoss(g, run, palette);
+        renderObjective(g, run, palette);
 
         if (run.phase() == RunPhase.READY && promptVisible()) {
             g.setFont(Fonts.bold(16));
@@ -671,6 +786,146 @@ public final class HudRenderer {
             g.setColor(SEED_COLOR);
             TextPainter.drawRight(g, seedText, Playfield.WIDTH - 10.0, SEED_BASELINE_Y);
         }
+    }
+
+    /**
+     * Draws the boss countdown and the fight's phase readout (M8, D17): the warning's seconds
+     * while the telegraph runs, the survival countdown once the fight starts, and the furthest
+     * phase the streamer placed under them. Both sit in the top strip, centred under the world
+     * name, where they are readable without covering the bird's lane.
+     *
+     * <p>Like every readout here, the strings are rebuilt only when their number changes: once
+     * per second at the usual 60 ticks.
+     *
+     * @param g the context
+     * @param run the run
+     * @param palette the world palette
+     */
+    private void renderBoss(Graphics2D g, Run run, WorldPalette palette) {
+        BossEncounter boss = run.simulation().boss();
+        if (boss == null || !boss.isActive()) {
+            bossSecondsShown = -1;
+            bossText = "";
+            bossPhaseShown = -1;
+            bossPhaseText = "";
+            return;
+        }
+        int seconds = (boss.ticksRemaining() + Playfield.TICK_RATE - 1) / Playfield.TICK_RATE;
+        if (seconds != bossSecondsShown) {
+            bossSecondsShown = seconds;
+            String pattern = boss.isWarning() ? bossWarningLabel : bossFightLabel;
+            bossText = pattern.replace("{0}", Integer.toString(seconds));
+        }
+        if (!bossText.isEmpty()) {
+            g.setFont(Fonts.bold(BOSS_TIMER_SIZE));
+            TextPainter.drawOutlined(g, bossText, Playfield.WIDTH / 2.0, BOSS_TIMER_BASELINE_Y,
+                    Align.CENTER, ProceduralArt.accentColor(palette),
+                    ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
+        }
+        int phase = boss.phasesReached();
+        if (boss.isFighting() && phase > 0) {
+            if (phase != bossPhaseShown) {
+                bossPhaseShown = phase;
+                bossPhaseText = bossPhaseLabel.replace("{0}", Integer.toString(phase));
+            }
+            g.setFont(Fonts.regular(BOSS_PHASE_SIZE));
+            TextPainter.drawOutlined(g, bossPhaseText, Playfield.WIDTH / 2.0,
+                    BOSS_PHASE_BASELINE_Y, Align.CENTER, ProceduralArt.TEXT_LIGHT,
+                    ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
+        } else {
+            bossPhaseShown = -1;
+            bossPhaseText = "";
+        }
+    }
+
+    /**
+     * Draws the challenge objective's status line (M8, D17): {@code "Objective: 12/30 gates"}
+     * while the run works towards it, {@code "Objective complete"} from the tick it latched. It
+     * sits in the top-right corner, flush with the seed line, away from the score, the streak and
+     * the boss readouts.
+     *
+     * <p>A run without a challenge has no evaluator and draws nothing, which is what keeps every
+     * classic HUD exactly as M1 left it. The string is rebuilt only when the objective's type,
+     * progress, target or met flag change — once per scored gate at the most.
+     *
+     * @param g the context
+     * @param run the run
+     * @param palette the world palette
+     */
+    private void renderObjective(Graphics2D g, Run run, WorldPalette palette) {
+        ObjectiveEvaluator objective = run.simulation().objective();
+        if (objective == null) {
+            objectiveTypeShown = null;
+            objectiveCurrentShown = -1;
+            objectiveTargetShown = -1;
+            objectiveMetShown = false;
+            objectiveText = "";
+            return;
+        }
+        long current = objective.progress(run.stats().gatesPassed(), run.stats().points(),
+                run.stats().coinsCollected(), run.stats().ticksAlive(), objective.isMet());
+        long target = objective.target();
+        if (objective.type() != objectiveTypeShown || current != objectiveCurrentShown
+                || target != objectiveTargetShown || objective.isMet() != objectiveMetShown) {
+            objectiveTypeShown = objective.type();
+            objectiveCurrentShown = current;
+            objectiveTargetShown = target;
+            objectiveMetShown = objective.isMet();
+            objectiveText = objectiveLine(objective, current, target);
+        }
+        if (!objectiveText.isEmpty()) {
+            g.setFont(Fonts.bold(OBJECTIVE_SIZE));
+            TextPainter.drawOutlined(g, objectiveText, OBJECTIVE_X, OBJECTIVE_BASELINE_Y,
+                    Align.RIGHT, ProceduralArt.TEXT_LIGHT,
+                    ProceduralArt.color(palette, ProceduralArt.Tone.LETTERBOX), 2);
+        }
+    }
+
+    /**
+     * The objective line in words: the met line once it latched, the type's pattern with the
+     * numbers in it before that, the static sentence for a boss.
+     *
+     * @param objective the evaluator
+     * @param current the progress, capped at the target
+     * @param target the target
+     * @return the line
+     */
+    private String objectiveLine(ObjectiveEvaluator objective, long current, long target) {
+        if (objective.isMet()) {
+            return objectiveCompleteLabel;
+        }
+        String pattern;
+        switch (objective.type()) {
+            case SURVIVE_GATES:
+                pattern = objectiveGatesLabel;
+                break;
+            case SURVIVE_TICKS:
+                pattern = objectiveTicksLabel;
+                break;
+            case COLLECT_COINS:
+                pattern = objectiveCoinsLabel;
+                break;
+            case REACH_POINTS:
+                pattern = objectivePointsLabel;
+                break;
+            case BOSS_CLEARED:
+            default:
+                return objectiveBossLabel;
+        }
+        return substitute(pattern, Long.toString(current), Long.toString(target));
+    }
+
+    /**
+     * Fills a {@code {0}} / {@code {1}} pattern: the small substitution the HUD needs, without
+     * reading the string table (D18).
+     *
+     * @param pattern the pattern
+     * @param first the value of {@code {0}}
+     * @param second the value of {@code {1}}
+     * @return the filled text
+     */
+    private static String substitute(String pattern, String first, String second) {
+        return pattern.replace("{0}", first).replace("{1}", second);
     }
 
     /**
@@ -973,9 +1228,9 @@ public final class HudRenderer {
         double h = 13;
         double cx = rightX - w / 2;
         double bottom = baselineY + 2;
-        g.setColor(FLAME_EDGE);
+        g.setColor(Accessibility.tone(FLAME_EDGE, Accessibility.Role.COIN));
         triangle(g, cx, bottom - h, cx - w / 2, bottom, cx + w / 2, bottom);
-        g.setColor(FLAME_CORE);
+        g.setColor(Accessibility.tone(FLAME_CORE, Accessibility.Role.COIN));
         triangle(g, cx, bottom - h * 0.55, cx - w * 0.24, bottom - 1, cx + w * 0.24, bottom - 1);
     }
 

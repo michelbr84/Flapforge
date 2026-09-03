@@ -17,7 +17,10 @@ import io.github.michelbr84.flapforge.audio.ToneSynth;
 import io.github.michelbr84.flapforge.audio.NullAudio;
 import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
+import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.content.defs.ModifierDef;
+import io.github.michelbr84.flapforge.content.defs.UnlockType;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.event.GameEvent;
@@ -28,16 +31,19 @@ import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
 import io.github.michelbr84.flapforge.persistence.SaveManager;
 import io.github.michelbr84.flapforge.persistence.SavePaths;
+import io.github.michelbr84.flapforge.progression.AchievementEvaluator;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionOutcome;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.progression.SelectionManager;
+import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
 import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
+import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
@@ -82,6 +88,7 @@ class ProgressionWiringTest {
     private GameContext context;
     private GameContent content;
     private GameScreen game;
+    private ToastLayer toasts;
     private final List<GameEvent> published = new ArrayList<>();
     private long stamp = 1;
 
@@ -107,14 +114,18 @@ class ProgressionWiringTest {
         // A direct executor makes the write observable the moment it is queued (D15).
         save = new SaveManager(new DirectExecutor(), time);
         save.load();
-        progression = new ProgressionManager(time);
+        // The application's wiring (M8): with the evaluators the achievements and the unlock
+        // steps of every pass in here behave exactly as they do in the real game.
+        progression = new ProgressionManager(time, AchievementEvaluator.of(content),
+                UnlockEvaluator.of(content));
         EventBus events = new EventBus();
         events.subscribe(GameEvent.class, published::add);
         Strings strings = Strings.load("en");
         Strings.use(strings);
+        toasts = new ToastLayer();
         context = new GameContext(LaunchOptions.DEFAULTS, (Clock) clock, time, new Threads(),
                 input, viewport, screens, presenter, null, loop, FrameLimiter.uncapped(clock),
-                null, events, new AudioManager(new NullAudio()), strings, new ToastLayer(),
+                null, events, new AudioManager(new NullAudio()), strings, toasts,
                 content, save, progression, ProgressionRules.fromEconomy(content.economy()));
         screens.setTickTask(context::drainSaveResults);
         game = new GameScreen(context, new ContentRunFactory(content, RunMode.SEEDED),
@@ -187,8 +198,15 @@ class ProgressionWiringTest {
         assertEquals(1, profile().statistics.totalRuns);
         ProgressionOutcome outcome = overlay.outcome();
         assertNotNull(outcome, "the overlay carries what the run paid");
+        // From M8 the application's wiring also runs the achievement evaluator, so this first
+        // dive fires `first_flight` and its 25 reward coins are in the wallet next to the run's.
+        long achievementCoins = 0;
+        for (Long paid : outcome.achievementRewardsGranted().values()) {
+            achievementCoins += paid == null ? 0 : paid;
+        }
         assertEquals(coins(), outcome.rewardSummary().coins()
-                + outcome.levelRewardsGranted().getOrDefault(PlayerProfile.CURRENCY_COINS, 0L));
+                + outcome.levelRewardsGranted().getOrDefault(PlayerProfile.CURRENCY_COINS, 0L)
+                + achievementCoins);
         // The overlay only blinks; nothing here may write the run a second time (D14).
         ticks(180);
         assertEquals(1, profile().statistics.totalRuns);
@@ -247,6 +265,54 @@ class ProgressionWiringTest {
         SaveManager reader = new SaveManager(new DirectExecutor(), new FixedTimeSource(0));
         assertEquals(1, reader.load().profile().statistics.totalRuns,
                 "the written file holds the run");
+    }
+
+    /**
+     * M8 (D29): a newly earned achievement and a granted unlock reach the toast layer, not only
+     * the bus — the plan's "earn achievements with toasts" is the screen's half of the pipeline,
+     * so the wiring test asserts the words the player actually reads. The profile is pre-seeded
+     * one run short of {@code challenge:no_shield_1}'s 12-run unlock condition, so the single
+     * dive both fires {@code first_flight} and grants the challenge.
+     */
+    @Test
+    void anEarnedAchievementAndAGrantedUnlockRaiseTheirToasts() {
+        // A twelve-run profile would satisfy several run-gated conditions at once and the toast
+        // layer shows three at a time, so the other unlockables are pre-granted: the two birds'
+        // default palettes, which the evaluator grants as soon as their bird is owned (E18), and
+        // the default modifiers, which follow feature:modifiers the same way — the pass is left
+        // with exactly the two pushes this test reads, the achievement and the challenge.
+        profile().statistics.totalRuns = 11;
+        profile().unlock("bird:heavy");
+        profile().unlock("bird:guardian");
+        profile().unlock("cosmetic:heavy:default");
+        profile().unlock("cosmetic:guardian:default");
+        for (ModifierDef modifier : content.modifiers()) {
+            if (modifier.unlock().type() == UnlockType.DEFAULT) {
+                profile().unlock(modifier.unlockableId());
+            }
+        }
+        profile().unlock("ability:shield");
+        profile().unlock("feature:modifiers");
+        profile().unlock("challenge:tiny_wings_1");
+        GameOverOverlay overlay = diveToGameOver();
+        ProgressionOutcome outcome = overlay.outcome();
+        assertNotNull(outcome, "the dive was a progressing run");
+        assertTrue(outcome.achievementsUnlocked().contains("first_flight"),
+                "the twelfth run is also the profile's first");
+        assertTrue(outcome.unlocksGranted().contains("challenge:no_shield_1"),
+                "the twelfth run satisfied the runs-12 condition");
+        Strings strings = Strings.active();
+        List<String> texts = new ArrayList<>();
+        for (Toast toast : toasts.visibleToasts()) {
+            texts.add(toast.text());
+        }
+        assertTrue(texts.contains(strings.format(StringKey.TOAST_ACHIEVEMENT_COINS,
+                        ProgressionText.name(strings, ContentKind.ACHIEVEMENT, "first_flight"),
+                        25L)),
+                "the achievement toast names the achievement and its coins, saw " + texts);
+        assertTrue(texts.contains(strings.format(StringKey.TOAST_UNLOCK_GRANTED,
+                        ProgressionText.unlockableName(strings, content, "challenge:no_shield_1"))),
+                "the unlock toast names what was unlocked, saw " + texts);
     }
 
     @Test

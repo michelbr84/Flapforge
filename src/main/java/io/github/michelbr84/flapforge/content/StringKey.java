@@ -719,7 +719,158 @@ public enum StringKey {
     /** Statistics: modifiers taken across every run. */
     STATS_MODIFIERS_TAKEN("stats.modifiers_taken"),
     /** Statistics: synergies activated across every run. */
-    STATS_SYNERGIES_ACTIVATED("stats.synergies_activated");
+    STATS_SYNERGIES_ACTIVATED("stats.synergies_activated"),
+
+    /** Main menu: open the challenges (M8). */
+    MENU_CHALLENGES("menu.challenges"),
+    /** Main menu: open the achievements (M8). */
+    MENU_ACHIEVEMENTS("menu.achievements"),
+    /** Challenges screen: title. */
+    CHALLENGES_TITLE("challenges.title"),
+    /** Challenges screen: the world a challenge is played in, {@code {0}} its name (E6). */
+    CHALLENGES_WORLD("challenges.world"),
+    /** Challenges screen: the tier a challenge is played at, {@code {0}} its name. */
+    CHALLENGES_TIER("challenges.tier"),
+    /** Challenges screen: the rule line, {@code {0}} the rules in words. */
+    CHALLENGES_RULES("challenges.rules"),
+    /** Challenges screen: a challenge with no flag, effect or forced card. */
+    CHALLENGES_RULES_NONE("challenges.rules.none"),
+    /** Challenges screen: a forced modifier, {@code {0}} its name. */
+    CHALLENGES_RULE_MODIFIER("challenges.rule.modifier"),
+    /** Challenges screen: the run streams one authored pattern. */
+    CHALLENGES_RULE_PATTERN("challenges.rule.pattern"),
+    /** Challenges screen: the challenge's own boss, {@code {0}} its gate. */
+    CHALLENGES_RULE_BOSS("challenges.rule.boss"),
+    /** Challenges screen: the objective line, {@code {0}} the objective in words. */
+    CHALLENGES_OBJECTIVE("challenges.objective"),
+    /** Challenges screen: the record, {@code {0}} best gates and {@code {1}} attempts. */
+    CHALLENGES_RECORD("challenges.record"),
+    /** Challenges screen: no attempt recorded. */
+    CHALLENGES_RECORD_NONE("challenges.record.none"),
+    /** Challenges screen: the objective has been met at least once. */
+    CHALLENGES_COMPLETED("challenges.completed"),
+    /** Challenges screen: what the first completion pays, {@code {0}} the list (E11). */
+    CHALLENGES_REWARDS("challenges.rewards"),
+    /** Challenges screen: a coin reward, {@code {0}} the amount. */
+    CHALLENGES_REWARD_COINS("challenges.reward.coins"),
+    /** Challenges screen: how a locked challenge opens, {@code {0}} the condition. */
+    CHALLENGES_LOCKED("challenges.locked"),
+    /** Challenges screen: a locked entry of the list, {@code {0}} its name. */
+    CHALLENGES_LOCKED_ENTRY("challenges.locked_entry"),
+    /** Challenges screen: the Play button of a locked challenge. */
+    CHALLENGES_LOCKED_TITLE("challenges.locked_title"),
+    /** Challenges screen: a record that has met its objective, {@code {0}} the record. */
+    CHALLENGES_COMPLETED_ENTRY("challenges.completed_entry"),
+    /** Challenges screen: start the focused challenge. */
+    CHALLENGES_PLAY("challenges.play"),
+    /** Objective in words: pass {@code {0}} gates in one run. */
+    OBJECTIVE_SURVIVE_GATES("objective.survive_gates"),
+    /** Objective in words: stay alive for {@code {0}} ticks in one run. */
+    OBJECTIVE_SURVIVE_TICKS("objective.survive_ticks"),
+    /** Objective in words: pick up {@code {0}} coins in one run. */
+    OBJECTIVE_COLLECT_COINS("objective.collect_coins"),
+    /** Objective in words: score {@code {0}} points in one run. */
+    OBJECTIVE_REACH_POINTS("objective.reach_points"),
+    /** Objective in words: survive the challenge's boss. */
+    OBJECTIVE_BOSS_CLEARED("objective.boss_cleared"),
+    /** Achievements screen: title. */
+    ACHIEVEMENTS_TITLE("achievements.title"),
+    /** Achievements screen: the achievements tab. */
+    ACHIEVEMENTS_TAB_ACHIEVEMENTS("achievements.tab.achievements"),
+    /** Achievements screen: the milestones tab (D13). */
+    ACHIEVEMENTS_TAB_MILESTONES("achievements.tab.milestones"),
+    /** Achievements screen: the collections tab (D13). */
+    ACHIEVEMENTS_TAB_COLLECTIONS("achievements.tab.collections"),
+    /** Achievements screen: how many are held, {@code {0}} of {@code {1}}. */
+    ACHIEVEMENTS_COUNT("achievements.count"),
+    /** Achievements screen: the name of a hidden achievement not held yet. */
+    ACHIEVEMENTS_HIDDEN_NAME("achievements.hidden.name"),
+    /** Achievements screen: the description of a hidden achievement not held yet. */
+    ACHIEVEMENTS_HIDDEN_DESC("achievements.hidden.desc"),
+    /** Achievements screen: when it fired, {@code {0}} the date. */
+    ACHIEVEMENTS_UNLOCKED_AT("achievements.unlocked_at"),
+    /** Achievements screen: what it pays, {@code {0}} the coins. */
+    ACHIEVEMENTS_REWARD("achievements.reward"),
+    /** Milestones tab: the heading over the next thresholds. */
+    MILESTONES_NEXT("milestones.next"),
+    /** Milestones tab: a level reward, {@code {0}} the level and {@code {1}} the coins. */
+    MILESTONES_LEVEL_REWARD("milestones.level_reward"),
+    /** Milestones tab: a bar's value, {@code {0}} of {@code {1}}. */
+    MILESTONES_PROGRESS("milestones.progress"),
+    /** Milestones tab: nothing left to reach. */
+    MILESTONES_NONE("milestones.none"),
+    /** Collections tab: the birds row. */
+    COLLECTIONS_BIRDS("collections.birds"),
+    /** Collections tab: the abilities row. */
+    COLLECTIONS_ABILITIES("collections.abilities"),
+    /** Collections tab: the worlds row. */
+    COLLECTIONS_WORLDS("collections.worlds"),
+    /** Collections tab: the challenges row. */
+    COLLECTIONS_CHALLENGES("collections.challenges"),
+    /** Collections tab: the palettes row. */
+    COLLECTIONS_COSMETICS("collections.cosmetics"),
+    /** Collections tab: the achievements row. */
+    COLLECTIONS_ACHIEVEMENTS("collections.achievements"),
+    /** Collections tab: the upgrade levels row. */
+    COLLECTIONS_UPGRADES("collections.upgrades"),
+    /** Collections tab: every category at once. */
+    COLLECTIONS_ALL("collections.all"),
+    /** Collections tab: a row's value, {@code {0}} owned of {@code {1}}, {@code {2}} the percentage. */
+    COLLECTIONS_VALUE("collections.value"),
+    /** Boss banner: the heading (M8). */
+    BOSS_TITLE("boss.title"),
+    /** Boss banner: the warning countdown, {@code {0}} the boss and {@code {1}} the seconds. */
+    BOSS_WARNING("boss.warning"),
+    /** Boss banner: the fight, {@code {0}} the boss and {@code {1}} the seconds left. */
+    BOSS_FIGHT("boss.fight"),
+    /** Boss banner: the boss was survived, {@code {0}} the boss. */
+    BOSS_CLEARED("boss.cleared"),
+    /** HUD: the boss warning countdown, {@code {0}} the seconds. */
+    HUD_BOSS_WARNING("hud.boss.warning"),
+    /** HUD: the boss survival countdown, {@code {0}} the seconds. */
+    HUD_BOSS_FIGHT("hud.boss.fight"),
+    /** HUD: a gate objective, {@code {0}} of {@code {1}} gates. */
+    HUD_OBJECTIVE_GATES("hud.objective.gates"),
+    /** HUD: a tick objective, {@code {0}} of {@code {1}} ticks. */
+    HUD_OBJECTIVE_TICKS("hud.objective.ticks"),
+    /** HUD: a coin objective, {@code {0}} of {@code {1}} coins. */
+    HUD_OBJECTIVE_COINS("hud.objective.coins"),
+    /** HUD: a point objective, {@code {0}} of {@code {1}} points. */
+    HUD_OBJECTIVE_POINTS("hud.objective.points"),
+    /** HUD: a boss objective. */
+    HUD_OBJECTIVE_BOSS("hud.objective.boss"),
+    /** HUD: the objective was met. */
+    HUD_OBJECTIVE_COMPLETE("hud.objective.complete"),
+    /** Result row: the challenge objective. */
+    STAT_OBJECTIVE("stat.objective"),
+    /** Result value: the objective was met. */
+    STAT_OBJECTIVE_MET("stat.objective.met"),
+    /** Result value: the objective was not met. */
+    STAT_OBJECTIVE_MISSED("stat.objective.missed"),
+    /** Result row: the boss encounter. */
+    STAT_BOSS("stat.boss"),
+    /** Result value: the boss was survived. */
+    STAT_BOSS_CLEARED("stat.boss.cleared"),
+    /** Result value: the furthest boss phase reached, {@code {0}}. */
+    STAT_BOSS_PHASE("stat.boss.phase"),
+    /** Game-over line after a first challenge completion, {@code {0}} the coins (E11). */
+    GAMEOVER_CHALLENGE_COMPLETED("gameover.challenge_completed"),
+    /** Run summary row: the challenge played, {@code {0}} its name. */
+    SUMMARY_CHALLENGE("summary.challenge"),
+    /** Run summary row: what the first completion paid, {@code {0}} the list. */
+    SUMMARY_FIRST_COMPLETION("summary.first_completion"),
+    /** Run summary section: the achievements this run unlocked. */
+    SUMMARY_SECTION_ACHIEVEMENTS("summary.section.achievements"),
+    /** Toast: an achievement fired, {@code {0}} its name. */
+    TOAST_ACHIEVEMENT("toast.achievement"),
+    /** Toast: an achievement fired and paid, {@code {0}} its name and {@code {1}} the coins. */
+    TOAST_ACHIEVEMENT_COINS("toast.achievement_coins"),
+    /** Toast: something was granted, {@code {0}} its name. */
+    TOAST_UNLOCK_GRANTED("toast.unlock_granted"),
+    /** Toast: a challenge was completed for the first time, {@code {0}} its name. */
+    TOAST_CHALLENGE_COMPLETED("toast.challenge_completed"),
+    /** Toast: the objective was met mid-run. */
+    TOAST_OBJECTIVE_MET("toast.objective_met");
 
     private static final Map<String, StringKey> BY_KEY;
 

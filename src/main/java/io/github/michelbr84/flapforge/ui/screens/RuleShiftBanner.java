@@ -6,6 +6,7 @@ import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.TickFact;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
+import io.github.michelbr84.flapforge.render.Accessibility;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
@@ -342,7 +343,8 @@ public final class RuleShiftBanner {
         int h = panelHeight;
         double cx = x + w / 2.0;
         boolean flash = phase == Phase.IN_EFFECT;
-        g.setColor(flash ? PANEL_FLASH : PANEL_BACK);
+        g.setColor(flash ? Accessibility.tone(PANEL_FLASH, Accessibility.Role.DANGER)
+                : PANEL_BACK);
         g.fillRoundRect(x, PANEL_Y, w, h, 10, 10);
         Stroke old = g.getStroke();
         g.setStroke(BORDER);

@@ -4,13 +4,9 @@ import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.UnlockGraph;
 import io.github.michelbr84.flapforge.content.defs.AchievementConditionDef;
-import io.github.michelbr84.flapforge.content.defs.AchievementDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
-import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
-import io.github.michelbr84.flapforge.content.defs.PaletteDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
-import io.github.michelbr84.flapforge.content.defs.UpgradeDef;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -65,12 +61,9 @@ public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
     private static final String PERCENT = AchievementConditionDef.COLLECTION_SUFFIX;
     /** Prefix of a collection counter. */
     private static final String COLLECTION = AchievementConditionDef.COLLECTION_PREFIX;
-    /** The category naming every other category at once. */
-    private static final String ALL = "all";
-
-    private final GameContent content;
     private final Map<String, UnlockConditionDef> conditions;
     private final Map<String, ContentKind> kinds;
+    private final CollectionProgress collections;
 
     /**
      * Creates an evaluator over a content set.
@@ -78,7 +71,7 @@ public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
      * @param content the loaded content
      */
     public UnlockEvaluator(GameContent content) {
-        this.content = Objects.requireNonNull(content, "content");
+        Objects.requireNonNull(content, "content");
         Map<String, UnlockConditionDef> table = new LinkedHashMap<>();
         Map<String, ContentKind> kindTable = new LinkedHashMap<>();
         for (UnlockGraph.Node node : UnlockGraph.of(content).nodes().values()) {
@@ -92,6 +85,7 @@ public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
         }
         this.conditions = Collections.unmodifiableMap(table);
         this.kinds = Collections.unmodifiableMap(kindTable);
+        this.collections = new CollectionProgress(content, kindTable);
     }
 
     /**
@@ -368,13 +362,12 @@ public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
     /**
      * How much of a collection a profile owns, as a percentage floored to a whole number (D13).
      *
-     * <p>M8 ships {@code CollectionProgress} with the Collections tab; this is the same
-     * arithmetic, needed here because {@code forge/molten} is unlocked by
-     * {@code collection.upgrades.percent}. Owned counts what the profile holds, over what the
-     * content ships: unlock ids for the id-based categories, completed records for challenges,
-     * and levels for upgrades (a node at level 2 of 3 is two thirds of that node).
+     * <p>The arithmetic lives in {@link CollectionProgress} — the same instance the Collections
+     * tab and the achievement evaluator read — so {@code forge/molten}'s
+     * {@code collection.upgrades.percent} condition, the {@code collect_*} achievements and the
+     * number on the tab can never disagree (M8).
      *
-     * @param category one of {@link AchievementConditionDef#COLLECTION_CATEGORIES}
+     * @param category one of {@link CollectionProgress#CATEGORIES}
      * @param profile the profile to read
      * @param owned the unlock ids the profile holds
      * @return the percentage in {@code [0, 100]}, 0 for an unknown category
@@ -383,119 +376,16 @@ public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
         if (category == null) {
             return 0;
         }
-        long[] totals = ALL.equals(category) ? allCategories(profile, owned)
-                : oneCategory(category, profile, owned);
-        if (totals == null || totals[1] <= 0) {
-            return 0;
-        }
-        return 100L * totals[0] / totals[1];
-    }
-
-    private long[] allCategories(PlayerProfile profile, Set<String> owned) {
-        long[] sum = new long[2];
-        for (String category : AchievementConditionDef.COLLECTION_CATEGORIES) {
-            if (ALL.equals(category)) {
-                continue;
-            }
-            long[] one = oneCategory(category, profile, owned);
-            if (one != null) {
-                sum[0] += one[0];
-                sum[1] += one[1];
-            }
-        }
-        return sum;
+        return collections.percent(category, profile, owned);
     }
 
     /**
-     * The {@code {owned, total}} pair of one collection category.
+     * The collection reader this evaluator counts with, sharing its id table.
      *
-     * @param category the category
-     * @param profile the profile
-     * @param owned the unlock ids the profile holds
-     * @return the pair, or {@code null} when the category is unknown
+     * @return the reader
      */
-    private long[] oneCategory(String category, PlayerProfile profile, Set<String> owned) {
-        switch (category) {
-            case "birds":
-                return counted(ContentKind.BIRD, owned);
-            case "abilities":
-                return counted(ContentKind.ABILITY, owned);
-            case "worlds":
-                return counted(ContentKind.WORLD, owned);
-            case "cosmetics":
-                return cosmetics(owned);
-            case "challenges":
-                return challenges(profile);
-            case "achievements":
-                return achievements(profile);
-            case "upgrades":
-                return upgrades(profile);
-            default:
-                return null;
-        }
-    }
-
-    private long[] counted(ContentKind kind, Set<String> owned) {
-        long total = 0;
-        long have = 0;
-        for (Map.Entry<String, ContentKind> entry : kinds.entrySet()) {
-            if (entry.getValue() != kind) {
-                continue;
-            }
-            total++;
-            if (owned.contains(entry.getKey())) {
-                have++;
-            }
-        }
-        return new long[] {have, total};
-    }
-
-    private long[] cosmetics(Set<String> owned) {
-        long total = 0;
-        long have = 0;
-        for (BirdDef bird : content.birds()) {
-            for (PaletteDef palette : bird.palettes()) {
-                total++;
-                if (owned.contains(bird.cosmeticId(palette.id()))) {
-                    have++;
-                }
-            }
-        }
-        return new long[] {have, total};
-    }
-
-    private long[] challenges(PlayerProfile profile) {
-        long total = 0;
-        long have = 0;
-        for (ChallengeDef challenge : content.challenges()) {
-            total++;
-            if (isChallengeCompleted(profile, challenge.id())) {
-                have++;
-            }
-        }
-        return new long[] {have, total};
-    }
-
-    private long[] achievements(PlayerProfile profile) {
-        long total = 0;
-        long have = 0;
-        for (AchievementDef achievement : content.achievements()) {
-            total++;
-            if (profile.achievements.containsKey(achievement.id())) {
-                have++;
-            }
-        }
-        return new long[] {have, total};
-    }
-
-    private long[] upgrades(PlayerProfile profile) {
-        long total = 0;
-        long have = 0;
-        for (UpgradeDef node : content.upgrades()) {
-            total += node.maxLevel();
-            have += Math.min(profile.upgradeLevel(node.id()), node.maxLevel());
-        }
-        return new long[] {have, total};
+    public CollectionProgress collections() {
+        return collections;
     }
 
     @Override

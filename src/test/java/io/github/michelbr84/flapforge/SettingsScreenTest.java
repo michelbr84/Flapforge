@@ -28,6 +28,7 @@ import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
+import io.github.michelbr84.flapforge.render.Accessibility;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -124,6 +125,7 @@ class SettingsScreenTest {
     void tearDown() {
         Strings.use(Strings.load("en"));
         Fonts.setTextScale(1.0);
+        Accessibility.clear();
         ProceduralArt.setSmoothing(true);
         ParticleSystem.setDefaultReduceFlashing(true);
     }
@@ -249,6 +251,52 @@ class SettingsScreenTest {
         assertTrue(screens.isDebugOverlayVisible(), "the debug overlay honours showFps");
         assertFalse(ParticleSystem.defaultReduceFlashing(), "particles honour reduce flashing");
         assertTrue(screen.isDirty());
+    }
+
+    @Test
+    void theAccessibilityRowsReachTheRenderers() {
+        Toggle highContrast = screen.toggle("highContrast");
+        ListView palette = screen.colorBlindList();
+        Toggle holdToFlap = screen.toggle("holdToFlap");
+
+        highContrast.setValue(true);
+        palette.select(Settings.COLOR_BLIND_PALETTES.indexOf("deuteranopia"));
+        holdToFlap.setValue(true);
+        ticks(1);
+
+        assertTrue(Accessibility.isHighContrast(), "the renderer honours high contrast");
+        assertEquals("deuteranopia", Accessibility.paletteName(),
+                "the renderer honours the colour-blind palette");
+        assertTrue(screen.settings().highContrast, "the row marks the stored state");
+        assertEquals("deuteranopia", screen.settings().colorBlindPalette);
+        assertTrue(screen.settings().holdToFlap);
+        assertTrue(screen.isDirty());
+
+        highContrast.setValue(false);
+        palette.select(Settings.COLOR_BLIND_PALETTES.indexOf("none"));
+        ticks(1);
+        assertFalse(Accessibility.isHighContrast());
+        assertEquals("none", Accessibility.paletteName());
+        assertFalse(screen.settings().highContrast);
+    }
+
+    @Test
+    void theAccessibilityRowsSurviveASettingsReload() {
+        screen.toggle("highContrast").setValue(true);
+        screen.colorBlindList().select(Settings.COLOR_BLIND_PALETTES.indexOf("tritanopia"));
+        screen.toggle("holdToFlap").setValue(true);
+        ticks(1);
+        assertTrue(screen.isDirty());
+
+        screens.pop();
+        ticks(2);
+
+        SettingsStore reopened = new SettingsStore(new DirectExecutor(),
+                home.resolve("settings.json"));
+        Settings reloaded = reopened.load().settings();
+        assertTrue(reloaded.highContrast, "high contrast survives a restart");
+        assertEquals("tritanopia", reloaded.colorBlindPalette);
+        assertTrue(reloaded.holdToFlap);
     }
 
     @Test

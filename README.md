@@ -336,6 +336,38 @@ Survive for 30 Seconds
 Permanent Unlock
 ```
 
+### Achievements, milestones and collections
+
+Forty-one achievements are judged automatically as runs finish and purchases
+land: lifetime counters, per-run records, and collection percentages. The
+Achievements screen has three tabs — the achievements themselves (hidden ones
+show as `???` until they fire), milestones with progress bars toward the next
+level rewards and lifetime thresholds, and collections showing how much of
+each content category is owned. Every newly earned achievement and granted
+unlock raises a toast when it happens, naming the coins it paid.
+
+### Music
+
+Each world plays its own procedurally rendered chiptune loop — a deterministic
+eight-bar sequence generated from the world's music block (tempo, scale,
+seed, layers) at run start, crossfaded to a faster variant while a boss fight
+runs. The menu plays the Green Fields loop. No audio files ship; the
+sequencer, synthesiser and software mixer generate everything.
+
+### Accessibility
+
+Four settings, all live (they take effect without a restart) and persisted:
+
+- **High contrast** — stronger hazard and bird outlines, opaque HUD panels,
+  and a cap on world darkness so veiled worlds stay readable.
+- **Colour-blind palettes** — protanopia, deuteranopia and tritanopia
+  simulations re-tint every world palette and the semantic colours (danger
+  telegraphs, coins, flames) while keeping hazard, telegraph and coin
+  luminance separated.
+- **Text scale** — the UI grows up to 1.5× and every screen reflows.
+- **Hold to flap** — holding the flap input flaps continuously instead of
+  once per press.
+
 ---
 
 ## Birds and Builds
@@ -569,6 +601,13 @@ The world is picked in the bird selection screen (the world row lists the
 five worlds, what each spawns and, for a locked one, the cheapest way in) or
 pinned for one launch with `--world <id>` — see [Running the Game](#running-the-game).
 
+Two menu entries sit beside Play: **Challenges** (pick one of the seven
+special runs, read its objective and rewards, and start it with the current
+bird, palette and loadout) and **Achievements** (the three tabs described
+under [Features](#features)). Both take the same keyboard focus ring and
+mouse input as every other screen, and both honour the text scale and
+colour-blind settings.
+
 Input is sampled per simulation tick (60 Hz), so a tap shorter than a frame
 is never lost and key auto-repeat never produces an extra flap.
 
@@ -680,7 +719,7 @@ only. There is no game engine and no native code.
 | **Gradle 9.7.1** (wrapper) | build, tests (`test`, `smokeTest`, `perfTest`, `simTest`), tools, fat jar |
 | **Gson 2.11.0** | the only runtime dependency: JSON content, settings and save files |
 | **JUnit Jupiter** | unit, property, simulation, headless-render and real-window smoke tests |
-| **Procedural art and audio** | all visuals are generated from per-world palettes and bird archetypes; sound effects and music come from a software synthesiser and sequencer — no image, audio or font files are required to play |
+| **Procedural art and audio** | all visuals are generated from per-world palettes and bird archetypes; sound effects and music come from a software synthesiser and sequencer — no image or audio files are required to play. The one shipped binary asset is the bundled OFL-licensed UI font (`Nunito`), declared in `assets/manifest.json` and installed at boot; without it the game falls back to the JDK's logical font |
 | **Data-driven content** | birds, upgrades, abilities, modifiers, worlds, obstacle patterns, challenges, achievements and UI strings are JSON files, validated at start-up |
 | **Local persistence** | a versioned save file and settings under `~/.flapforge` (Linux), `%APPDATA%\Flapforge` (Windows) or `~/Library/Application Support/Flapforge` (macOS), written atomically with backups and migrations |
 

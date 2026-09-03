@@ -74,7 +74,7 @@ public final class GameRenderer {
      * @param readyHint the text blinked while the run waits for its first flap
      */
     public GameRenderer(WorldPalette palette, String readyHint) {
-        this.palette = Objects.requireNonNull(palette, "palette");
+        this.palette = Accessibility.palette(Objects.requireNonNull(palette, "palette"));
         this.hud = new HudRenderer(readyHint);
     }
 
@@ -82,12 +82,17 @@ public final class GameRenderer {
      * Switches the look to another world (M7): its palette and its parallax style. Called by the
      * screen when a run starts; the darkness is read from the run itself on every frame.
      *
+     * <p>The palette goes through {@link Accessibility#palette(WorldPalette)} first (D17): under a
+     * colour-blind setting the whole run — backdrop, obstacles, bird, letterbox — is recoloured
+     * from this one choke point, and the semantic luminance targets are re-fixed for the world.
+     *
      * @param newPalette the world palette
      * @param newStyle the parallax style
      */
     public void setWorld(WorldPalette newPalette, WorldStyle newStyle) {
-        this.palette = Objects.requireNonNull(newPalette, "palette");
-        this.style = Objects.requireNonNull(newStyle, "style");
+        this.palette = Accessibility.palette(
+                Objects.requireNonNull(newPalette, "newPalette"));
+        this.style = Objects.requireNonNull(newStyle, "newStyle");
         background.setStyle(newStyle);
     }
 
@@ -283,6 +288,33 @@ public final class GameRenderer {
     }
 
     /**
+     * Replaces the HUD's boss countdown labels (M8, D17), already translated by the screen.
+     *
+     * @param warningLabel the translated {@code hud.boss.warning} pattern
+     * @param fightLabel the translated {@code hud.boss.fight} pattern
+     * @param phaseLabel the translated {@code stat.boss.phase} pattern
+     */
+    public void setBossLabels(String warningLabel, String fightLabel, String phaseLabel) {
+        hud.setBossLabels(warningLabel, fightLabel, phaseLabel);
+    }
+
+    /**
+     * Replaces the HUD's objective labels (M8, D17), already translated by the screen.
+     *
+     * @param gatesLabel the translated {@code hud.objective.gates} pattern
+     * @param ticksLabel the translated {@code hud.objective.ticks} pattern
+     * @param coinsLabel the translated {@code hud.objective.coins} pattern
+     * @param pointsLabel the translated {@code hud.objective.points} pattern
+     * @param bossLabel the translated {@code hud.objective.boss} text
+     * @param completeLabel the translated {@code hud.objective.complete} text
+     */
+    public void setObjectiveLabels(String gatesLabel, String ticksLabel, String coinsLabel,
+            String pointsLabel, String bossLabel, String completeLabel) {
+        hud.setObjectiveLabels(gatesLabel, ticksLabel, coinsLabel, pointsLabel, bossLabel,
+                completeLabel);
+    }
+
+    /**
      * Replaces the HUD's build strip: the drafted modifiers and the active set bonuses (M6, D27),
      * already translated by the screen.
      *
@@ -470,7 +502,7 @@ public final class GameRenderer {
         bird.render(g, alpha, b, palette, hitboxScale, debugBoxes);
         particles.render(g);
         // The veil follows the drawn bird, so it sits inside the camera transform.
-        darkness.prepare(run.simulation().darkness());
+        darkness.prepare(Math.min(run.simulation().darkness(), Accessibility.darknessCap()));
         darkness.render(g, b.y());
         camera.unapply(g);
         if (flashTicks > 0) {

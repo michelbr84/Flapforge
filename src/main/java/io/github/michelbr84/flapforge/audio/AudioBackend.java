@@ -48,6 +48,54 @@ public interface AudioBackend {
         play(id, 1.0f, 0.0f);
     }
 
+    /**
+     * Starts — or retargets — the looping voice under an id (M8, D19): the music voice.
+     * A first call for an id starts it with a fade-in from silence; a call while it already
+     * loops just walks its gain to the new target over the mixer's music ramp, which is how
+     * crossfades, the pause duck and a volume change move the music without a click.
+     *
+     * <p>Never blocks; a request that does not fit in the queue is dropped. The default does
+     * nothing, which keeps {@link NullAudio} silent.
+     *
+     * @param id the sound id, resolved through {@link SoundBank} (a
+     *     {@code MusicSequencer} loop is registered there under its id)
+     * @param gain target linear gain in {@code [0, 1]}
+     * @param pan {@code -1} hard left, {@code 0} centre, {@code +1} hard right
+     */
+    default void playLooping(String id, float gain, float pan) {
+    }
+
+    /**
+     * Fades the looping voice under an id out; the mixer drops it when the ramp reaches
+     * silence. A no-op when nothing loops under that id. The default does nothing.
+     *
+     * @param id the sound id
+     */
+    default void stopLooping(String id) {
+    }
+
+    /**
+     * Makes a rendered music loop available under an id (M8, D19): what the sequencer's output
+     * goes through so {@link #playLooping(String, float, float)} resolves to the loop that was
+     * rendered rather than a synth fallback. The default does nothing.
+     *
+     * @param id the loop id, e.g. {@code music/green_fields}
+     * @param samples interleaved stereo samples at the mixer's rate
+     */
+    default void registerLoop(String id, float[] samples) {
+    }
+
+    /**
+     * Whether a rendered loop is already available under an id (the screens ask before rendering
+     * one). The default answers {@code false}.
+     *
+     * @param id the loop id
+     * @return {@code true} when {@link #playLooping(String, float, float)} would find it
+     */
+    default boolean hasLoop(String id) {
+        return false;
+    }
+
     /** Silences every voice currently in flight and discards anything queued. */
     void stopAll();
 

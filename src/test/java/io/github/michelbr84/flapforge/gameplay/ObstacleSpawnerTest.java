@@ -336,6 +336,37 @@ class ObstacleSpawnerTest {
         assertEquals(2, spawner.spawnCount());
     }
 
+    /**
+     * M8: after a suppression the last column has scrolled on, so the first spawn is floored at
+     * the right edge instead of landing inside the playfield; the one after it follows the
+     * cursor again, and an ordinary run never sees the floor.
+     */
+    @Test
+    void theFirstSpawnAfterASuppressionIsFlooredAtTheRightEdge() {
+        ObstacleLayer layer = new ObstacleLayer();
+        ObstacleSpawner spawner = new ObstacleSpawner(layer, SpawnTable.GREEN_FIELDS,
+                new RandomProvider(5));
+        SimContext ctx = context(StatSheet.defaults(), RuleSet.EMPTY);
+        assertNotNull(spawner.update(ctx));
+        spawner.setSuppressed(true);
+        layer.last().setX(100);
+        assertNull(spawner.update(ctx), "suppressed");
+        assertFalse(spawner.isResumeFloorPending());
+        spawner.setSuppressed(false);
+        assertTrue(spawner.isResumeFloorPending());
+        Obstacle resumed = spawner.update(ctx);
+        assertNotNull(resumed);
+        assertEquals(Playfield.WIDTH, resumed.x(), 0.0,
+                "the cursor's 100 + 160 = 260 would be inside the playfield");
+        assertFalse(spawner.isResumeFloorPending(), "consumed");
+        layer.last().setX(300);
+        assertEquals(300 + 160, spawner.update(ctx).x(), 0.0, "the cursor rule again");
+
+        // Resuming without a suppression in between arms nothing.
+        spawner.setSuppressed(false);
+        assertFalse(spawner.isResumeFloorPending());
+    }
+
     @Test
     void decisionHashIsSeedDeterministic() {
         long a = decisionHash(123, 50);

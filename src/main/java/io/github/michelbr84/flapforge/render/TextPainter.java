@@ -157,9 +157,17 @@ public final class TextPainter {
         float ax = (float) alignedX(g, text, x, align);
         float by = (float) baseline;
         if (thickness > 0) {
-            g.setColor(outline);
-            for (int dy = -thickness; dy <= thickness; dy++) {
-                for (int dx = -thickness; dx <= thickness; dx++) {
+            // High contrast (D17): one extra pixel of outline, in whichever of black or white is
+            // further from the fill on the luminance scale — the outline can then never merge
+            // with the text it carries.
+            Color chosen = Accessibility.isHighContrast()
+                    ? (Accessibility.luminance(fill.getRGB() & 0xFFFFFF) >= 128
+                        ? OUTLINE_BLACK : OUTLINE_WHITE)
+                    : outline;
+            int t = Accessibility.outlineThickness(thickness);
+            g.setColor(chosen);
+            for (int dy = -t; dy <= t; dy++) {
+                for (int dx = -t; dx <= t; dx++) {
                     if (dx != 0 || dy != 0) {
                         g.drawString(text, ax + dx, by + dy);
                     }
@@ -169,6 +177,9 @@ public final class TextPainter {
         g.setColor(fill);
         g.drawString(text, ax, by);
     }
+
+    private static final Color OUTLINE_BLACK = new Color(0x000000);
+    private static final Color OUTLINE_WHITE = new Color(0xFFFFFF);
 
     private static double alignedX(Graphics2D g, String text, double x, Align align) {
         switch (align) {

@@ -15,8 +15,10 @@ import io.github.michelbr84.flapforge.content.RunFactory;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
 import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
+import io.github.michelbr84.flapforge.gameplay.run.RunInput;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
@@ -30,6 +32,8 @@ import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
+import io.github.michelbr84.flapforge.ui.screens.BossBanner;
+import io.github.michelbr84.flapforge.ui.screens.ChallengeRunSource;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
@@ -38,6 +42,8 @@ import io.github.michelbr84.flapforge.ui.screens.ModifierChoiceOverlay;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
 import io.github.michelbr84.flapforge.ui.screens.SeededRunSource;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -609,5 +615,105 @@ class GameScreenTest {
                         + Playfield.AUTO_FLAP_PERIOD_TICKS + " ticks");
         input.offer(new RawInput.KeyUp(Keys.SPACE, stamp++));
         ticks(1);
+    }
+
+    // ------------------------------------------------------------------ boss flow (M8, D17)
+
+    /** Gate at which the shipped corridor challenge warns its boss. */
+    private static final int CORRIDOR_BOSS_GATE = 20;
+
+    /**
+     * Replaces the screen with one playing the shipped corridor challenge over its forced pattern
+     * — boss at gate {@value #CORRIDOR_BOSS_GATE}, objective "clear the boss" (E17, E26).
+     */
+    private void openBossChallengeGame() {
+        screens.pop();
+        ticks(GRACE);
+        game = new GameScreen(screens, new ChallengeRunSource(GameContent.load(), null,
+                "boss_corridor_1"), SeedSequence.from(42L));
+        screens.push(game);
+        ticks(GRACE);
+        assertEquals("boss_corridor_1", game.run().config().challengeId());
+        assertTrue(game.run().config().bossEnabled());
+    }
+
+    /**
+     * Flies with the perfect pilot, feeding its per-tick decision through the input queue the way
+     * a player's key arrives, until the condition holds or the budget runs out.
+     *
+     * @param done the stop condition, polled before every tick
+     * @param limit the tick budget
+     * @return {@code true} when the condition held; {@code false} on budget exhaustion or death
+     */
+    private boolean flyWithTheBotUntil(java.util.function.BooleanSupplier done, int limit) {
+        BotPilot bot = new BotPilot(BotPilot.Preset.PERFECT, 42L);
+        for (int i = 0; i < limit; i++) {
+            if (done.getAsBoolean()) {
+                return true;
+            }
+            if (!(screens.top() instanceof GameScreen)) {
+                return false;
+            }
+            if (bot.decide(game.run()).flap()) {
+                input.offer(new RawInput.KeyDown(Keys.SPACE, stamp++));
+                input.offer(new RawInput.KeyUp(Keys.SPACE, stamp++));
+            }
+            ticks(1);
+        }
+        return false;
+    }
+
+    /** Draws the game screen once and returns the frame (the HUD texts build during render). */
+    private BufferedImage renderFrame() {
+        BufferedImage image = new BufferedImage(Playfield.WIDTH, Playfield.HEIGHT,
+                BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            game.render(g, 1.0);
+        } finally {
+            g.dispose();
+        }
+        return image;
+    }
+
+    @Test
+    void theBossChallengeTelegraphsOnTheBannerAndTheHudTimer() {
+        openBossChallengeGame();
+        BossBanner banner = game.bossBanner();
+        assertEquals(BossBanner.Phase.HIDDEN, banner.phase(), "nothing announced in READY");
+
+        assertTrue(flyWithTheBotUntil(() -> banner.phase() == BossBanner.Phase.WARNING, 9000),
+                () -> "no warning; the run is in " + game.run().phase() + " at gate "
+                        + game.run().stats().gatesPassed());
+        assertTrue(banner.isVisible());
+        assertEquals("Corridor Boss", banner.bossName(), "E26: the challenge owns the encounter");
+        assertTrue(banner.line().endsWith("in 2s"), banner.line());
+
+        renderFrame();
+        assertFalse(game.renderer().hud().bossText().isEmpty(),
+                "the HUD runs its own countdown beside the banner");
+        assertEquals(Strings.active().get(StringKey.HUD_OBJECTIVE_BOSS),
+                game.renderer().hud().objectiveText());
+    }
+
+    @Test
+    void survivingTheBossClearsTheObjectiveAndFlashesTheBanner() {
+        openBossChallengeGame();
+        BossBanner banner = game.bossBanner();
+        assertTrue(flyWithTheBotUntil(() -> banner.phase() == BossBanner.Phase.ACTIVE, 9000),
+                () -> "the fight never started; the run is in " + game.run().phase() + " at gate "
+                        + game.run().stats().gatesPassed());
+        assertTrue(game.run().simulation().boss().isFighting());
+
+        assertTrue(flyWithTheBotUntil(() -> banner.phase() == BossBanner.Phase.CLEARED, 4000),
+                () -> "the fight never ended; the run is in " + game.run().phase() + " at gate "
+                        + game.run().stats().gatesPassed());
+        assertTrue(banner.line().endsWith("cleared!"), banner.line());
+        renderFrame();
+        assertEquals(Strings.active().get(StringKey.HUD_OBJECTIVE_COMPLETE),
+                game.renderer().hud().objectiveText(), "the objective latched on the clear");
+
+        assertTrue(flyWithTheBotUntil(() -> !banner.isVisible(), 300),
+                "the flash ages out while the flight goes on");
     }
 }

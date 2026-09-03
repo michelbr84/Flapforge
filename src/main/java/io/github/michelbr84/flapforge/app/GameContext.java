@@ -15,6 +15,7 @@ import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
+import io.github.michelbr84.flapforge.render.Accessibility;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -171,6 +172,10 @@ public record GameContext(LaunchOptions options, Clock clock, TimeSource timeSou
         Fonts.setTextScale(settings.textScale);
         ProceduralArt.setSmoothing(settings.smoothing);
         ParticleSystem.setDefaultReduceFlashing(settings.reduceFlashing);
+        // The two render-side accessibility settings (M8): every palette-derived colour the
+        // renderers ask for goes through them, so a change is live on the next frame.
+        Accessibility.setHighContrast(settings.highContrast);
+        Accessibility.setPalette(settings.colorBlindPalette);
         if (screens != null) {
             screens.setDebugOverlayVisible(settings.showFps);
             // The presenter, not the window, is the source of truth here: a null presenter has no

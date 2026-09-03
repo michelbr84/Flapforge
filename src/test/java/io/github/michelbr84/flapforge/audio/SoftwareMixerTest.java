@@ -25,6 +25,8 @@ import org.junit.jupiter.api.Test;
 class SoftwareMixerTest {
 
     private static final int FRAMES = 512;
+    /** Per-channel factor of a centred voice under the constant-power pan law. */
+    private static final float CENTRE = (float) StrictMath.cos(StrictMath.PI / 4.0);
 
     /** A factory that hands out a thread but never lets one escape the test unnoticed. */
     private static final class RecordingThreadFactory implements ThreadFactory {
@@ -325,5 +327,127 @@ class SoftwareMixerTest {
             }
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------ music loops (M8, D19)
+
+    /** A constant full-scale stereo loop of the given frame count. */
+    private static float[] flatLoop(int frames) {
+        float[] samples = new float[frames * SoundBank.CHANNELS];
+        java.util.Arrays.fill(samples, 1.0f);
+        return samples;
+    }
+
+    @Test
+    void aRegisteredLoopPlaysOnceAndRetargetingDoesNotDoubleIt() {
+        SoftwareMixer mixer = offline(new SoundBank());
+        mixer.registerLoop("music/test", flatLoop(FRAMES));
+        assertTrue(mixer.hasLoop("music/test"));
+
+        float[] out = new float[FRAMES * 2];
+        mixer.playLooping("music/test", 0.5f, 0.0f);
+        for (int i = 0; i < SoftwareMixer.MUSIC_RAMP_FRAMES / FRAMES + 1; i++) {
+            mixer.render(out, FRAMES);
+        }
+        // A centred voice splits its gain across both channels (constant power), so the flat
+        // loop's peak is the gain times the centre factor.
+        assertEquals(0.5f * CENTRE, peak(out), 0.02f, "one looping voice at its target gain");
+
+        // A retarget moves the same voice; it must not start a second copy.
+        mixer.playLooping("music/test", 0.3f, 0.0f);
+        for (int i = 0; i < SoftwareMixer.MUSIC_RAMP_FRAMES / FRAMES + 1; i++) {
+            mixer.render(out, FRAMES);
+        }
+        assertEquals(0.3f * CENTRE, peak(out), 0.02f,
+                "a retarget walked the one voice, it did not stack a second");
+    }
+
+    @Test
+    void stoppingALoopFadesItToSilenceAndDropsIt() {
+        SoftwareMixer mixer = offline(new SoundBank());
+        mixer.registerLoop("music/test", flatLoop(FRAMES));
+        mixer.playLooping("music/test", 0.6f, 0.0f);
+        float[] out = new float[FRAMES * 2];
+        for (int i = 0; i < SoftwareMixer.MUSIC_RAMP_FRAMES / FRAMES; i++) {
+            mixer.render(out, FRAMES);
+        }
+        assertTrue(peak(out) > 0.1f, "the loop is audible before the stop");
+
+        mixer.stopLooping("music/test");
+        for (int i = 0; i < SoftwareMixer.MUSIC_RAMP_FRAMES / FRAMES + 1; i++) {
+            mixer.render(out, FRAMES);
+        }
+        assertTrue(peak(out) < 1e-3f, () -> "the faded loop reaches silence and is dropped: "
+                + peak(out));
+        assertTrue(mixer.hasLoop("music/test"), "the bank keeps the rendered loop registered");
+    }
+
+    @Test
+    void aCrossfadeBetweenTwoLoopsHoldsTheLoudness() {
+        SoftwareMixer mixer = offline(new SoundBank());
+        mixer.registerLoop("music/from", flatLoop(FRAMES));
+        mixer.registerLoop("music/to", flatLoop(FRAMES));
+        mixer.playLooping("music/from", 0.5f, 0.0f);
+        float[] out = new float[FRAMES * 2];
+        for (int i = 0; i < SoftwareMixer.MUSIC_RAMP_FRAMES / FRAMES + 1; i++) {
+            mixer.render(out, FRAMES);
+        }
+        assertEquals(0.5f * CENTRE, peak(out), 0.02f, "the outgoing loop is settled");
+
+        // What AudioManager does on a screen change: fade the old loop out while the new fades
+        // in. Two equal linear ramps at the same target sum to roughly constant loudness.
+        mixer.stopLooping("music/from");
+        mixer.playLooping("music/to", 0.5f, 0.0f);
+        int half = SoftwareMixer.MUSIC_RAMP_FRAMES / 2 / FRAMES;
+        for (int i = 0; i < half; i++) {
+            mixer.render(out, FRAMES);
+        }
+        assertTrue(peak(out) > 0.22f && peak(out) < 0.42f,
+                () -> "mid-crossfade the loudness is held: " + peak(out));
+        for (int i = 0; i < SoftwareMixer.MUSIC_RAMP_FRAMES / FRAMES + 1; i++) {
+            mixer.render(out, FRAMES);
+        }
+        assertEquals(0.5f * CENTRE, peak(out), 0.02f,
+                "only the incoming loop survives the crossfade");
+    }
+
+    /**
+     * The crossfade, the fade-out and the duck all walk at the same speed —
+     * {@link SoftwareMixer#MUSIC_RAMP_FRAMES} — so the length is pinned exactly here: one frame
+     * short of the ramp both loops are still moving, and the ramp's last frame lands on the
+     * target (the outgoing loop dropped, the incoming one settled).
+     */
+    @Test
+    void theMusicRampIsExactlyMUSIC_RAMP_FRAMESLong() {
+        SoftwareMixer mixer = offline(new SoundBank());
+        mixer.registerLoop("music/only", flatLoop(FRAMES));
+        float[] out = new float[FRAMES * 2];
+
+        // Fade-in: still short of the target one frame before the ramp is over...
+        mixer.playLooping("music/only", 0.5f, 0.0f);
+        renderFrames(mixer, out, SoftwareMixer.MUSIC_RAMP_FRAMES - 1);
+        float before = peak(out);
+        assertTrue(before > 0.0f && before < 0.5f * CENTRE,
+                () -> "one frame short of the ramp the fade-in is still moving: " + before);
+        // ...and the ramp's last frame lands exactly on it.
+        renderFrames(mixer, out, 1);
+        assertEquals(0.5f * CENTRE, peak(out), 1e-4f,
+                "the fade-in takes exactly MUSIC_RAMP_FRAMES frames");
+
+        // Fade-out, the other half of a crossfade: still audible one frame before the end...
+        mixer.stopLooping("music/only");
+        renderFrames(mixer, out, SoftwareMixer.MUSIC_RAMP_FRAMES - 1);
+        assertTrue(peak(out) > 0.0f, "one frame short of the ramp the fade-out still sounds");
+        // ...and silent on the ramp's last frame, which is where the voice is dropped.
+        renderFrames(mixer, out, 1);
+        assertEquals(0.0f, peak(out), 0.0f,
+                "the fade-out reaches silence after exactly MUSIC_RAMP_FRAMES frames");
+    }
+
+    /** Renders exactly the asked-for frame count, one frame at a time for ramp precision. */
+    private static void renderFrames(SoftwareMixer mixer, float[] out, int frames) {
+        for (int i = 0; i < frames; i++) {
+            mixer.render(out, 1);
+        }
     }
 }

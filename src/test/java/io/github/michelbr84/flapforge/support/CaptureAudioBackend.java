@@ -5,8 +5,12 @@ import io.github.michelbr84.flapforge.audio.SoundBank;
 import io.github.michelbr84.flapforge.audio.SoftwareMixer;
 import io.github.michelbr84.flapforge.audio.Voice;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * The {@link AudioBackend} tests listen to (D19, §3 test support). It records every request and
@@ -31,12 +35,17 @@ public final class CaptureAudioBackend implements AudioBackend {
 
     private final SoundBank bank;
     private final List<Played> played = new ArrayList<>();
+    private final List<Played> loopPlays = new ArrayList<>();
+    private final Map<String, Voice> loops = new LinkedHashMap<>();
+    private final Map<String, float[]> registeredLoops = new LinkedHashMap<>();
+    private final Set<String> stoppedLoops = new LinkedHashSet<>();
     private float[] mixed = new float[0];
     private float masterGain = 1.0f;
     private boolean open;
     private boolean closed;
     private int stops;
     private int warmUps;
+    private int loopStops;
 
     /** Creates a backend over a bank that synthesises everything. */
     public CaptureAudioBackend() {
@@ -74,6 +83,133 @@ public final class CaptureAudioBackend implements AudioBackend {
     @Override
     public void stopAll() {
         stops++;
+        for (Voice voice : loops.values()) {
+            voice.stop();
+        }
+    }
+
+    // ---------------------------------------------------------------- music loops (M8, D19)
+
+    @Override
+    public void registerLoop(String id, float[] samples) {
+        registeredLoops.put(id, samples.clone());
+    }
+
+    @Override
+    public boolean hasLoop(String id) {
+        return registeredLoops.containsKey(id);
+    }
+
+    @Override
+    public void playLooping(String id, float gain, float pan) {
+        loopPlays.add(new Played(id, gain, pan));
+        stoppedLoops.remove(id);
+        Voice existing = loops.get(id);
+        if (existing != null && !existing.finished()) {
+            if (existing.isStopping()) {
+                existing.revive();
+            }
+            existing.rampTo(gain * masterGain, pan, SoftwareMixer.MUSIC_RAMP_FRAMES);
+            return;
+        }
+        float[] samples = registeredLoops.get(id);
+        if (samples == null) {
+            samples = bank.samples(id);
+        }
+        Voice voice = Voice.loop(id, samples, gain * masterGain, pan,
+                SoftwareMixer.MUSIC_RAMP_FRAMES);
+        loops.put(id, voice);
+    }
+
+    @Override
+    public void stopLooping(String id) {
+        loopStops++;
+        stoppedLoops.add(id);
+        Voice voice = loops.get(id);
+        if (voice != null && !voice.finished()) {
+            voice.fadeOut(SoftwareMixer.MUSIC_RAMP_FRAMES);
+        }
+    }
+
+    /**
+     * Mixes every active looping voice forward by the asked-for wall of time — through the same
+     * {@link Voice} ramp and wrap the mixer uses — and returns the limited stereo result. This
+     * is a recorder, not a timeline: each call advances the voices, so two calls of one second
+     * are the second and the third second of the loop.
+     *
+     * @param seconds how much loop to mix
+     * @return interleaved stereo samples, limited like the mixer's output
+     */
+    public float[] mixedLoopSeconds(double seconds) {
+        int frames = (int) Math.round(seconds * SoundBank.SAMPLE_RATE);
+        float[] acc = new float[frames * SoundBank.CHANNELS];
+        for (Voice voice : loops.values()) {
+            int done = 0;
+            while (done < frames && !voice.finished()) {
+                int mixedFrames = voice.mixInto(acc, done, frames - done);
+                if (mixedFrames <= 0) {
+                    break;
+                }
+                done += mixedFrames;
+            }
+        }
+        for (int i = 0; i < acc.length; i++) {
+            acc[i] = SoftwareMixer.limit(acc[i]);
+        }
+        return acc;
+    }
+
+    /**
+     * Every looping request, in order — starts, retargets (the crossfade, the duck, a volume
+     * change) included.
+     *
+     * @return an immutable snapshot
+     */
+    public List<Played> loopPlayList() {
+        return List.copyOf(loopPlays);
+    }
+
+    /**
+     * How many looping requests were recorded.
+     *
+     * @return the count
+     */
+    public int loopPlayCount() {
+        return loopPlays.size();
+    }
+
+    /**
+     * How many looping fade-outs were asked for.
+     *
+     * @return the count
+     */
+    public int loopStopCount() {
+        return loopStops;
+    }
+
+    /**
+     * The ids currently looping (a faded-out voice is dropped, as the mixer drops it).
+     *
+     * @return the ids, in registration order
+     */
+    public List<String> activeLoopIds() {
+        List<String> ids = new ArrayList<>();
+        for (Map.Entry<String, Voice> entry : loops.entrySet()) {
+            if (!entry.getValue().finished()) {
+                ids.add(entry.getKey());
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Whether a stop was asked for a loop id (it may still be fading).
+     *
+     * @param id the loop id
+     * @return {@code true} once {@code stopLooping} named it
+     */
+    public boolean isLoopStopped(String id) {
+        return stoppedLoops.contains(id);
     }
 
     @Override
@@ -234,8 +370,13 @@ public final class CaptureAudioBackend implements AudioBackend {
     /** Forgets every recorded request and the accumulated mix. */
     public void reset() {
         played.clear();
+        loopPlays.clear();
+        loops.clear();
+        registeredLoops.clear();
+        stoppedLoops.clear();
         mixed = new float[0];
         stops = 0;
         warmUps = 0;
+        loopStops = 0;
     }
 }

@@ -9,6 +9,8 @@ import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.content.defs.AbilityDef;
 import io.github.michelbr84.flapforge.content.defs.AbilityKind;
+import io.github.michelbr84.flapforge.audio.AudioManager;
+import io.github.michelbr84.flapforge.audio.MusicSequencer;
 import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.gameplay.TickFact;
@@ -123,6 +125,7 @@ public final class GameScreen implements Screen {
     private final Strings strings;
     private final ToastLayer toasts;
     private final RuleShiftBanner banner;
+    private final BossBanner bossBanner;
 
     private Run run;
     private long seed;
@@ -190,6 +193,16 @@ public final class GameScreen implements Screen {
                 strings.get(StringKey.HUD_ABILITY_COOLDOWN));
         this.renderer.setShieldLabel(strings.get(StringKey.HUD_SHIELD_CHARGES));
         this.banner = new RuleShiftBanner(strings);
+        this.bossBanner = new BossBanner(strings);
+        this.renderer.setBossLabels(strings.get(StringKey.HUD_BOSS_WARNING),
+                strings.get(StringKey.HUD_BOSS_FIGHT),
+                strings.get(StringKey.STAT_BOSS_PHASE));
+        this.renderer.setObjectiveLabels(strings.get(StringKey.HUD_OBJECTIVE_GATES),
+                strings.get(StringKey.HUD_OBJECTIVE_TICKS),
+                strings.get(StringKey.HUD_OBJECTIVE_COINS),
+                strings.get(StringKey.HUD_OBJECTIVE_POINTS),
+                strings.get(StringKey.HUD_OBJECTIVE_BOSS),
+                strings.get(StringKey.HUD_OBJECTIVE_COMPLETE));
         this.shownLanguage = strings.language();
         this.holdToFlap = context != null && context.settings().holdToFlap;
         startRun();
@@ -254,6 +267,15 @@ public final class GameScreen implements Screen {
     }
 
     /**
+     * The boss banner (M8), for tests inspecting its state.
+     *
+     * @return the banner
+     */
+    public BossBanner bossBanner() {
+        return bossBanner;
+    }
+
+    /**
      * Whether hold-to-flap is engaged (accessibility, D2; a settings flag from M2 on).
      *
      * @return {@code true} when a held flap key issues synthetic flaps
@@ -283,6 +305,7 @@ public final class GameScreen implements Screen {
         applyWorldLook();
         renderer.reset();
         banner.reset();
+        bossBanner.reset();
         windZonesInside = 0;
         // A manifest entry may override the procedural bird per bird and per world (D18); with the
         // shipped empty manifest this resolves to nothing and the art stays procedural.
@@ -296,8 +319,56 @@ public final class GameScreen implements Screen {
         lastOutcome = ProgressionOutcome.EMPTY;
         invalidateBuild();
         runsStarted++;
+        startWorldMusic();
         publish(new GameEvent.RunStarted(run.config().birdId(), run.config().worldId(),
                 run.config().tierId(), seed));
+    }
+
+    /**
+     * Renders and starts the run's world loop (M8, D19). The sequencer renders synchronously
+     * here — at run start, on the loop thread, never on a new one — and the manager crossfades
+     * from whatever was playing; the boss variant is rendered with it, so the
+     * {@code BossStarted} switch below only changes ids and never hitches mid-fight. An instant
+     * retry finds both loops already prepared and only retargets the gain. A screen without a
+     * context, or a world without a music block (a bare test stack), leaves the music alone.
+     */
+    private void startWorldMusic() {
+        WorldDef world = worldDef();
+        if (context == null || world == null || world.music() == null) {
+            return;
+        }
+        AudioManager audio = context.audio();
+        String baseId = MusicSequencer.idForWorld(world.id());
+        if (!audio.hasMusic(baseId)) {
+            audio.prepareMusic(baseId, MusicSequencer.render(world.music()));
+            audio.prepareMusic(MusicSequencer.bossIdForWorld(world.id()),
+                    MusicSequencer.render(world.music(), true));
+        }
+        audio.startMusic(baseId, MusicSequencer.RUN_GAIN);
+    }
+
+    /**
+     * Switches the loop to the boss variant — the same block at the raised tempo, the one knob
+     * the sequencer defines (M8, D19) — and back when it is cleared. A crossfade, because the
+     * manager fades the previous loop out while this one fades in.
+     *
+     * @param boss {@code true} to enter the fight, {@code false} to return to the base loop
+     */
+    private void bossMusic(boolean boss) {
+        WorldDef world = worldDef();
+        if (context == null || world == null || world.music() == null) {
+            return;
+        }
+        String id = boss ? MusicSequencer.bossIdForWorld(world.id())
+                : MusicSequencer.idForWorld(world.id());
+        context.audio().startMusic(id, MusicSequencer.RUN_GAIN);
+    }
+
+    /** Un-ducks the loop after the pause overlay leaves the stack (M8, D19). */
+    private void unduckMusic() {
+        if (context != null) {
+            context.audio().duckMusic(1.0f);
+        }
     }
 
     private void publish(GameEvent event) {
@@ -364,12 +435,22 @@ public final class GameScreen implements Screen {
         renderer.setReadyHint(strings.get(StringKey.GAME_READY_HINT));
         renderer.setWorldName(worldName());
         banner.refreshTexts();
+        bossBanner.refreshTexts();
         renderer.setStreakLabel(strings.get(StringKey.HUD_STREAK));
         renderer.setCoinLabel(strings.get(StringKey.HUD_COINS));
         renderer.setAbilityStateLabels(strings.get(StringKey.HUD_ABILITY_READY),
                 strings.get(StringKey.HUD_ABILITY_COOLDOWN));
         renderer.setShieldLabel(strings.get(StringKey.HUD_SHIELD_CHARGES));
         renderer.setAbilityName(activeAbilityName());
+        renderer.setBossLabels(strings.get(StringKey.HUD_BOSS_WARNING),
+                strings.get(StringKey.HUD_BOSS_FIGHT),
+                strings.get(StringKey.STAT_BOSS_PHASE));
+        renderer.setObjectiveLabels(strings.get(StringKey.HUD_OBJECTIVE_GATES),
+                strings.get(StringKey.HUD_OBJECTIVE_TICKS),
+                strings.get(StringKey.HUD_OBJECTIVE_COINS),
+                strings.get(StringKey.HUD_OBJECTIVE_POINTS),
+                strings.get(StringKey.HUD_OBJECTIVE_BOSS),
+                strings.get(StringKey.HUD_OBJECTIVE_COMPLETE));
         seedText = seeds.isExplicit() ? strings.format(StringKey.HUD_SEED, seed) : null;
         shownLanguage = strings.language();
         invalidateBuild();
@@ -427,6 +508,7 @@ public final class GameScreen implements Screen {
         }
         publishFacts(report, flapped, crashed);
         tickBanner();
+        bossBanner.tick();
         watchWind();
         refreshBuild();
         if (run.phase() == RunPhase.CHOOSING_MODIFIER) {
@@ -574,10 +656,10 @@ public final class GameScreen implements Screen {
      * facts from M5, synergies from M6; rule shifts are M7 — but the mapping is written once,
      * here, so a milestone that adds the fact does not have to remember to add its sound.
      *
-     * <p>Four facts stay deliberately unmapped: the draft trio ({@code ModifierOffered},
+     * <p>Three facts stay deliberately unmapped: the draft trio ({@code ModifierOffered},
      * {@code ModifierChosen}, {@code ModifierSkipped}), which the modifier overlay owns and
-     * renders itself, and the boss trio, whose event carries the boss id that lives in the world
-     * definition from M8.
+     * renders itself. The boss trio and {@code ObjectiveMet} are mapped from M8, with the boss
+     * id the fact carries.
      */
     private void publishFacts(TickReport report, boolean flapped, boolean crashed) {
         if (context == null) {
@@ -587,6 +669,12 @@ public final class GameScreen implements Screen {
                 TickFact fact = facts.get(i);
                 if (fact instanceof TickFact.RuleShift shift) {
                     banner.announce(shift);
+                } else if (fact instanceof TickFact.BossWarning warning) {
+                    bossBanner.announce(warning);
+                } else if (fact instanceof TickFact.BossStarted started) {
+                    bossBanner.announce(started);
+                } else if (fact instanceof TickFact.BossCleared cleared) {
+                    bossBanner.announce(cleared);
                 } else if (fact instanceof TickFact.AmbientFlash) {
                     renderer.ambientFlash();
                 }
@@ -637,6 +725,20 @@ public final class GameScreen implements Screen {
                 publish(new GameEvent.LightningWarning());
             } else if (fact instanceof TickFact.PistonTelegraph) {
                 publish(new GameEvent.PistonTelegraph());
+            } else if (fact instanceof TickFact.BossWarning warning) {
+                // M8: the warning fires at boss.atGate itself, so the boss is 0 gates away.
+                publish(new GameEvent.BossWarning(warning.bossId(), 0));
+                bossBanner.announce(warning);
+            } else if (fact instanceof TickFact.BossStarted started) {
+                publish(new GameEvent.BossStarted(started.bossId()));
+                bossBanner.announce(started);
+                bossMusic(true);
+            } else if (fact instanceof TickFact.BossCleared cleared) {
+                publish(new GameEvent.BossCleared(cleared.bossId(), cleared.worldId()));
+                bossBanner.announce(cleared);
+                bossMusic(false);
+            } else if (fact instanceof TickFact.ObjectiveMet met) {
+                publish(new GameEvent.ObjectiveMet(met.challengeId()));
             } else if (fact instanceof TickFact.AmbientFlash) {
                 // E8: cosmetic. The renderer lights the sky, the audio manager rolls the thunder.
                 renderer.ambientFlash();
@@ -755,9 +857,16 @@ public final class GameScreen implements Screen {
         }
         for (String id : outcome.achievementsUnlocked()) {
             publish(new GameEvent.AchievementUnlocked(id));
+            if (toasts != null) {
+                toasts.push(achievementToast(outcome, id));
+            }
         }
         for (String id : outcome.unlocksGranted()) {
             publish(new GameEvent.UnlockGranted(id));
+            if (toasts != null) {
+                toasts.push(strings.format(StringKey.TOAST_UNLOCK_GRANTED,
+                        ProgressionText.unlockableName(strings, context.content(), id)));
+            }
         }
         String challengeId = run.config().challengeId();
         if (outcome.challengeFirstCompleted() && challengeId != null) {
@@ -766,6 +875,22 @@ public final class GameScreen implements Screen {
         if (outcome.dailyRecorded()) {
             publish(new GameEvent.DailyRecorded(profile.daily.date, run.stats().gatesPassed()));
         }
+    }
+
+    /**
+     * The words of one achievement's toast (M8): the achievement's name, and the coins it paid
+     * when it pays any.
+     *
+     * @param outcome the pass that unlocked it (it carries the coin grants)
+     * @param id the achievement id
+     * @return the toast text
+     */
+    private String achievementToast(ProgressionOutcome outcome, String id) {
+        Long coins = outcome.achievementRewardsGranted().get(id);
+        String name = ProgressionText.name(strings, ContentKind.ACHIEVEMENT, id);
+        return coins != null && coins > 0
+                ? strings.format(StringKey.TOAST_ACHIEVEMENT_COINS, name, coins)
+                : strings.format(StringKey.TOAST_ACHIEVEMENT, name);
     }
 
     /**
@@ -918,7 +1043,9 @@ public final class GameScreen implements Screen {
             return true;
         }
         if (isLive() && (escape || lostAttention)) {
-            screens.push(new PauseOverlay(screens, strings));
+            // The duck goes with the overlay (M8, D19): the music returns to full gain when the
+            // overlay leaves the stack, whether that was a resume or a quit to the menu.
+            screens.push(new PauseOverlay(screens, strings, this::unduckMusic));
             return true;
         }
         return false;
@@ -933,16 +1060,23 @@ public final class GameScreen implements Screen {
      * — 4 s — of every schedule entry. Leaving it out would make 9.9 % of a drafting run
      * un-pausable and lethal to an alt-tab, which is precisely what D2 forbids.
      *
-     * @return {@code true} in {@code FLYING} and {@code BREATHER}
+     * <p>{@code BOSS_WARNING} and {@code BOSS} are the M8 live phases: the simulation runs
+     * through both exactly as in {@code FLYING}.
+     *
+     * @return {@code true} in {@code FLYING}, {@code BREATHER}, {@code BOSS_WARNING} and
+     *     {@code BOSS}
      */
     private boolean isLive() {
-        return run.phase() == RunPhase.FLYING || run.phase() == RunPhase.BREATHER;
+        RunPhase phase = run.phase();
+        return phase == RunPhase.FLYING || phase == RunPhase.BREATHER
+                || phase == RunPhase.BOSS_WARNING || phase == RunPhase.BOSS;
     }
 
     @Override
     public void render(Graphics2D g, double alpha) {
         renderer.render(g, alpha, run, seedText, screens.isDebugOverlayVisible());
         banner.render(g, renderer.palette());
+        bossBanner.render(g, renderer.palette());
         if (toasts != null) {
             toasts.render(g);
         }

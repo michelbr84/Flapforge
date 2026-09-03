@@ -157,6 +157,36 @@ public final class SoundBank {
     }
 
     /**
+     * Puts a rendered buffer in the cache under an id (M8, D19): what {@code MusicSequencer}
+     * hands over so a loop the mixer resolves through this bank sounds like the loop that was
+     * rendered, not like a {@link ToneSynth} fallback. The samples are kept by reference and
+     * never modified; registering an id that is already present replaces it.
+     *
+     * @param id the id the mixer and this bank resolve, e.g. {@code music/green_fields}
+     * @param samples interleaved stereo samples at {@link #SAMPLE_RATE}
+     */
+    public void register(String id, float[] samples) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(samples, "samples");
+        if ((samples.length & 1) != 0) {
+            throw new IllegalArgumentException(
+                    "stereo buffers hold an even number of samples, got " + samples.length);
+        }
+        cache.put(id, samples);
+        synthesised.add(id);
+    }
+
+    /**
+     * Whether a buffer is already in the cache.
+     *
+     * @param id the sound id
+     * @return {@code true} when a later {@link #samples(String)} will not decode or render
+     */
+    public boolean isLoaded(String id) {
+        return id != null && cache.containsKey(id);
+    }
+
+    /**
      * The buffer for a cue in a world's set (M7).
      *
      * @param id the sound id

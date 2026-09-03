@@ -6,6 +6,7 @@ import io.github.michelbr84.flapforge.content.defs.AbilityDef;
 import io.github.michelbr84.flapforge.content.defs.AbilityKind;
 import io.github.michelbr84.flapforge.content.defs.AbilityLevelDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
+import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
 import io.github.michelbr84.flapforge.content.defs.EconomyDef;
 import io.github.michelbr84.flapforge.content.defs.ModifierDef;
 import io.github.michelbr84.flapforge.content.defs.PatternDef;
@@ -59,6 +60,8 @@ import java.util.Map;
  * ./gradlew balancing -PtoolArgs="--seeds 100 --world all --skill all"
  * ./gradlew balancing -PtoolArgs="--seeds 50 --world iron_forge --tier all --skill expert"
  * ./gradlew balancing -PtoolArgs="--seeds 50 --pattern forge_gear_corridor --skill expert"
+ * ./gradlew balancing -PtoolArgs="--seeds 50 --challenge all --skill all"
+ * ./gradlew balancing -PtoolArgs="--seeds 50 --boss all --skill expert"
  * </pre>
  *
  * <p>{@code --world all} and {@code --tier all} (M7) sweep every world of {@code worlds.json}
@@ -69,6 +72,15 @@ import java.util.Map;
  * ({@link RunSetup#withForcedPattern}) in the pattern's own world (its curve, effects and
  * ambience) unless {@code --world} was given — which is how the feasibility numbers
  * {@code ContentFeasibilityTest} asserts are reproduced from the command line.
+ *
+ * <p>{@code --challenge <id|all>} (M8) plays a challenge as the player would: the run is
+ * stamped by {@link RunFactory#challengeConfig} — its world, tier, curve, flags, effects, forced
+ * modifiers, forced pattern and boss block — and the report adds how often the objective was
+ * met, how often the challenge's boss was cleared and how far its phases were reached.
+ * {@code --boss <worldId|all>} (M8) measures a world's boss encounter on its own: the run starts
+ * at the boss ({@link RunSetup#startingAtBoss}: the warning at the first gate, the curve shifted
+ * to {@code boss.atGate}) and the report says how often the fight was survived. Both are the
+ * command-line twins of the M8 rows of {@code ContentFeasibilityTest}.
  *
  * <p>{@code --ability} (M5) equips one ability in the slot its kind belongs to and reports how
  * often the bot spent it, how many hits a shield absorbed and how many revives were used;
@@ -104,6 +116,10 @@ public final class BalancingSim {
     public static final String NO_MODIFIER = "none";
     /** {@code --pattern} value that streams the world's own spawns (the default). */
     public static final String NO_PATTERN = "none";
+    /** {@code --challenge} value that plays no challenge (the default). */
+    public static final String NO_CHALLENGE = "none";
+    /** {@code --boss} value that plays whole runs rather than encounters (the default). */
+    public static final String NO_BOSS = "none";
 
     private BalancingSim() {
     }
@@ -119,13 +135,18 @@ public final class BalancingSim {
      * reward multiplier, which is the only column that can tell the economy birds apart: without
      * it Ironbeak's {@code COIN_MULT} of 0.8 is invisible and classic, Ironbeak and Oracle print
      * identical numbers.
+     *
+     * <p>The three M8 columns: {@code objectiveMet} (a challenge run's objective), {@code
+     * bossCleared} (the boss the run actually spawned was survived — the world's, or the
+     * challenge's own) and {@code phasesReached}.
      */
-    private record Row(String world, String tier, String pattern, String bird, String ability,
-            String forced, String skill, long seed,
+    private record Row(String world, String tier, String pattern, String challenge, String bird,
+            String ability, String forced, String skill, long seed,
             int gates, double points, int ticksAlive, boolean finished, String deathCause,
             int coinsSpawned, int coinsCollected, int streakBest, int streakSteps, long coins,
             long xp, long payout, int abilityUses, int shieldAbsorbs, int revives,
-            int offersOpened, List<String> modifiers, List<String> synergies) {
+            int offersOpened, List<String> modifiers, List<String> synergies,
+            boolean objectiveMet, boolean bossCleared, int phasesReached) {
     }
 
     /** Command-line options. */
@@ -142,6 +163,8 @@ public final class BalancingSim {
         String modifier = NO_MODIFIER;
         int modifierStacks = 1;
         String pattern = NO_PATTERN;
+        String challenge = NO_CHALLENGE;
+        String boss = NO_BOSS;
         boolean worldGiven;
         boolean drafts;
         Path csv;
@@ -172,37 +195,28 @@ public final class BalancingSim {
         List<String> birds = birdsOf(content, options.bird);
         List<String> abilities = abilitiesOf(content, options.ability);
         List<BotPilot.Preset> presets = presetsOf(options.skill);
-        List<String> worlds = worldsOf(content, options.world);
-        List<String> tiers = tiersOf(content, options.tier);
-        List<String> patterns = patternsOf(content, options.pattern);
+        List<Cell> where = cellsOf(content, options);
 
         System.out.println("Flapforge balancing — world=" + options.world + " tier=" + options.tier
-                + " pattern=" + options.pattern + " seeds=" + options.seeds + " (from "
-                + options.firstSeed + ") ticks=" + options.ticks);
+                + " pattern=" + options.pattern + " challenge=" + options.challenge + " boss="
+                + options.boss + " seeds=" + options.seeds + " (from " + options.firstSeed
+                + ") ticks=" + options.ticks);
         List<List<String>> forcedSets = forcedOf(content, options);
-        List<Row> rows = new ArrayList<>(worlds.size() * tiers.size() * patterns.size()
-                * birds.size() * abilities.size() * presets.size() * options.seeds);
+        List<Row> rows = new ArrayList<>(where.size() * birds.size() * abilities.size()
+                * presets.size() * options.seeds);
         Map<String, List<Row>> cells = new LinkedHashMap<>();
-        for (String world : worlds) {
-            for (String tier : tiers) {
-                for (String pattern : patterns) {
-                    // A pattern plays in its own world unless the sweep pinned one (M7).
-                    String playedIn = options.worldGiven || NO_PATTERN.equals(pattern) ? world
-                            : content.patterns().get(pattern).world();
-                    Cell where = new Cell(playedIn, tier, pattern);
-                    for (String bird : birds) {
-                        for (String ability : abilities) {
-                            for (List<String> forced : forcedSets) {
-                                for (BotPilot.Preset preset : presets) {
-                                    List<Row> cell = simulate(factory, content, options, where,
-                                            bird, ability, forced, preset);
-                                    rows.addAll(cell);
-                                    report(where, bird, ability, label(forced), preset,
-                                            options.ticks, cell);
-                                    cells.put(where + " " + label(forced) + " @ "
-                                            + preset.name(), cell);
-                                }
-                            }
+        for (Cell cell : where) {
+            for (String bird : birds) {
+                for (String ability : abilities) {
+                    for (List<String> forced : forcedSets) {
+                        for (BotPilot.Preset preset : presets) {
+                            List<Row> played = simulate(factory, content, options, cell, bird,
+                                    ability, forced, preset);
+                            rows.addAll(played);
+                            report(cell, bird, ability, label(forced), preset, options.ticks,
+                                    played);
+                            cells.put(cell + " " + label(forced) + " @ " + preset.name(),
+                                    played);
                         }
                     }
                 }
@@ -222,18 +236,67 @@ public final class BalancingSim {
     }
 
     /**
-     * Where a cell plays (M7): the world, the tier and the pattern forced on it, if any.
+     * Where a cell plays (M7, M8): the world, the tier, the pattern forced on it, the challenge
+     * it is, and whether it starts at the world's boss.
      *
      * @param world the world id
      * @param tier the tier id
      * @param pattern the forced pattern id, or {@link #NO_PATTERN}
+     * @param challenge the challenge id, or {@link #NO_CHALLENGE}
+     * @param bossOnly whether the run starts at the world's boss ({@code --boss})
      */
-    private record Cell(String world, String tier, String pattern) {
+    private record Cell(String world, String tier, String pattern, String challenge,
+            boolean bossOnly) {
         @Override
         public String toString() {
             return "world=" + world + " tier=" + tier
-                    + (NO_PATTERN.equals(pattern) ? "" : " pattern=" + pattern);
+                    + (NO_PATTERN.equals(pattern) ? "" : " pattern=" + pattern)
+                    + (NO_CHALLENGE.equals(challenge) ? "" : " challenge=" + challenge)
+                    + (bossOnly ? " boss=encounter" : "");
         }
+
+        boolean isChallenge() {
+            return !NO_CHALLENGE.equals(challenge);
+        }
+    }
+
+    /**
+     * The cells a sweep plays (M8). A challenge sweep is one cell per challenge, in its own world
+     * and tier; a boss sweep is one cell per world (times the tiers asked for), started at the
+     * boss; otherwise the M7 world × tier × pattern grid.
+     *
+     * @param content the loaded content
+     * @param options the parsed command line
+     * @return the cells, in report order
+     */
+    private static List<Cell> cellsOf(GameContent content, Options options) {
+        List<Cell> cells = new ArrayList<>();
+        if (!NO_CHALLENGE.equalsIgnoreCase(options.challenge)) {
+            for (String id : challengesOf(content, options.challenge)) {
+                ChallengeDef def = content.challenges().get(id);
+                cells.add(new Cell(def.world(), def.tier(), NO_PATTERN, id, false));
+            }
+            return cells;
+        }
+        if (!NO_BOSS.equalsIgnoreCase(options.boss)) {
+            for (String world : worldsOf(content, options.boss)) {
+                for (String tier : tiersOf(content, options.tier)) {
+                    cells.add(new Cell(world, tier, NO_PATTERN, NO_CHALLENGE, true));
+                }
+            }
+            return cells;
+        }
+        for (String world : worldsOf(content, options.world)) {
+            for (String tier : tiersOf(content, options.tier)) {
+                for (String pattern : patternsOf(content, options.pattern)) {
+                    // A pattern plays in its own world unless the sweep pinned one (M7).
+                    String playedIn = options.worldGiven || NO_PATTERN.equals(pattern) ? world
+                            : content.patterns().get(pattern).world();
+                    cells.add(new Cell(playedIn, tier, pattern, NO_CHALLENGE, false));
+                }
+            }
+        }
+        return cells;
     }
 
     private static List<Row> simulate(RunFactory factory, GameContent content, Options options,
@@ -253,9 +316,24 @@ public final class BalancingSim {
                 builder.forcedModifiers(forced);
             }
             RunConfig config = builder.build();
-            Run run = NO_PATTERN.equals(where.pattern()) ? factory.newRun(config)
-                    : new Run(config, factory.setup(config)
-                            .withForcedPattern(content.patternSpec(where.pattern())));
+            if (where.isChallenge()) {
+                // The challenge's own world, tier, flags, forced cards and offer switch (M8).
+                config = factory.challengeConfig(config, where.challenge());
+            }
+            Run run;
+            if (!NO_PATTERN.equals(where.pattern())) {
+                run = new Run(config, factory.setup(config)
+                        .withForcedPattern(content.patternSpec(where.pattern())));
+            } else if (where.bossOnly()) {
+                RunSetup setup = factory.setup(config);
+                if (setup.boss() == null) {
+                    throw new IllegalArgumentException("world '" + where.world()
+                            + "' has no boss to start at");
+                }
+                run = new Run(config, setup.startingAtBoss());
+            } else {
+                run = factory.newRun(config);
+            }
             HeadlessRunner.Outcome outcome = HeadlessRunner.run(run,
                     new BotPilot(preset, seed), options.ticks);
             RunResult result = outcome.result();
@@ -277,8 +355,8 @@ public final class BalancingSim {
             for (int used : result.stats().abilitiesUsed().values()) {
                 uses += used;
             }
-            rows.add(new Row(where.world(), where.tier(), where.pattern(), bird, ability,
-                    label(forced), preset.name(), seed,
+            rows.add(new Row(where.world(), where.tier(), where.pattern(), where.challenge(),
+                    bird, ability, label(forced), preset.name(), seed,
                     result.gatesPassed(),
                     result.stats().points(), result.stats().ticksAlive(), outcome.finished(),
                     cause, run.simulation().pickups().spawnedCount(),
@@ -287,7 +365,9 @@ public final class BalancingSim {
                     uses, result.stats().shieldAbsorbs(), result.stats().revives(),
                     run.simulation().modifiers().offersOpened(),
                     List.copyOf(result.stats().modifiersTaken()),
-                    List.copyOf(result.stats().synergiesActivated())));
+                    List.copyOf(result.stats().synergiesActivated()),
+                    result.stats().objectiveMet(), run.simulation().boss().isCleared(),
+                    result.stats().phasesReached()));
         }
         return rows;
     }
@@ -303,10 +383,13 @@ public final class BalancingSim {
         int[] spawned = new int[rows.size()];
         int[] streakBest = new int[rows.size()];
         int[] streakSteps = new int[rows.size()];
+        int[] phases = new int[rows.size()];
         double points = 0;
         Map<String, Integer> causes = new LinkedHashMap<>();
         int survived = 0;
         int zeroCoins = 0;
+        int objectives = 0;
+        int bosses = 0;
         for (int i = 0; i < rows.size(); i++) {
             Row row = rows.get(i);
             gates[i] = row.gates();
@@ -318,6 +401,7 @@ public final class BalancingSim {
             spawned[i] = row.coinsSpawned();
             streakBest[i] = row.streakBest();
             streakSteps[i] = row.streakSteps();
+            phases[i] = row.phasesReached();
             points += row.points();
             causes.merge(row.deathCause(), 1, Integer::sum);
             if (!row.finished()) {
@@ -326,12 +410,19 @@ public final class BalancingSim {
             if (row.coins() == 0) {
                 zeroCoins++;
             }
+            if (row.objectiveMet()) {
+                objectives++;
+            }
+            if (row.bossCleared()) {
+                bosses++;
+            }
         }
         Arrays.sort(gates);
         Arrays.sort(alive);
         Arrays.sort(coins);
         Arrays.sort(payout);
         Arrays.sort(streakBest);
+        Arrays.sort(phases);
         System.out.println();
         System.out.printf(Locale.ROOT,
                 "%s bird=%s ability=%s modifier=%s skill=%s (reaction %d ticks, error %.0f px)"
@@ -365,6 +456,17 @@ public final class BalancingSim {
                 StreakTracker.DEFAULT_STEP);
         System.out.printf(Locale.ROOT, "  reached the %d-tick budget: %d/%d (%.1f %%)%n", ticks,
                 survived, rows.size(), 100.0 * survived / rows.size());
+        if (where.isChallenge()) {
+            System.out.printf(Locale.ROOT, "  objective  met %d/%d (%.1f %%)%n", objectives,
+                    rows.size(), 100.0 * objectives / rows.size());
+        }
+        if (where.isChallenge() || where.bossOnly() || bosses > 0
+                || phases[phases.length - 1] > 0) {
+            System.out.printf(Locale.ROOT,
+                    "  boss       cleared %d/%d (%.1f %%)  phases reached mean=%.2f max=%d%n",
+                    bosses, rows.size(), 100.0 * bosses / rows.size(), mean(phases),
+                    phases[phases.length - 1]);
+        }
         if (!NO_ABILITY.equals(ability)) {
             int[] uses = new int[rows.size()];
             int[] absorbs = new int[rows.size()];
@@ -385,7 +487,6 @@ public final class BalancingSim {
         System.out.println(deaths.toString().stripTrailing());
     }
 
-    /** Nearest-rank percentile of a sorted array. */
     /**
      * The M6 draft table (§6): how far the runs got into the schedule, what the bot took and how
      * often a build came together.
@@ -480,6 +581,7 @@ public final class BalancingSim {
         return counts;
     }
 
+    /** Nearest-rank percentile of a sorted array. */
     private static int percentile(int[] sorted, int percent) {
         int rank = (int) Math.ceil(percent / 100.0 * sorted.length);
         return sorted[Math.max(0, Math.min(sorted.length - 1, rank - 1))];
@@ -568,6 +670,26 @@ public final class BalancingSim {
             return ids;
         }
         content.patterns().get(selector);
+        return List.of(selector);
+    }
+
+    /**
+     * The challenges a sweep plays (M8): one id, or {@code all} for every challenge of
+     * {@code challenges.json} in order.
+     *
+     * @param content the loaded content
+     * @param selector the {@code --challenge} value
+     * @return the challenge ids
+     */
+    private static List<String> challengesOf(GameContent content, String selector) {
+        if ("all".equalsIgnoreCase(selector)) {
+            List<String> ids = new ArrayList<>(content.challenges().size());
+            for (ChallengeDef def : content.challenges()) {
+                ids.add(def.id());
+            }
+            return ids;
+        }
+        content.challenges().get(selector);
         return List.of(selector);
     }
 
@@ -771,20 +893,22 @@ public final class BalancingSim {
 
     private static void writeCsv(Path path, List<Row> rows) {
         List<String> lines = new ArrayList<>(rows.size() + 1);
-        lines.add("world,tier,pattern,bird,ability,forced,skill,seed,gates,points,ticksAlive,"
-                + "finished,deathCause,coinsSpawned,coinsCollected,streakBest,streakSteps,coins,"
-                + "xp,payout,abilityUses,shieldAbsorbs,revives,offers,modifiers,synergies");
+        lines.add("world,tier,pattern,challenge,bird,ability,forced,skill,seed,gates,points,"
+                + "ticksAlive,finished,deathCause,coinsSpawned,coinsCollected,streakBest,"
+                + "streakSteps,coins,xp,payout,abilityUses,shieldAbsorbs,revives,offers,"
+                + "modifiers,synergies,objectiveMet,bossCleared,phasesReached");
         for (Row r : rows) {
             lines.add(String.format(Locale.ROOT,
-                    "%s,%s,%s,%s,%s,%s,%s,%d,%d,%s,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,"
-                            + "%s,%s",
-                    r.world(), r.tier(), r.pattern(),
+                    "%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%s,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,"
+                            + "%s,%s,%s,%s,%d",
+                    r.world(), r.tier(), r.pattern(), r.challenge(),
                     r.bird(), r.ability(), r.forced(), r.skill(), r.seed(), r.gates(),
                     Double.toString(r.points()), r.ticksAlive(), r.finished(), r.deathCause(),
                     r.coinsSpawned(), r.coinsCollected(), r.streakBest(), r.streakSteps(),
                     r.coins(), r.xp(), r.payout(), r.abilityUses(), r.shieldAbsorbs(),
                     r.revives(), r.offersOpened(), String.join("|", r.modifiers()),
-                    String.join("|", r.synergies())));
+                    String.join("|", r.synergies()), r.objectiveMet(), r.bossCleared(),
+                    r.phasesReached()));
         }
         try {
             Path parent = path.toAbsolutePath().getParent();
@@ -819,11 +943,17 @@ public final class BalancingSim {
                 case "--modifier-stacks" -> options.modifierStacks =
                         positiveInt(arg, next(args, ++i));
                 case "--pattern" -> options.pattern = next(args, ++i);
+                case "--challenge" -> options.challenge = next(args, ++i);
+                case "--boss" -> options.boss = next(args, ++i);
                 case "--drafts" -> options.drafts = true;
                 case "--csv" -> options.csv = Path.of(next(args, ++i));
                 case "--help", "-h" -> options.help = true;
                 default -> throw new IllegalArgumentException("Unknown option: " + arg);
             }
+        }
+        if (!NO_CHALLENGE.equalsIgnoreCase(options.challenge)
+                && !NO_BOSS.equalsIgnoreCase(options.boss)) {
+            throw new IllegalArgumentException("--challenge and --boss cannot be combined");
         }
         return options;
     }
@@ -862,6 +992,10 @@ public final class BalancingSim {
                         + RunConfig.DEFAULT_TIER + ")",
                 "  --pattern ID  stream one pattern of patterns.json in isolation, looped, in"
                         + " the pattern's own world unless --world is given; 'none' or 'all' (M7)",
+                "  --challenge ID play one challenge of challenges.json as the player would"
+                        + " (its world, tier, rules, boss); 'none' or 'all' (M8)",
+                "  --boss ID     play a world's boss encounter on its own, started at the boss;"
+                        + " a world id, 'none' or 'all' (M8)",
                 "  --skill NAME  novice | average | expert | perfect | all (default average)",
                 "  --ability ID  ability to equip, 'none' or 'all' (default " + NO_ABILITY + ")",
                 "  --ability-level N  level to play the ability at (default 1)",

@@ -13,7 +13,7 @@
     { "id": "speed_run_1", "world": "wind_valley", "tier": "normal", "curve": "standard",
       "allowOffers": false, "flags": ["SPEED_RAMP"], "effects": [],
       "forcedModifiers": [], "forcedPattern": null, "boss": null,
-      "objective": { "type": "SURVIVE_GATES", "value": 40 },
+      "objective": { "type": "SURVIVE_GATES", "value": 30 },
       "rewards": { "coins": 250, "unlocks": ["cosmetic:swift:comet"] },
       "unlock": { "type": "any_of", "conditions": [
         { "type": "best_gates", "value": 25 },

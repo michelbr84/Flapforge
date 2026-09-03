@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonElement;
@@ -403,6 +404,70 @@ class PatternStreamerTest {
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read " + resource, e);
         }
+    }
+
+    /**
+     * M8: the boss phases stream in order, loop, take precedence over a forced pattern and the
+     * world's own patterns, and hand the run back to them when the fight ends.
+     */
+    @Test
+    void bossPhasesStreamInOrderLoopAndYieldToTheForcedPatternAfterwards() {
+        PatternSpec p1 = pattern("p1", 0, 0, true, gate(160, 0.4, 128), gate(160, 0.6, 128));
+        PatternSpec p2 = pattern("p2", 0, 0, true, gate(150, 0.5, 120), gate(150, 0.5, 120),
+                gate(150, 0.5, 120));
+        PatternSpec forced = mixed();
+        PatternStreamer streamer = new PatternStreamer(List.of(), forced, List.of(p1, p2),
+                new Random(1));
+        assertTrue(streamer.hasWork());
+        assertFalse(streamer.isBossActive());
+        assertEquals(forced, streamer.next(true, 0).pattern(), "the forced pattern first");
+        assertEquals(forced, streamer.next(false, 0).pattern());
+
+        streamer.startBoss();
+        assertTrue(streamer.isBossActive());
+        assertEquals(p1, streamer.active());
+        List<String> order = new ArrayList<>();
+        List<Integer> indices = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            PatternStreamer.Placement placement = streamer.next(false, 5);
+            order.add(placement.pattern().id());
+            indices.add(placement.index());
+        }
+        assertEquals(List.of("p1", "p1", "p2", "p2", "p2", "p1", "p1", "p2", "p2", "p2", "p1",
+                "p1"), order, "in order and looped");
+        assertEquals(List.of(0, 1, 0, 1, 2, 0, 1, 0, 1, 2, 0, 1), indices);
+        assertEquals(5, streamer.bossPhasesStarted(), "p1, p2, p1, p2, p1");
+        assertEquals(1, streamer.bossPhase(), "the next step comes from p2");
+
+        streamer.endBoss();
+        assertFalse(streamer.isBossActive());
+        PatternStreamer.Placement back = streamer.next(false, 5);
+        assertEquals(forced, back.pattern(), "the forced pattern resumes");
+        assertEquals(0, back.index(), "from its first step");
+
+        // A streamer with only boss phases has work, and a streamer without them refuses to start.
+        assertTrue(new PatternStreamer(List.of(), null, List.of(p1), new Random(2)).hasWork());
+        assertThrows(IllegalStateException.class,
+                () -> new PatternStreamer(List.of(), null, new Random(3)).startBoss());
+    }
+
+    @Test
+    void bossPhasesTakePrecedenceOverTheWorldsPatternsAndFoldIntoTheHash() {
+        PatternSpec world = pattern("world", 40, 0, true, gate(160, 0.5, 128));
+        PatternSpec p1 = pattern("p1", 0, 0, true, gate(160, 0.4, 128));
+        PatternStreamer streamer = new PatternStreamer(List.of(world), null, List.of(p1),
+                new Random(4));
+        long idle = streamer.hashState(0);
+        streamer.startBoss();
+        assertNotEquals(idle, streamer.hashState(0), "the boss cursor is part of the hash");
+        for (int i = 0; i < 5; i++) {
+            assertEquals(p1, streamer.next(false, 20).pattern(), "never the world's pattern");
+        }
+        streamer.endBoss();
+        assertNull(streamer.next(false, 20), "one plain spawn before the next chunk (cooldown)");
+        PatternStreamer plain = new PatternStreamer(List.of(world), null, new Random(4));
+        assertEquals(plain.hashState(0), new PatternStreamer(List.of(world), null, List.of(),
+                new Random(4)).hashState(0), "no phases, no fold: the M7 hash stands");
     }
 
     @Test

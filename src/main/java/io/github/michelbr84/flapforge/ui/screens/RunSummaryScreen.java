@@ -173,6 +173,23 @@ public final class RunSummaryScreen implements Screen {
         row("time", StringKey.STAT_TIME_ALIVE, strings.format(StringKey.STAT_TIME_ALIVE_VALUE,
                 seconds(stats.ticksAlive()), stats.ticksAlive()), false);
 
+        // M8: a challenge run names itself and tells whether its objective was met, and a run
+        // with a boss records how the encounter went (D29). First-completion rewards are listed
+        // with the coins section, the achievements in their own section below.
+        String challengeId = result.config().challengeId();
+        if (challengeId != null) {
+            row("challenge", StringKey.SUMMARY_CHALLENGE,
+                    ProgressionText.name(strings, ContentKind.CHALLENGE, challengeId));
+            row("objective", StringKey.STAT_OBJECTIVE, strings.get(
+                    stats.objectiveMet() ? StringKey.STAT_OBJECTIVE_MET
+                            : StringKey.STAT_OBJECTIVE_MISSED));
+        }
+        if (result.config().bossEnabled()) {
+            row("boss", StringKey.STAT_BOSS, stats.bossesCleared().isEmpty()
+                    ? strings.format(StringKey.STAT_BOSS_PHASE, stats.phasesReached())
+                    : strings.get(StringKey.STAT_BOSS_CLEARED));
+        }
+
         if (outcome != null) {
             RewardSummary rewards = outcome.rewardSummary();
             header(StringKey.SUMMARY_SECTION_COINS);
@@ -198,6 +215,11 @@ public final class RunSummaryScreen implements Screen {
             row("dailyMult", StringKey.REWARD_DAILY_MULT, multiplier(rewards.dailyMult()));
             row("coinsCollected", StringKey.REWARD_COLLECTED, signed(rewards.coinsCollected()));
             row("coins", StringKey.REWARD_TOTAL, signed(rewards.coins()));
+            if (outcome.challengeFirstCompleted()) {
+                line("firstCompletion", strings.format(StringKey.SUMMARY_FIRST_COMPLETION,
+                        strings.format(StringKey.CHALLENGES_REWARD_COINS,
+                                rewards.challengeCoins())));
+            }
 
             header(StringKey.SUMMARY_SECTION_XP);
             row("xp", StringKey.STAT_XP, signed(rewards.xp()));
@@ -209,6 +231,18 @@ public final class RunSummaryScreen implements Screen {
         }
 
         buildSection(stats);
+
+        // M8: the achievements this run fired, named — the toasts during the run may have been
+        // missed mid-flight, the summary is where they can be read at leisure.
+        if (outcome != null && !outcome.achievementsUnlocked().isEmpty()) {
+            header(StringKey.SUMMARY_SECTION_ACHIEVEMENTS);
+            List<String> fired = outcome.achievementsUnlocked();
+            for (int i = 0; i < fired.size(); i++) {
+                String id = fired.get(i);
+                line("achievement." + id,
+                        ProgressionText.name(strings, ContentKind.ACHIEVEMENT, id));
+            }
+        }
 
         header(StringKey.SUMMARY_SECTION_INFO);
         line("seed", strings.format(StringKey.SUMMARY_SEED, result.config().seed(),

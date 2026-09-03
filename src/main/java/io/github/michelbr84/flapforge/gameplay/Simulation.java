@@ -23,14 +23,18 @@ import io.github.michelbr84.flapforge.gameplay.obstacle.PatternStreamer;
 import io.github.michelbr84.flapforge.gameplay.obstacle.SpawnTable;
 import io.github.michelbr84.flapforge.gameplay.pickup.Coin;
 import io.github.michelbr84.flapforge.gameplay.pickup.PickupLayer;
+import io.github.michelbr84.flapforge.gameplay.run.BossEncounter;
 import io.github.michelbr84.flapforge.gameplay.run.DraftWorld;
 import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
+import io.github.michelbr84.flapforge.gameplay.run.ObjectiveEvaluator;
 import io.github.michelbr84.flapforge.gameplay.run.ReviveSystem;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
 import io.github.michelbr84.flapforge.gameplay.run.ShieldSystem;
 import io.github.michelbr84.flapforge.gameplay.run.StreakTracker;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
+import io.github.michelbr84.flapforge.gameplay.spec.ChallengeSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.PatternSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.RampEffect;
 import io.github.michelbr84.flapforge.gameplay.spec.RuleCycleSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.WorldSpec;
@@ -119,6 +123,8 @@ public final class Simulation implements AbilityHost, DraftWorld {
     private final ShieldSystem shield;
     private final ReviveSystem revive;
     private final ModifierDirector modifiers;
+    private final BossEncounter boss;
+    private final ObjectiveEvaluator objective;
     private int invulnerableTicks;
     private boolean ghost;
     private Obstacle ghostAgainst;
@@ -160,17 +166,32 @@ public final class Simulation implements AbilityHost, DraftWorld {
         this.stats = new StatSheet(birdProfile.baseStats(), stack, rules);
         stack.setLayer(Layer.BIRD, birdProfile.effects());
         stack.setLayer(Layer.UPGRADES, config.permanentEffects());
+        ChallengeSpec challenge = setup.challenge();
+        if (challenge != null && !challenge.effects().isEmpty()) {
+            // The CHALLENGE layer (D8, M8): a challenge's own stat effects, alongside the
+            // upgrades and before the difficulty resolves its first values.
+            stack.setLayer(Layer.CHALLENGE, challenge.effects());
+        }
         applySynergies(config.upgradeLevelsTotal());
         this.difficulty = new DifficultyState(stack, new DifficultyCurve(setup.world().curve()),
                 setup.tier().effects(), setup.world().effects(), setup.speedRampPerTick(), rules);
         this.bird = new Bird(birdProfile.hitbox(), Playfield.BIRD_START_Y);
         this.physics = new BirdPhysics(stats);
         WorldSpec world = setup.world();
+        // The streamer exists when there is anything to stream: the world's patterns, a forced
+        // pattern, or the phases of a boss (M8). A run with none of them — the pinned classic
+        // run — has no streamer, draws nothing from the patterns stream and folds nothing.
+        List<PatternSpec> bossPhases = setup.boss() == null ? List.of()
+                : setup.boss().patterns();
+        boolean streams = !world.patterns().isEmpty() || setup.forcedPattern() != null
+                || !bossPhases.isEmpty();
         this.spawner = new ObstacleSpawner(obstacles,
                 spawnTable == null ? new SpawnTable(world.spawnWeights()) : spawnTable, rng,
-                world.patterns().isEmpty() && setup.forcedPattern() == null ? null
-                        : new PatternStreamer(world.patterns(), setup.forcedPattern(),
-                                rng.stream(RandomProvider.PATTERNS)));
+                streams ? new PatternStreamer(world.patterns(), setup.forcedPattern(),
+                        bossPhases, rng.stream(RandomProvider.PATTERNS)) : null);
+        this.boss = new BossEncounter(setup.boss(), spawner);
+        this.objective = challenge == null ? null
+                : new ObjectiveEvaluator(challenge.id(), challenge.objective());
         this.worldEffects = new WorldEffects(world.ambient(), world.ruleCycles(),
                 world.ruleCycles() == null ? null : rng.stream(RandomProvider.CYCLES));
         this.pickups = new PickupLayer(rng);
@@ -314,18 +335,25 @@ public final class Simulation implements AbilityHost, DraftWorld {
         }
         resolveStreaks(box, facts);
 
+        // The boss advances after the scoring and before the spawner (M8): a warning that starts
+        // on this gate already suppresses this tick's spawn, and a fight that starts on this tick
+        // already places its first column.
+        boss.tick(gatesPassed, facts);
         Obstacle spawned = spawner.update(ctx, gatesPassed);
         if (spawned != null) {
             facts.add(new TickFact.ObstacleSpawned(spawned.kind()));
             if (spawned.isScoring()) {
                 pickups.spawnFor(spawned, ctx);
             }
+            boss.onSpawned();
         }
         drainSignals(facts);
         // A shift lands only on a tick the draft is not running (D11, M7): the director's state
         // is read before it advances for this tick, so the tick a breather starts on may still
-        // land one, and every later tick of the draft defers it.
-        boolean shifted = worldEffects.tick(modifiers.state() == ModifierDirector.State.IDLE);
+        // land one, and every later tick of the draft defers it. A boss warning defers it the
+        // same way (M8): the option lands on the first tick of the fight instead.
+        boolean shifted = worldEffects.tick(modifiers.state() == ModifierDirector.State.IDLE
+                && !boss.isWarning());
         if (shifted) {
             applyCycle(worldEffects.activeOption());
         }
@@ -344,6 +372,12 @@ public final class Simulation implements AbilityHost, DraftWorld {
         }
         if (gateChanged || shifted || difficulty.needsTickRefresh()) {
             difficulty.refresh(gatesPassed, tick);
+        }
+        if (objective != null) {
+            // Judged on this tick's tallies, after the boss may have cleared on it (M8). The
+            // tick counter is already advanced, so it matches RunStats.ticksAlive once the
+            // flying tick folds into the stats.
+            objective.tick(gatesPassed, points, coinsCollected, tick, boss.isCleared(), facts);
         }
         // Last, after the collision test and after the spawner: a draft may only open on a tick
         // that nothing hit (D11), and the breather it starts has to reach the spawner before the
@@ -613,6 +647,14 @@ public final class Simulation implements AbilityHost, DraftWorld {
             // (D12), which is what keeps the published --headless-run hash comparable.
             h = modifiers.hashState(h);
         }
+        if (boss.hasBoss()) {
+            // The M8 pieces fold only for a run that has them: the pinned classic run has no
+            // boss and no objective, so its hash stands.
+            h = boss.hashState(h);
+        }
+        if (objective != null) {
+            h = objective.hashState(h);
+        }
         if (!hasRunSystems()) {
             // A run without run systems can still carry invulnerability or a ghost (the draft
             // resume's i-frames, a Void option that zeroed the shield mid-run), and then they
@@ -657,6 +699,35 @@ public final class Simulation implements AbilityHost, DraftWorld {
      */
     public ModifierDirector modifiers() {
         return modifiers;
+    }
+
+    /**
+     * The boss encounter of the run (D11, M8): the warning, the fight and the clear. A run
+     * without a boss still has one, answering "no boss" to every query.
+     *
+     * @return the encounter
+     */
+    public BossEncounter boss() {
+        return boss;
+    }
+
+    /**
+     * The challenge objective of the run (D11, M8).
+     *
+     * @return the evaluator, or {@code null} outside challenge mode
+     */
+    public ObjectiveEvaluator objective() {
+        return objective;
+    }
+
+    @Override
+    public boolean bossPending() {
+        return boss.isPending(gatesPassed);
+    }
+
+    @Override
+    public boolean bossActive() {
+        return boss.isActive();
     }
 
     @Override

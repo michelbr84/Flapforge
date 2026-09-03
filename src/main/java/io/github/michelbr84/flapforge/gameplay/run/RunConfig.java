@@ -15,6 +15,17 @@ import java.util.Objects;
  * {@code worldId}, {@code tierId}, {@code mode}, {@code rules} and {@code permanentEffects}; the
  * other fields are carried for later milestones.
  *
+ * <p><b>The boss switch (M8).</b> {@link #bossEnabled} says whether the run meets its world's
+ * boss (or its challenge's, D11). The builder defaults it to {@code true}: every profile run,
+ * every challenge, the balancing tool and the feasibility tests play the encounter. The one
+ * configuration that pins it {@code false} is {@link #classic(long)} — the ability-free,
+ * draft-free, boss-free run behind the published {@code --headless-run} hash and the golden
+ * fixture (D12). That run reaches 36 gates in Green Fields, whose boss is at gate 30, so with
+ * the boss on the hash CI compares across OS and JDK would have moved with M8; pinning the boss
+ * off there keeps it where M1 left it, and {@code RunFactory} resolves no boss for such a run
+ * whatever the content says. Instant retry keeps the flag ({@link #withSeed}), so a retried
+ * boss run is still a boss run. See {@code docs/DEVELOPMENT.md}, "--headless-run".
+ *
  * @param seed the run seed (every random stream derives from it)
  * @param birdId the bird id
  * @param paletteId the cosmetic palette id
@@ -35,12 +46,15 @@ import java.util.Objects;
  *     earned ones ({@code gold_rush}, {@code phoenix}, {@code stormrider})
  * @param rules rules from the run source (challenge/daily/config)
  * @param allowOffers whether modifier offers open during the run
+ * @param bossEnabled whether the run meets its boss (M8); {@code false} only for the pinned
+ *     {@link #classic(long)} configuration, see the class comment
  */
 public record RunConfig(long seed, String birdId, String paletteId, String worldId, String tierId,
         String challengeId, RunMode mode, String activeAbilityId, List<String> passiveAbilityIds,
         int passiveSlotBonus, List<StatModifier> permanentEffects,
         Map<String, Integer> abilityLevels, int upgradeLevelsTotal, List<String> forcedModifiers,
-        List<String> availableModifiers, RuleSet rules, boolean allowOffers) {
+        List<String> availableModifiers, RuleSet rules, boolean allowOffers,
+        boolean bossEnabled) {
 
     /** Default bird id. */
     public static final String DEFAULT_BIRD = "classic";
@@ -71,6 +85,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
      * @param availableModifiers modifier ids the profile may be offered
      * @param rules rules
      * @param allowOffers whether offers open
+     * @param bossEnabled whether the run meets its boss
      */
     public RunConfig {
         Objects.requireNonNull(birdId, "birdId");
@@ -97,13 +112,16 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
     }
 
     /**
-     * The default configuration for a seed.
+     * The default configuration for a seed: the pinned classic run (D12). Classic bird, Green
+     * Fields, normal tier, no abilities, no drafts and — since M8 — no boss, so the published
+     * {@code --headless-run} hash and the golden fixture stay where M1 recorded them (see the
+     * class comment). Everything else the builder defaults to.
      *
      * @param seed the run seed
      * @return the config
      */
     public static RunConfig classic(long seed) {
-        return new Builder(seed).build();
+        return new Builder(seed).bossEnabled(false).build();
     }
 
     /**
@@ -129,6 +147,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         b.availableModifiers = new ArrayList<>(availableModifiers);
         b.rules = rules;
         b.allowOffers = allowOffers;
+        b.bossEnabled = bossEnabled;
         return b;
     }
 
@@ -161,6 +180,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         private List<String> availableModifiers = new ArrayList<>();
         private RuleSet rules = RuleSet.EMPTY;
         private boolean allowOffers;
+        private boolean bossEnabled = true;
 
         private Builder(long seed) {
             this.seed = seed;
@@ -365,6 +385,18 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         }
 
         /**
+         * Sets whether the run meets its boss (M8). Defaults to {@code true}; only the pinned
+         * classic configuration turns it off (see the class comment).
+         *
+         * @param value {@code true} to play the encounter
+         * @return this builder
+         */
+        public Builder bossEnabled(boolean value) {
+            bossEnabled = value;
+            return this;
+        }
+
+        /**
          * Builds the config.
          *
          * @return the config
@@ -373,7 +405,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
             return new RunConfig(seed, birdId, paletteId, worldId, tierId, challengeId, mode,
                     activeAbilityId, passiveAbilityIds, passiveSlotBonus, permanentEffects,
                     abilityLevels, upgradeLevelsTotal, forcedModifiers, availableModifiers, rules,
-                    allowOffers);
+                    allowOffers, bossEnabled);
         }
     }
 }

@@ -7,6 +7,8 @@ public enum ObjectiveType {
 
     /** Pass at least {@code value} gates in one run. */
     SURVIVE_GATES,
+    /** Stay alive for at least {@code value} ticks in one run (D11). */
+    SURVIVE_TICKS,
     /** Pick up at least {@code value} coins in one run (E2). */
     COLLECT_COINS,
     /** Score at least {@code value} points in one run (E1). */

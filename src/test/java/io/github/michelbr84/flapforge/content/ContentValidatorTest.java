@@ -7,7 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
+import io.github.michelbr84.flapforge.content.defs.ObjectiveType;
+import io.github.michelbr84.flapforge.content.defs.UnlockType;
 import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.support.TestContent;
@@ -789,6 +793,147 @@ class ContentValidatorTest {
      * that the file ships. {@code ModifierDirector.start} applies the list under the authored
      * rules, so anything this misses is a card the challenge silently loses at run start.
      */
+    /**
+     * M8: the boss rules that switched on with {@code BossEncounter} — the sanity floors on a
+     * boss block, a {@code BOSS_CLEARED} objective without a boss, a boss past a
+     * {@code SURVIVE_GATES} objective (E14) — and the E6 promise that no rule asks for the
+     * challenge's world to be unlocked.
+     */
+    @Nested
+    class Bosses {
+
+        private List<String> errorsOf(String file, Consumer<JsonObject> edit) {
+            Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.shippedJson());
+            JsonElement root = files.get(file).deepCopy();
+            edit.accept(root.getAsJsonObject());
+            files.put(file, root);
+            ContentException e = assertThrows(ContentException.class,
+                    () -> GameContent.fromJson(files));
+            return e.errors();
+        }
+
+        private JsonObject challenge(JsonObject root, String id) {
+            for (JsonElement c : root.getAsJsonArray("challenges")) {
+                if (id.equals(c.getAsJsonObject().get("id").getAsString())) {
+                    return c.getAsJsonObject();
+                }
+            }
+            throw new IllegalArgumentException("no challenge " + id);
+        }
+
+        private JsonObject world(JsonObject root, String id) {
+            for (JsonElement w : root.getAsJsonArray("worlds")) {
+                if (id.equals(w.getAsJsonObject().get("id").getAsString())) {
+                    return w.getAsJsonObject();
+                }
+            }
+            throw new IllegalArgumentException("no world " + id);
+        }
+
+        private void assertHasError(List<String> errors, String prefix) {
+            assertTrue(errors.stream().anyMatch(error -> error.startsWith(prefix)),
+                    () -> "expected an error starting with\n  " + prefix + "\nbut got\n  "
+                            + String.join("\n  ", errors));
+        }
+
+        @Test
+        void theShippedBossesPassTheSanityFloors() {
+            GameContent content = GameContent.load();
+            assertEquals(List.of(), ContentValidator.errorsOf(content));
+            for (WorldDef world : content.worlds()) {
+                assertTrue(world.boss().warningTicks() >= ContentValidator.MIN_BOSS_WARNING_TICKS);
+                assertTrue(world.boss().surviveTicks() >= ContentValidator.MIN_BOSS_SURVIVE_TICKS);
+            }
+            assertEquals(60, ContentValidator.MIN_BOSS_WARNING_TICKS);
+            assertEquals(300, ContentValidator.MIN_BOSS_SURVIVE_TICKS);
+        }
+
+        @Test
+        void aBossClearedObjectiveNeedsABossBlock() {
+            assertHasError(errorsOf("challenges", root ->
+                            challenge(root, "boss_corridor_1").add("boss", JsonNull.INSTANCE)),
+                    "challenges.json#/challenges/6/objective: a BOSS_CLEARED objective needs a"
+                            + " boss block");
+        }
+
+        @Test
+        void aBossBeyondASurviveGatesObjectiveIsRejected() {
+            assertHasError(errorsOf("challenges", root -> {
+                JsonObject boss = new JsonObject();
+                boss.addProperty("atGate", 35);
+                boss.addProperty("warningTicks", 120);
+                JsonArray patterns = new JsonArray();
+                patterns.add("corridor_boss_p1");
+                boss.add("patterns", patterns);
+                boss.addProperty("surviveTicks", 600);
+                challenge(root, "no_shield_1").add("boss", boss);
+            }), "challenges.json#/challenges/0/boss/atGate: 35 is beyond the SURVIVE_GATES"
+                    + " objective of 30");
+        }
+
+        @Test
+        void aBossAtOrBelowTheObjectiveIsFine() {
+            Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.shippedJson());
+            JsonElement root = files.get("challenges").deepCopy();
+            JsonObject boss = new JsonObject();
+            boss.addProperty("atGate", 30);
+            boss.addProperty("warningTicks", 120);
+            JsonArray patterns = new JsonArray();
+            patterns.add("corridor_boss_p1");
+            boss.add("patterns", patterns);
+            boss.addProperty("surviveTicks", 600);
+            challenge(root.getAsJsonObject(), "no_shield_1").add("boss", boss);
+            files.put("challenges", root);
+            assertEquals(List.of(), ContentValidator.errorsOf(GameContent.fromJson(files)));
+        }
+
+        /** D11: a {@code SURVIVE_TICKS} objective is an authorable, valid objective. */
+        @Test
+        void aSurviveTicksObjectiveIsValid() {
+            Map<String, JsonElement> files = new LinkedHashMap<>(TestContent.shippedJson());
+            JsonElement root = files.get("challenges").deepCopy();
+            JsonObject objective = challenge(root.getAsJsonObject(), "no_shield_1")
+                    .getAsJsonObject("objective");
+            objective.addProperty("type", "SURVIVE_TICKS");
+            objective.addProperty("value", 3600);
+            files.put("challenges", root);
+            GameContent content = GameContent.fromJson(files);
+            assertEquals(ObjectiveType.SURVIVE_TICKS,
+                    content.challenges().get("no_shield_1").objective().type());
+            assertEquals(List.of(), ContentValidator.errorsOf(content));
+        }
+
+        @Test
+        void aShortWarningOrFightIsRejected() {
+            assertHasError(errorsOf("worlds", root -> world(root, "green_fields")
+                            .getAsJsonObject("boss").addProperty("warningTicks", 30)),
+                    "worlds.json#/worlds/0/boss/warningTicks: 30 is less than the 60 ticks");
+            assertHasError(errorsOf("worlds", root -> world(root, "green_fields")
+                            .getAsJsonObject("boss").addProperty("surviveTicks", 120)),
+                    "worlds.json#/worlds/0/boss/surviveTicks: 120 is less than the 300 ticks");
+            assertHasError(errorsOf("challenges", root -> challenge(root, "boss_corridor_1")
+                            .getAsJsonObject("boss").addProperty("surviveTicks", 299)),
+                    "challenges.json#/challenges/6/boss/surviveTicks: 299 is less than the 300");
+        }
+
+        /** E6: the validator never asks for a challenge's world to be unlocked. */
+        @Test
+        void aChallengeInALockedWorldIsValid() {
+            GameContent content = GameContent.load();
+            for (ChallengeDef challenge : content.challenges()) {
+                WorldDef world = content.worlds().get(challenge.world());
+                if (!"green_fields".equals(world.id())) {
+                    assertTrue(world.unlock().type() != UnlockType.DEFAULT,
+                            challenge.id() + " plays in the locked world " + world.id());
+                }
+            }
+            assertEquals("wind_valley", content.challenges().get("speed_run_1").world());
+            assertEquals("iron_forge", content.challenges().get("one_life_1").world());
+            assertEquals(List.of(), ContentValidator.errorsOf(content),
+                    "and the shipped set, with three challenges in locked worlds, is valid");
+        }
+    }
+
     @Nested
     class ForcedModifiers {
 

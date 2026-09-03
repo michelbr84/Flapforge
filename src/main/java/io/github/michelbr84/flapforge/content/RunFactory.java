@@ -3,10 +3,16 @@ package io.github.michelbr84.flapforge.content;
 import io.github.michelbr84.flapforge.ability.AbilityManager;
 import io.github.michelbr84.flapforge.content.defs.AbilityDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
+import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunSetup;
+import io.github.michelbr84.flapforge.gameplay.spec.BossSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.ChallengeSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.PatternSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.WorldSpec;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
 import java.util.LinkedHashSet;
@@ -26,6 +32,18 @@ import java.util.Set;
  * that ships no {@code worlds.json} — the frozen golden fixture, an M1-shaped test set — still
  * builds runs: Green Fields on the classic curve with a gate-only table, any other id on the
  * standard curve, which is the M1 shape those fixtures were recorded against (E19).
+ *
+ * <p>From M8 a configuration that names a challenge is a challenge run, in two halves. The
+ * configuration half — world, tier, flags, forced modifiers, {@code allowOffers}, the mode —
+ * is stamped by {@link #challengeConfig} on top of whatever the profile selected, and the setup
+ * half — the curve override, the {@code CHALLENGE} effects, the objective, the forced pattern
+ * and the challenge's own boss — is resolved by {@link #setup}. The boss follows E26: a
+ * challenge with a {@code boss} block fights that boss and never its world's; a challenge
+ * without one has no boss at all, whatever its world says. Neither half asks whether the world
+ * is unlocked (E6).
+ *
+ * <p>The boss of an ordinary run is its world's, unless the configuration pins it off
+ * ({@link RunConfig#bossEnabled()}), which only the classic headless configuration does.
  */
 public final class RunFactory {
 
@@ -61,14 +79,97 @@ public final class RunFactory {
      *
      * @param config the configuration
      * @return the setup
-     * @throws UnknownIdException when the bird, world, tier or curve id is not in the registries
+     * @throws UnknownIdException when the bird, world, tier, curve, challenge or pattern id is
+     *     not in the registries
      */
     public RunSetup setup(RunConfig config) {
         Objects.requireNonNull(config, "config");
-        return new RunSetup(content.birdProfile(config.birdId()), worldSpec(config.worldId()),
+        WorldSpec world = worldSpec(config.worldId());
+        PatternSpec forcedPattern = null;
+        ChallengeSpec challenge = null;
+        BossSpec boss = null;
+        ChallengeDef def = challengeOf(config);
+        if (def != null) {
+            world = world.withCurve(content.curveSpec(def.curve()));
+            challenge = ContentAdapters.toSpec(def);
+            if (def.forcedPattern() != null) {
+                forcedPattern = content.patternSpec(def.forcedPattern());
+            }
+            // E26: the challenge's own block or nothing — never the world's.
+            if (def.boss() != null) {
+                boss = ContentAdapters.toSpec(def.boss(), def.id(), null, content);
+            }
+        } else {
+            boss = worldBoss(config.worldId());
+        }
+        if (!config.bossEnabled()) {
+            boss = null;
+        }
+        return new RunSetup(content.birdProfile(config.birdId()), world,
                 content.tierSpec(config.tierId()), content.speedRampPerTick(),
                 content.economy().rewards().streak().step(), loadout(config),
-                content.modifierCatalog(draftableModifiers(config)));
+                content.modifierCatalog(draftableModifiers(config)), forcedPattern, boss,
+                challenge);
+    }
+
+    /**
+     * The challenge a configuration names, when the content ships challenges.
+     *
+     * @param config the configuration
+     * @return the definition, or {@code null} for a run without a challenge
+     * @throws UnknownIdException when the content ships challenges and none carries the id
+     */
+    private ChallengeDef challengeOf(RunConfig config) {
+        String id = config.challengeId();
+        if (id == null || id.isBlank() || !content.has(GameContent.CHALLENGES)) {
+            return null;
+        }
+        return content.challenges().get(id);
+    }
+
+    /**
+     * The boss of a world (M8), resolved from {@code worlds.json}.
+     *
+     * @param worldId the world id
+     * @return the spec, or {@code null} when the content ships no worlds or the world has no boss
+     */
+    public BossSpec worldBoss(String worldId) {
+        if (!content.has(GameContent.WORLDS) || !content.worlds().contains(worldId)) {
+            return null;
+        }
+        WorldDef def = content.worlds().get(worldId);
+        return def.boss() == null ? null
+                : ContentAdapters.toSpec(def.boss(), worldId, worldId, content);
+    }
+
+    /**
+     * Stamps a challenge on a configuration (D11, M8): the mode, the challenge id, the
+     * challenge's world and tier, its flags on top of the configuration's rules, its forced
+     * modifiers, and offers only when both the configuration and the challenge allow them. The
+     * bird, the palette, the loadout, the upgrade layer and the owned modifiers of the base
+     * configuration are kept — a challenge is played with what the player selected.
+     *
+     * <p>The world is not checked against anything: a challenge never requires its world to be
+     * unlocked (E6), and the unlock the player needs is the challenge's own, which the screen
+     * offering it checks.
+     *
+     * @param base the configuration to stamp, typically {@code RunLoadout.configFor}
+     * @param challengeId the challenge
+     * @return the challenge configuration
+     * @throws UnknownIdException when no challenge carries the id
+     */
+    public RunConfig challengeConfig(RunConfig base, String challengeId) {
+        Objects.requireNonNull(base, "base");
+        ChallengeDef def = content.challenges().get(challengeId);
+        return base.toBuilder()
+                .mode(RunMode.CHALLENGE)
+                .challengeId(def.id())
+                .worldId(def.world())
+                .tierId(def.tier())
+                .rules(base.rules().union(RuleSet.of(def.flags())))
+                .forcedModifiers(def.forcedModifiers())
+                .allowOffers(base.allowOffers() && def.allowOffers())
+                .build();
     }
 
     /**

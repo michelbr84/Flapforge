@@ -2,6 +2,7 @@ package io.github.michelbr84.flapforge.content;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
 import io.github.michelbr84.flapforge.content.defs.PatternDef;
 import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
@@ -82,6 +83,88 @@ class ContentFeasibilityTest {
         }
         System.out.println(String.join(System.lineSeparator(), report));
         assertTrue(failures.isEmpty(), () -> "expert clear rate below the bar:\n"
+                + String.join("\n", failures));
+    }
+
+    /**
+     * §6 M8: the expert completes every shipped challenge objective in at least
+     * {@value #MIN_RATE} of {@value #SEEDS} seeds, played as the player would
+     * ({@code RunFactory.challengeConfig}: the challenge's world, tier, curve, rules, forced
+     * cards, forced pattern and boss) — {@code --challenge all --skill expert --seeds 50}.
+     */
+    @Test
+    void theExpertCompletesEveryChallengeObjective() {
+        List<String> report = new ArrayList<>();
+        List<String> failures = new ArrayList<>();
+        for (ChallengeDef challenge : CONTENT.challenges()) {
+            int met = 0;
+            int bosses = 0;
+            for (int i = 0; i < SEEDS; i++) {
+                long seed = 1 + i;
+                RunConfig config = FACTORY.challengeConfig(RunConfig.builder(seed).build(),
+                        challenge.id());
+                Run run = FACTORY.newRun(config);
+                HeadlessRunner.run(run, new BotPilot(BotPilot.Preset.EXPERT, seed), WORLD_TICKS);
+                if (run.stats().objectiveMet()) {
+                    met++;
+                }
+                if (run.simulation().boss().isCleared()) {
+                    bosses++;
+                }
+            }
+            double rate = met / (double) SEEDS;
+            String line = String.format(Locale.ROOT, "%s (%s, %s %d): %d/%d met (%.0f %%,"
+                    + " required %.0f %%)%s", challenge.id(), challenge.world(),
+                    challenge.objective().type(), challenge.objective().value(), met, SEEDS,
+                    100 * rate, 100 * MIN_RATE,
+                    challenge.boss() == null ? "" : ", boss cleared " + bosses + "/" + SEEDS);
+            report.add(line);
+            if (rate < MIN_RATE) {
+                failures.add(line);
+            }
+        }
+        System.out.println(String.join(System.lineSeparator(), report));
+        assertTrue(failures.isEmpty(), () -> "expert completion rate below the bar:\n"
+                + String.join("\n", failures));
+    }
+
+    /**
+     * §6 M8: the expert survives every world's boss encounter in at least {@value #MIN_RATE} of
+     * {@value #SEEDS} seeds. The run starts at the boss ({@code RunSetup.startingAtBoss}: the
+     * warning at the first gate, the curve shifted to {@code atGate}), so what is measured is
+     * the fight and not the road to it, which the M7 table above already covers —
+     * {@code --boss all --skill expert --seeds 50}.
+     */
+    @Test
+    void theExpertSurvivesEveryWorldBossEncounter() {
+        List<String> report = new ArrayList<>();
+        List<String> failures = new ArrayList<>();
+        for (WorldDef world : CONTENT.worlds()) {
+            int cleared = 0;
+            int phases = 0;
+            for (int i = 0; i < SEEDS; i++) {
+                long seed = 1 + i;
+                RunConfig config = RunConfig.builder(seed).worldId(world.id()).build();
+                Run run = new Run(config, FACTORY.setup(config).startingAtBoss());
+                int budget = world.boss().warningTicks() + world.boss().surviveTicks() + 1200;
+                HeadlessRunner.run(run, new BotPilot(BotPilot.Preset.EXPERT, seed), budget);
+                if (run.stats().bossesCleared().contains(world.id())) {
+                    cleared++;
+                }
+                phases += run.stats().phasesReached();
+            }
+            double rate = cleared / (double) SEEDS;
+            String line = String.format(Locale.ROOT, "%s boss (%d ticks, %d phases): %d/%d"
+                    + " cleared (%.0f %%, required %.0f %%), phases reached mean %.2f",
+                    world.id(), world.boss().surviveTicks(), world.boss().patterns().size(),
+                    cleared, SEEDS, 100 * rate, 100 * MIN_RATE, phases / (double) SEEDS);
+            report.add(line);
+            if (rate < MIN_RATE) {
+                failures.add(line);
+            }
+        }
+        System.out.println(String.join(System.lineSeparator(), report));
+        assertTrue(failures.isEmpty(), () -> "expert boss clear rate below the bar:\n"
                 + String.join("\n", failures));
     }
 

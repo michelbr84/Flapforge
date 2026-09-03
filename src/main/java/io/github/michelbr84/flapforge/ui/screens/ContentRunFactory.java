@@ -118,11 +118,30 @@ public final class ContentRunFactory implements SeededRunSource {
         return worldOverride;
     }
 
+    /**
+     * A source whose every run is one challenge (M8), played with the same live profile this
+     * factory reads: the selected bird, palette and loadout under the challenge's world, tier,
+     * rules and boss. The {@code --world} override does not apply — a challenge names its own
+     * world (E6).
+     *
+     * @param challengeId the challenge
+     * @return the source the {@code ChallengesScreen} hands a {@code GameScreen}
+     * @throws io.github.michelbr84.flapforge.content.UnknownIdException when no challenge
+     *     carries the id
+     */
+    public ChallengeRunSource forChallenge(String challengeId) {
+        return new ChallengeRunSource(runs.content(), profiles, challengeId);
+    }
+
     @Override
     public Run newRun(long seed) {
         PlayerProfile profile = profiles == null ? null : profiles.get();
+        // Without a profile the run is the pinned classic configuration in the launch's mode
+        // (D12, M8): no abilities, no drafts and no boss, so the headless launch and the tests
+        // that build a session without persistence play exactly the run the published hash
+        // describes. Every profile run has the boss on (RunLoadout.configure).
         RunConfig config = profile == null
-                ? RunConfig.builder(seed).mode(mode).build()
+                ? RunConfig.classic(seed).toBuilder().mode(mode).build()
                 : RunLoadout.configFor(profile, runs.content(), seed, mode);
         if (worldOverride != null && !worldOverride.equals(config.worldId())) {
             config = config.toBuilder().worldId(worldOverride).build();

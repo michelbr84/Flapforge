@@ -5,10 +5,13 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import io.github.michelbr84.flapforge.persistence.JsonCodec;
 import java.awt.AWTError;
+import java.awt.Font;
+import java.awt.FontFormatException;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsEnvironment;
 import java.awt.Transparency;
 import java.awt.image.BufferedImage;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -106,6 +109,7 @@ public final class AssetManager {
     private final Map<String, Optional<Sprite>> spriteCache = new LinkedHashMap<>();
     private final Map<String, Optional<SpriteSheet>> sheetCache = new LinkedHashMap<>();
     private final Map<String, Optional<byte[]>> byteCache = new LinkedHashMap<>();
+    private final Map<String, Optional<Font>> fontCache = new LinkedHashMap<>();
 
     private AssetManager(Map<String, Entry> entries, List<String> parseErrors) {
         this.entries = Collections.unmodifiableMap(entries);
@@ -322,11 +326,37 @@ public final class AssetManager {
         return loaded;
     }
 
+    /**
+     * Loads a font asset (M8, D18): the bytes of a {@link Kind#FONT} entry decoded through
+     * {@link Font#createFont(int, InputStream)} — one base face at an arbitrary size, which the
+     * caller derives sizes from ({@code Fonts.install}). A variable font loads at its default
+     * instance, which for Nunito is the Regular weight; bold is a derived style, so
+     * {@code Fonts.bold} still works. Empty so the caller keeps the logical family; a failure is
+     * recorded in {@link #errors()}, never thrown.
+     *
+     * @param id the manifest id, e.g. {@code font/ui}
+     * @return the font, or empty when the id is not declared, is not a {@link Kind#FONT} entry,
+     *     or could not be decoded
+     */
+    public Optional<Font> font(String id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        Optional<Font> cached = fontCache.get(id);
+        if (cached != null) {
+            return cached;
+        }
+        Optional<Font> loaded = loadFont(id);
+        fontCache.put(id, loaded);
+        return loaded;
+    }
+
     /** Drops every cached image so a later call reloads from the classpath. */
     public void clearCache() {
         spriteCache.clear();
         sheetCache.clear();
         byteCache.clear();
+        fontCache.clear();
     }
 
     private Optional<Sprite> loadSprite(String id) {
@@ -367,6 +397,29 @@ public final class AssetManager {
             return Optional.empty();
         }
         return Optional.of(data);
+    }
+
+    private Optional<Font> loadFont(String id) {
+        Entry entry = entries.get(id);
+        if (entry == null) {
+            return Optional.empty();
+        }
+        if (entry.kind() != Kind.FONT) {
+            errors.add(entry.path() + " (" + id + "): kind " + entry.kind() + " is not a font");
+            return Optional.empty();
+        }
+        try (InputStream in = AssetManager.class.getResourceAsStream(ASSET_ROOT + entry.path())) {
+            if (in == null) {
+                errors.add(entry.path() + " (" + id + "): missing resource");
+                return Optional.empty();
+            }
+            // The buffered stream is what the TTF reader asks for: it rewinds to read the table
+            // directory, which a raw jar stream cannot do.
+            return Optional.of(Font.createFont(Font.TRUETYPE_FONT, new BufferedInputStream(in)));
+        } catch (FontFormatException | IOException | RuntimeException e) {
+            errors.add(entry.path() + " (" + id + "): " + e);
+            return Optional.empty();
+        }
     }
 
     private BufferedImage readImage(Entry entry, String id) {

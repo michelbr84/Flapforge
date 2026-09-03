@@ -332,6 +332,42 @@ class RunLifecycleTest {
                 ? RunInput.FLAP : RunInput.NONE;
     }
 
+    /**
+     * M8 (D11): the two boss phases are part of the lifecycle. The simulation keeps running
+     * through both — every tick counts in {@code ticksAlive} — and the run comes back to
+     * {@code FLYING} with the clear in its stats.
+     */
+    @Test
+    void theBossPhasesRunAndGiveTheRunBack() {
+        Run run = io.github.michelbr84.flapforge.support.BossRuns.run(RunConfig.builder(4).build(),
+                RunSetup.CLASSIC.withBoss(io.github.michelbr84.flapforge.support.BossRuns
+                        .worldBoss(2, 90, 600,
+                                io.github.michelbr84.flapforge.support.BossRuns.twoPhases())));
+        List<RunPhase> phases = new ArrayList<>();
+        phases.add(run.phase());
+        int ticks = 0;
+        for (int t = 0; t < 3000 && run.stats().bossesCleared().isEmpty(); t++) {
+            TickReport report = run.tick(
+                    io.github.michelbr84.flapforge.support.BossRuns.fly(run));
+            ticks++;
+            for (TickFact fact : report.facts()) {
+                if (fact instanceof TickFact.PhaseChanged change) {
+                    phases.add(change.to());
+                }
+            }
+        }
+        assertEquals(List.of(RunPhase.READY, RunPhase.FLYING, RunPhase.BOSS_WARNING,
+                RunPhase.BOSS, RunPhase.FLYING), phases,
+                "READY → FLYING → BOSS_WARNING → BOSS → FLYING (D11)");
+        assertEquals(ticks, run.stats().ticksAlive(), "every boss tick is a live tick");
+        assertEquals(List.of("green_fields"), run.stats().bossesCleared());
+        assertEquals(2, run.stats().phasesReached());
+        assertEquals(RunPhase.FLYING, run.phase());
+        assertTrue(run.stats().gatesPassed() > 2, "the phases scored: " + run.stats());
+        long h = run.simulation().stateHash();
+        assertEquals(h, run.simulation().stateHash(), "the fold is stable");
+    }
+
     @Test
     void stateHashChangesEveryTick() {
         Run run = Run.classic(RunConfig.classic(9));

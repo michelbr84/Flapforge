@@ -5,6 +5,7 @@ import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.run.RewardSummary;
 import io.github.michelbr84.flapforge.gameplay.run.RunResult;
+import io.github.michelbr84.flapforge.gameplay.run.RunStats;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.Keys;
@@ -73,6 +74,7 @@ public final class GameOverOverlay implements Screen {
     private final Strings strings;
     private final List<Row> rows = new ArrayList<>();
     private final String levelUpText;
+    private final String challengeLine;
     private final int panelY;
     private final int panelH;
     private PlayerProfile profile;
@@ -135,6 +137,19 @@ public final class GameOverOverlay implements Screen {
                         String.format(Locale.ROOT, "%.1f",
                                 ticksAlive / (double) Playfield.TICK_RATE),
                         ticksAlive)));
+        // M8 (D29): a challenge run tells the player here whether its objective was met, and a
+        // run with a boss how the encounter went — the same facts the summary breaks out.
+        if (result.config().challengeId() != null) {
+            rows.add(new Row(strings.get(StringKey.STAT_OBJECTIVE), strings.get(
+                    result.stats().objectiveMet() ? StringKey.STAT_OBJECTIVE_MET
+                            : StringKey.STAT_OBJECTIVE_MISSED)));
+        }
+        // Only when the encounter actually began: "Phase 0" for a boss that never warned is
+        // noise, so a run that ended before atGate shows no boss row at all.
+        if (result.config().bossEnabled() && bossBegan(result.stats())) {
+            rows.add(new Row(strings.get(StringKey.STAT_BOSS), bossValue(result.stats())));
+        }
+
         if (outcome != null) {
             RewardSummary rewards = outcome.rewardSummary();
             rows.add(new Row(strings.get(StringKey.STAT_COINS),
@@ -147,9 +162,38 @@ public final class GameOverOverlay implements Screen {
         }
         this.levelUpText = outcome != null && outcome.leveledUp()
                 ? strings.format(StringKey.GAMEOVER_LEVEL_UP, outcome.highestLevel()) : null;
+        this.challengeLine = outcome != null && outcome.challengeFirstCompleted()
+                ? strings.format(StringKey.GAMEOVER_CHALLENGE_COMPLETED,
+                        outcome.rewardSummary().challengeCoins()) : null;
         this.panelH = PANEL_H + (rows.size() - BASE_ROWS) * ROW_STEP
-                + (levelUpText == null ? 0 : LEVEL_LINE_H);
+                + (levelUpText == null ? 0 : LEVEL_LINE_H)
+                + (challengeLine == null ? 0 : LEVEL_LINE_H);
         this.panelY = PANEL_Y - (panelH - PANEL_H) / 2;
+    }
+
+    /**
+     * The boss row's value: "Cleared" once a world boss was survived, otherwise the furthest
+     * phase the fight reached (D11).
+     *
+     * @param stats the finished run's stats
+     * @return the translated value
+     */
+    private String bossValue(RunStats stats) {
+        return stats.bossesCleared().isEmpty()
+                ? strings.format(StringKey.STAT_BOSS_PHASE, stats.phasesReached())
+                : strings.get(StringKey.STAT_BOSS_CLEARED);
+    }
+
+    /**
+     * Whether the run's boss encounter actually began: {@code phasesReached} is set only once a
+     * fight has placed a phase column, and a clear implies it. The overlay holds no live
+     * {@code BossEncounter}, so this is the fact the stats snapshot carries.
+     *
+     * @param stats the finished run's stats
+     * @return {@code true} when the fight, at least, started
+     */
+    private static boolean bossBegan(RunStats stats) {
+        return stats.phasesReached() > 0 || !stats.bossesCleared().isEmpty();
     }
 
     /**
@@ -274,6 +318,12 @@ public final class GameOverOverlay implements Screen {
             row(g, i, rows.get(i));
         }
 
+        if (challengeLine != null) {
+            g.setFont(Fonts.bold(14));
+            g.setColor(ProceduralArt.TEXT_LIGHT);
+            TextPainter.drawCentered(g, challengeLine, Playfield.WIDTH / 2.0,
+                    panelY + panelH - (levelUpText == null ? 40.0 : 58.0));
+        }
         if (levelUpText != null) {
             g.setFont(Fonts.bold(14));
             g.setColor(ProceduralArt.TEXT_LIGHT);

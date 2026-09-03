@@ -40,10 +40,15 @@ import java.util.Random;
  * <p>{@code ALL_OBSTACLES_MOVE} is read from the tick's rules and handed to
  * {@link SpawnTable#materialize}: the decision itself never carries it (E32.d).
  *
- * <p>Hooks for later milestones: {@link #deferNextSpawn(double, double)} pushes the next spawn
- * further out (modifier breathers, M6) and {@link #setSuppressed(boolean)} stops spawning
- * altogether (boss warnings, M8). {@link #decisionHash()} folds every {@link SpawnDecision}
- * drawn so far.
+ * <p>{@link #deferNextSpawn(double, double)} pushes the next spawn further out (modifier
+ * breathers, M6; the air after a boss, M8) and {@link #setSuppressed(boolean)} stops spawning
+ * altogether (boss warnings, M8). While spawning is suppressed the last column keeps scrolling,
+ * so the cursor's natural position for the next one ({@code last.x + interval}) can end up
+ * inside the playfield — 120 warning ticks scroll 240 px — and the first spawn after a
+ * suppression is therefore floored at {@code x = 420}, the right edge, like the opening column
+ * of a run. The floor never touches an ordinary run: the cursor fires the tick the last column
+ * passes {@code x = 380}, which puts the next one at 540. {@link #decisionHash()} folds every
+ * {@link SpawnDecision} drawn so far.
  */
 public final class ObstacleSpawner {
 
@@ -56,6 +61,7 @@ public final class ObstacleSpawner {
     private final Random obstacleRng;
     private final List<Long> decisionHashes = new ArrayList<>();
     private boolean suppressed;
+    private boolean resumeFloor;
     private double deferredIntervals;
     private double deferredClearancePx;
     private long decisionHash = HASH_SEED;
@@ -144,7 +150,13 @@ public final class ObstacleSpawner {
         if (!first) {
             deferredIntervals = 0;
             deferredClearancePx = 0;
+            if (resumeFloor) {
+                // The first column after a suppression (M8): the last one scrolled on while
+                // nothing spawned, so the natural cursor position may be inside the playfield.
+                x = Math.max(x, Playfield.WIDTH);
+            }
         }
+        resumeFloor = false;
         double band = decision.referenceBandY();
         if (!Double.isNaN(band)) {
             lastBandY = band;
@@ -226,12 +238,25 @@ public final class ObstacleSpawner {
     }
 
     /**
-     * Stops or resumes spawning.
+     * Stops or resumes spawning. Resuming floors the next column at the right edge of the
+     * playfield (see the class comment).
      *
      * @param suppressed {@code true} to stop
      */
     public void setSuppressed(boolean suppressed) {
+        if (this.suppressed && !suppressed) {
+            resumeFloor = true;
+        }
         this.suppressed = suppressed;
+    }
+
+    /**
+     * Whether the next spawn is floored at the right edge because spawning was just resumed.
+     *
+     * @return {@code true} until the first spawn after a suppression
+     */
+    public boolean isResumeFloorPending() {
+        return resumeFloor;
     }
 
     /**
@@ -323,6 +348,11 @@ public final class ObstacleSpawner {
         if (deferredIntervals > 0 || deferredClearancePx > 0) {
             h = MathUtil.fold(h, Double.doubleToLongBits(deferredIntervals));
             h = MathUtil.fold(h, Double.doubleToLongBits(deferredClearancePx));
+        }
+        if (suppressed || resumeFloor) {
+            // Only while set (M8): a boss warning suppresses spawning and the resume floors the
+            // next column; a run that never meets a boss folds nothing here.
+            h = MathUtil.fold(h, (suppressed ? 1 : 0) | (resumeFloor ? 2 : 0));
         }
         return h;
     }

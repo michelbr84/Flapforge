@@ -150,6 +150,9 @@ public final class ProceduralArt {
 
     private static final Color PANEL_FILL = new Color(0x1C, 0x3A, 0x3E, 0xD2);
     private static final Color PANEL_BORDER = new Color(0xFF, 0xFF, 0xFF, 0x59);
+    /** High-contrast panel: nearly opaque fill and a near-white border (D17). */
+    private static final Color PANEL_FILL_HC = new Color(0x14, 0x24, 0x26, 0xFA);
+    private static final Color PANEL_BORDER_HC = new Color(0xFF, 0xFF, 0xFF, 0xE0);
     private static final Color SHADOW = new Color(0, 0, 0, 0x40);
     private static final Color BUTTON_NORMAL = new Color(0x2E6B72);
     private static final Color BUTTON_HOVER = new Color(0x3C8A92);
@@ -165,6 +168,8 @@ public final class ProceduralArt {
 
     private static final Stroke THIN = new BasicStroke(1f);
     private static final Stroke THICK = new BasicStroke(2f);
+    /** High-contrast bird keyline, in unit space (the bird body is 1 unit wide). */
+    private static final Stroke BIRD_OUTLINE = new BasicStroke(0.06f);
 
     /* Unit-space bird facing right; 1 unit = body width, origin at the body centre. */
     private static final Shape BIRD_BODY = new Ellipse2D.Double(-0.5, -0.38, 1.0, 0.76);
@@ -194,7 +199,11 @@ public final class ProceduralArt {
             0.62, 0.22, 0.66, 0.36, 0.84, 0.40, 0.84, 0.50, 0.16, 0.50, 0.16, 0.40, 0.34, 0.36,
             0.38, 0.22, 0.22, 0.20, 0.00, 0.12);
 
-    private static final Map<WorldPalette, Resolved> RESOLVED = new ConcurrentHashMap<>();
+    private static final Map<PaletteKey, Resolved> RESOLVED = new ConcurrentHashMap<>();
+
+    /** Cache key: the palette plus the high-contrast flag, which changes the derived colours. */
+    private record PaletteKey(WorldPalette palette, boolean highContrast) {
+    }
 
     /** Toolkit objects derived from one palette, built once. */
     private static final class Resolved {
@@ -215,7 +224,11 @@ public final class ProceduralArt {
         final Paint sky;
         final Color[] tones = new Color[Tone.values().length];
 
-        Resolved(WorldPalette p) {
+        Resolved(WorldPalette p, boolean highContrast) {
+            // High contrast stretches the obstacle tones apart (D17): a darker outline colour and
+            // a brighter highlight, so the hazard edge reads without relying on hue.
+            double edgeStretch = highContrast ? 0.58 : 0.42;
+            double lightStretch = highContrast ? 0.55 : 0.35;
             skyTop = new Color(p.skyTop());
             skyBottom = new Color(p.skyBottom());
             ground = new Color(p.ground());
@@ -223,10 +236,11 @@ public final class ProceduralArt {
             hillFar = new Color(WorldPalette.mix(p.pipe(), p.skyBottom(), 0.55));
             hillNear = new Color(WorldPalette.lighten(p.pipe(), 0.18));
             int fog = p.fog();
-            cloud = new Color((fog >> 16) & 0xFF, (fog >> 8) & 0xFF, fog & 0xFF, 0xD9);
+            cloud = new Color((fog >> 16) & 0xFF, (fog >> 8) & 0xFF, fog & 0xFF,
+                    highContrast ? 0xEE : 0xD9);
             pipe = new Color(p.pipe());
-            pipeEdge = new Color(WorldPalette.darken(p.pipe(), 0.42));
-            pipeLight = new Color(WorldPalette.lighten(p.pipe(), 0.35));
+            pipeEdge = new Color(WorldPalette.darken(p.pipe(), edgeStretch));
+            pipeLight = new Color(WorldPalette.lighten(p.pipe(), lightStretch));
             accent = new Color(p.accent());
             accentDark = new Color(WorldPalette.mix(p.accent(), 0xC0501A, 0.55));
             belly = new Color(WorldPalette.lighten(p.accent(), 0.45));
@@ -378,13 +392,14 @@ public final class ProceduralArt {
      * @param h the height
      */
     public static void panel(Graphics2D g, int x, int y, int w, int h) {
+        boolean highContrast = Accessibility.isHighContrast();
         g.setColor(SHADOW);
         g.fillRoundRect(x, y + 4, w, h, PANEL_RADIUS, PANEL_RADIUS);
-        g.setColor(PANEL_FILL);
+        g.setColor(highContrast ? PANEL_FILL_HC : PANEL_FILL);
         g.fillRoundRect(x, y, w, h, PANEL_RADIUS, PANEL_RADIUS);
         Stroke old = g.getStroke();
-        g.setStroke(THIN);
-        g.setColor(PANEL_BORDER);
+        g.setStroke(highContrast ? THICK : THIN);
+        g.setColor(highContrast ? PANEL_BORDER_HC : PANEL_BORDER);
         g.drawRoundRect(x, y, w - 1, h - 1, PANEL_RADIUS, PANEL_RADIUS);
         g.setStroke(old);
     }
@@ -498,6 +513,15 @@ public final class ProceduralArt {
         g.fill(BIRD_TAIL);
         g.setColor(r.accent);
         g.fill(BIRD_BODY);
+        if (Accessibility.isHighContrast()) {
+            // A dark keyline around the body and tail so the bird separates from any sky (D17).
+            Stroke old = g.getStroke();
+            g.setStroke(BIRD_OUTLINE);
+            g.setColor(r.letterbox);
+            g.draw(BIRD_TAIL);
+            g.draw(BIRD_BODY);
+            g.setStroke(old);
+        }
         g.setColor(r.belly);
         g.fill(BIRD_BELLY);
         double angle = wingAngle(phase);
@@ -575,11 +599,11 @@ public final class ProceduralArt {
         // whole turn instead of blinking once per revolution.
         double halfWidth = Math.max(radius * COIN_MIN_SQUASH, radius * Math.abs(spin));
         scratch.setFrame(cx - halfWidth, cy - radius, 2 * halfWidth, 2 * radius);
-        g.setColor(COIN_BODY);
+        g.setColor(Accessibility.tone(COIN_BODY, Accessibility.Role.COIN));
         g.fill(scratch);
         Stroke old = g.getStroke();
         g.setStroke(THIN);
-        g.setColor(COIN_RIM);
+        g.setColor(Accessibility.tone(COIN_RIM, Accessibility.Role.COIN));
         g.draw(scratch);
         g.setStroke(old);
         if (halfWidth < radius * COIN_SHINE_MIN_WIDTH) {
@@ -591,7 +615,7 @@ public final class ProceduralArt {
         // one disc turning rather than as two shapes swapping places.
         double shineCx = cx + halfWidth * (spin < 0 ? 0.34 : -0.34);
         scratch.setFrame(shineCx - shineW, cy - radius * 0.45 - shineH, 2 * shineW, 2 * shineH);
-        g.setColor(COIN_SHINE);
+        g.setColor(Accessibility.tone(COIN_SHINE, Accessibility.Role.COIN));
         g.fill(scratch);
     }
 
@@ -728,12 +752,22 @@ public final class ProceduralArt {
     }
 
     private static Resolved resolve(WorldPalette palette) {
-        Resolved r = RESOLVED.get(palette);
+        PaletteKey key = new PaletteKey(palette, Accessibility.isHighContrast());
+        Resolved r = RESOLVED.get(key);
         if (r == null) {
-            r = new Resolved(palette);
-            RESOLVED.put(palette, r);
+            r = new Resolved(key.palette(), key.highContrast());
+            RESOLVED.put(key, r);
         }
         return r;
+    }
+
+    /**
+     * Drops every cached palette resolution. Called when an accessibility mode changes: the cache
+     * key already carries high contrast, so this is for a wholesale reset (settings applied, a
+     * test switching modes).
+     */
+    public static void invalidatePalettes() {
+        RESOLVED.clear();
     }
 
     /**

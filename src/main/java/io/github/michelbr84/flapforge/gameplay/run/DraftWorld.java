@@ -12,13 +12,13 @@ import io.github.michelbr84.flapforge.modifier.DraftContext;
  * world what the run's rules and loadout make possible (E12), and asks it every time rather than
  * once, so a rule a taken card turned on is visible to the next draft.
  *
- * <p>{@link #bossPending()} and {@link #bossActive()} are E7's gate and are the one part of this
- * interface with no implementation behind it yet: bosses land in M8, both answer {@code false}
- * today, and the director already refuses to open a breather while either is true. When
- * {@code BossEncounter} arrives it overrides them in {@code Simulation} and the rule starts
- * biting with no change to the director — a schedule gate reached during a boss simply waits,
- * because the director compares {@code gatesPassed} against the schedule with {@code >=} and so
- * fires at the first tick after the encounter clears.
+ * <p>{@link #bossPending()} and {@link #bossActive()} are E7's gate. {@code Simulation}
+ * answers them from its {@link BossEncounter} (M8) and the director refuses to open a breather —
+ * or to freeze the run on an offer already waiting for clear air — while either is true. The
+ * schedule entry is not consumed, and because the director compares {@code gatesPassed} against
+ * the schedule with {@code >=}, a gate reached inside the warning or the fight fires on the
+ * first tick after {@code BossCleared}: the offer opens in the first spawn interval after the
+ * boss. The defaults stay {@code false} for the seams that have no boss at all.
  */
 public interface DraftWorld extends DraftContext {
 
@@ -78,18 +78,19 @@ public interface DraftWorld extends DraftContext {
     void refreshDefensiveCharges();
 
     /**
-     * E7: whether a boss encounter is about to start ({@code gatesPassed >= boss.atGate - 1}).
+     * E7: whether a boss encounter is about to start — {@code gatesPassed >= boss.atGate - 1}
+     * while the boss is still ahead; {@code false} once it has been cleared.
      *
-     * @return {@code false} until M8
+     * @return {@code true} when a boss is one gate away or closer
      */
     default boolean bossPending() {
         return false;
     }
 
     /**
-     * E7: whether a boss encounter is running.
+     * E7: whether a boss encounter is running ({@code BOSS_WARNING} or {@code BOSS}).
      *
-     * @return {@code false} until M8
+     * @return {@code true} during the warning and the fight
      */
     default boolean bossActive() {
         return false;

@@ -39,6 +39,7 @@ public final class PauseOverlay implements Screen {
 
     private final ScreenManager screens;
     private final Strings strings;
+    private final Runnable onLeave;
 
     /**
      * Creates the overlay with the active string table.
@@ -56,8 +57,31 @@ public final class PauseOverlay implements Screen {
      * @param strings the string table its three lines come from
      */
     public PauseOverlay(ScreenManager screens, Strings strings) {
+        this(screens, strings, null);
+    }
+
+    /**
+     * Creates the overlay with a leave callback.
+     *
+     * @param screens the screen stack
+     * @param strings the string table its three lines come from
+     * @param onLeave runs once when the overlay leaves the stack — resume or quit alike. The
+     *     game screen uses it to un-duck the music (M8, D19)
+     */
+    public PauseOverlay(ScreenManager screens, Strings strings, Runnable onLeave) {
         this.screens = Objects.requireNonNull(screens, "screens");
         this.strings = Objects.requireNonNull(strings, "strings");
+        this.onLeave = onLeave;
+    }
+
+    /** Pops the asked-for number of screens and runs the leave callback, if there is one. */
+    private void leave(int pops) {
+        for (int i = 0; i < pops; i++) {
+            screens.pop();
+        }
+        if (onLeave != null) {
+            onLeave.run();
+        }
     }
 
     @Override
@@ -69,15 +93,14 @@ public final class PauseOverlay implements Screen {
     public void tick(InputFrame input) {
         if (input.isJustPressed(InputAction.PAUSE) || input.isJustPressed(InputAction.BACK)) {
             UiCues.back();
-            screens.pop();
-            screens.pop();
+            leave(2);
             return;
         }
         boolean resume = input.isJustPressed(InputAction.FLAP)
                 || input.isJustPressed(InputAction.CONFIRM)
                 || input.isMouseJustPressed(Keys.BUTTON_LEFT);
         if (resume) {
-            screens.pop();
+            leave(1);
             screens.requestAccumulatorReset();
         }
     }

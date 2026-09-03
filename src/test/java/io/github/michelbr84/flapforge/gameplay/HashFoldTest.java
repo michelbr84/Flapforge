@@ -122,6 +122,46 @@ class HashFoldTest {
     }
 
     /**
+     * D12 for the M8 fields: the boss encounter's state, countdown and phase count, the
+     * streamer's boss cursor, the spawner's suppression and resume floor, and the objective's
+     * latch are all folded — and only for a run that has a boss or a challenge, so the pinned
+     * classic run still hashes what it hashed.
+     */
+    @Test
+    void theBossTheStreamerTheSuppressionAndTheObjectiveAreFolded() {
+        RunFactory factory = new RunFactory(GameContent.load());
+        Run run = factory.newRun(RunConfig.builder(7).build());
+        run.tick(RunInput.FLAP);
+        Simulation sim = run.simulation();
+        assertTrue(sim.boss().hasBoss(), "a profile-shaped Green Fields run has its boss");
+        assertFolded(run, sim.boss(), "state",
+                io.github.michelbr84.flapforge.gameplay.run.BossEncounter.State.WARNING);
+        assertFolded(run, sim.boss(), "remaining", 77);
+        assertFolded(run, sim.boss(), "phasesReached", 2);
+        Object streamer = sim.spawner().streamer();
+        assertNotNull(streamer, "a boss run streams its phases");
+        assertFolded(run, streamer, "bossActive", true);
+        assertFolded(run, streamer, "bossPhase", 1);
+        assertFolded(run, streamer, "bossStep", 2);
+        assertFolded(run, streamer, "bossPhasesStarted", 3);
+        assertFolded(run, sim.spawner(), "suppressed", true);
+        assertFolded(run, sim.spawner(), "resumeFloor", true);
+
+        Run challenge = factory.newRun(factory.challengeConfig(RunConfig.builder(7).build(),
+                "no_shield_1"));
+        challenge.tick(RunInput.FLAP);
+        assertNotNull(challenge.simulation().objective());
+        assertFolded(challenge, challenge.simulation().objective(), "met", true);
+
+        // The pinned classic run has none of it: no boss, no streamer, no objective.
+        Run classic = Run.classic(RunConfig.classic(7));
+        classic.tick(RunInput.FLAP);
+        assertTrue(!classic.simulation().boss().hasBoss());
+        assertTrue(classic.simulation().spawner().streamer() == null);
+        assertTrue(classic.simulation().objective() == null);
+    }
+
+    /**
      * The M5/M6 folds that a Void option can reach mid-run: i-frames and the ghost are folded
      * even when the run has no run system of its own, and a pending breather deferral is part
      * of the spawner's state.

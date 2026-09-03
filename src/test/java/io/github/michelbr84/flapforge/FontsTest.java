@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.render.AssetManager;
 import io.github.michelbr84.flapforge.render.Fonts;
 import java.awt.Font;
 import java.util.Map;
@@ -89,5 +90,65 @@ class FontsTest {
         assertTrue(Fonts.regular(Fonts.MAX_SIZE).getSize() <= Fonts.MAX_SIZE);
         Fonts.setTextScale(Fonts.MIN_TEXT_SCALE);
         assertTrue(Fonts.regular(1).getSize() >= Fonts.MIN_SIZE);
+    }
+
+    // ----------------------------------------------------------------------- M8: the bundled font
+
+    /**
+     * Loads the bundled OFL font the way the boot step does (D18, E10): through the manifest
+     * entry, never a static initialiser.
+     */
+    private static Font bundledFont() {
+        Font font = AssetManager.fromClasspath().font("font/ui")
+                .orElseThrow(() -> new AssertionError(
+                        "the bundled font must load: " + AssetManager.fromClasspath().errors()));
+        return font;
+    }
+
+    @Test
+    void theBundledFontDisplaysEveryCharacterOfEveryShippedString() {
+        Font base = bundledFont();
+        for (String language : new String[] {"en", "pt_BR"}) {
+            for (Map.Entry<String, String> entry : Strings.tableOf(language).entrySet()) {
+                assertEquals(-1, base.canDisplayUpTo(entry.getValue()),
+                        () -> "the bundled font cannot draw " + language + " "
+                                + entry.getKey() + " = " + entry.getValue());
+            }
+        }
+    }
+
+    @Test
+    void theBundledFontDerivesEverySizeAndStyleTheUiUses() {
+        Font base = bundledFont();
+        Font[] styles = {base.deriveFont(Font.PLAIN, 11f), base.deriveFont(Font.PLAIN, 15f),
+            base.deriveFont(Font.BOLD, 20f), base.deriveFont(Font.BOLD, 58f),
+            base.deriveFont(Font.PLAIN, 12f).deriveFont(Font.ITALIC)};
+        for (Font font : styles) {
+            for (Map.Entry<String, String> entry : Strings.tableOf("pt_BR").entrySet()) {
+                assertEquals(-1, font.canDisplayUpTo(entry.getValue()),
+                        () -> font.getFontName() + " cannot draw " + entry.getKey());
+            }
+        }
+    }
+
+    @Test
+    void theBundledFontInstallsAndSurvivesATextScaleChange() {
+        Font installed = Fonts.base();
+        Font previous = installed;
+        try {
+            Fonts.install(bundledFont());
+            assertEquals(bundledFont(), Fonts.base(), "install swaps the base family");
+            for (Map.Entry<String, String> entry : Strings.tableOf("pt_BR").entrySet()) {
+                assertEquals(-1, Fonts.base().canDisplayUpTo(entry.getValue()), entry.getKey());
+            }
+            Font bold = Fonts.bold(20);
+            assertEquals(Font.BOLD, bold.getStyle(), "bold is still derivable on one face");
+            Fonts.setTextScale(1.5);
+            assertEquals(30, Fonts.regular(20).getSize(), "derived sizes honour the scale");
+            assertEquals(-1, Fonts.regular(20).canDisplayUpTo("ção ÀÉÍ"));
+        } finally {
+            Fonts.setTextScale(1.0);
+            Fonts.install(previous);
+        }
     }
 }

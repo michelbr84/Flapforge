@@ -86,7 +86,7 @@ public final class LightningRenderer {
         if (state == LightningStrike.State.SPENT) {
             return;
         }
-        ramps(palette.accent());
+        ramps(Accessibility.tone(palette.accent(), Accessibility.Role.DANGER));
         double x = MathUtil.lerp(bolt.prevX(), bolt.x(), alpha);
         double w = LightningStrike.WIDTH;
         double top = bolt.boltTopY();

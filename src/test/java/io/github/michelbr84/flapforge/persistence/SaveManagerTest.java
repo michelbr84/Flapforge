@@ -139,6 +139,45 @@ class SaveManagerTest {
         assertEquals(4242, loaded.lastSeed);
     }
 
+    /**
+     * M8: the two record maps the progression screens read — held achievements and challenge
+     * records — reload field for field: the unlock dates the Achievements grid prints, the
+     * completion flags the Challenges screen prints, the bests and the attempt counts.
+     */
+    @Test
+    void aProfileWithAchievementsAndChallengeRecordsReloadsIdentically() {
+        manager.load();
+        PlayerProfile profile = manager.profile();
+        profile.achievements.put("first_flight", new PlayerProfile.AchievementRecord(1_000L));
+        profile.achievements.put("gates_25", new PlayerProfile.AchievementRecord(2_000L));
+        profile.achievements.put("boss_void", new PlayerProfile.AchievementRecord(3_000L));
+        PlayerProfile.ChallengeRecord noShield = profile.challenge("no_shield_1");
+        noShield.attempts = 4;
+        noShield.bestGates = 31;
+        noShield.completed = true;
+        PlayerProfile.ChallengeRecord coinRush = profile.challenge("coin_rush_1");
+        coinRush.attempts = 1;
+        coinRush.bestGates = 9;
+        assertTrue(manager.save());
+
+        SaveManager reader = new SaveManager(new DirectExecutor(), new FixedTimeSource(NOW + 1));
+        PlayerProfile loaded = reader.load().profile();
+        assertEquals(profile.achievements.keySet(), loaded.achievements.keySet(),
+                "the same three achievements");
+        assertEquals(1_000L, loaded.achievements.get("first_flight").unlockedAtEpochMs);
+        assertEquals(2_000L, loaded.achievements.get("gates_25").unlockedAtEpochMs);
+        assertEquals(3_000L, loaded.achievements.get("boss_void").unlockedAtEpochMs);
+
+        assertEquals(4, loaded.challenges.get("no_shield_1").attempts);
+        assertEquals(31, loaded.challenges.get("no_shield_1").bestGates);
+        assertTrue(loaded.challenges.get("no_shield_1").completed);
+        assertEquals(1, loaded.challenges.get("coin_rush_1").attempts);
+        assertEquals(9, loaded.challenges.get("coin_rush_1").bestGates);
+        assertFalse(loaded.challenges.get("coin_rush_1").completed);
+        assertTrue(loaded.isUnlocked("challenge:no_shield_1"),
+                "E15: a challenge the profile has played is an unlock it owns");
+    }
+
     @Test
     void theEnvelopeCarriesTheSchemaVersionAndTheInjectedTimestamp() throws IOException {
         manager.stamp("0.1.0-SNAPSHOT", 1);

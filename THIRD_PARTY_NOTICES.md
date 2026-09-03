@@ -102,19 +102,27 @@ distributed game.
 
 ## 4. Fonts
 
-Flapforge currently renders text with the JDK's logical `SansSerif` font, which
-is resolved to a system font at runtime and is not redistributed.
+### Nunito (variable) — SIL Open Font License 1.1
 
-_Placeholder — a bundled font is planned for a later milestone._ When an open
-font is added under `src/main/resources/assets/fonts/`, it must be licensed
-under the SIL Open Font License 1.1 (or a similarly permissive font licence),
-its licence file must be placed next to the font file, and this section must
-record:
+Since M8 the UI text is drawn with the bundled Nunito variable font instead of
+the JDK's logical `SansSerif` (which is resolved to a system font at runtime
+and is not redistributed):
 
-- Font name and version
-- Author / copyright holder
-- Licence (OFL 1.1) and a link to the licence text
-- Reserved Font Name, if any, and whether the font was modified
+- Font name and version: **Nunito**, variable font (`Nunito-VariableFont_wght.ttf`),
+  as published in the `google/fonts` repository (copyright 2014)
+- Author / copyright holder: The Nunito Project Authors
+  (https://github.com/googlefonts/nunito)
+- Licence: SIL Open Font License 1.1
+  (https://openfontlicense.org), shipped next to the font as
+  `src/main/resources/assets/fonts/OFL.txt`
+- Reserved Font Name: **Nunito** (per the licence above)
+- Modified: no — the file is redistributed unmodified; the game only derives
+  point sizes and styles from it at runtime
+
+The file is declared in `src/main/resources/assets/manifest.json` under the id
+`font/ui` and loaded lazily during the boot sequence. When the entry or the
+file is missing, the game falls back to the logical `SansSerif`, which is not
+redistributed.
 
 ## 5. Trademarks
 

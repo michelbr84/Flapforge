@@ -31,6 +31,11 @@ import java.util.Objects;
  *       still happens — it carries the player's answer to the draft and counts the 3-2-1 down —
  *       but nothing moves, nothing spawns and nothing can kill the bird, so these ticks are not
  *       counted in {@code ticksAlive}.</li>
+ *   <li>{@code BOSS_WARNING} and {@code BOSS}: the simulation runs exactly as in {@code FLYING}
+ *       (D11, M8) — the {@link BossEncounter} suppresses spawning during the warning and streams
+ *       the phases during the fight. A {@code BossCleared} fact with a world id records the
+ *       world in {@code RunStats.bossesCleared} (E26); an {@code ObjectiveMet} fact sets
+ *       {@code objectiveMet}. Both are kept whatever happens afterwards.</li>
  *   <li>{@code DYING}: on a lethal hit the world freezes and the bird falls from +15 px/s (E28)
  *       to the ground line; ground contact while flying finishes the run on the same tick.</li>
  *   <li>{@code FINISHED}: further ticks do nothing; {@link #result()} is final.</li>
@@ -114,6 +119,8 @@ public final class Run {
                 return tickFlying(input, facts);
             case FLYING:
             case BREATHER:
+            case BOSS_WARNING:
+            case BOSS:
                 return tickFlying(input, new ArrayList<>());
             case CHOOSING_MODIFIER:
             case RESUME_HOLD:
@@ -130,6 +137,9 @@ public final class Run {
         TickReport report = sim.tick(
                 new SimInput(input.flap(), input.ability(), input.autoFlapHeld()));
         stats.tickAlive();
+        if (sim.boss().hasBoss()) {
+            stats.setPhasesReached(Math.max(stats.phasesReached(), sim.boss().phasesReached()));
+        }
         facts.addAll(report.facts());
         CollisionCause cause = absorbFacts(report.facts());
         if (cause != null) {
@@ -193,6 +203,14 @@ public final class Run {
                 stats.setModifierStreakCoins(sim.modifiers().streakBonusCoins());
             } else if (f instanceof TickFact.SynergyActivated synergy) {
                 stats.addSynergyActivated(synergy.id());
+            } else if (f instanceof TickFact.BossCleared cleared) {
+                // E26: only a world boss clears a world; a challenge boss carries no world and
+                // only the objective reads it.
+                if (cleared.worldId() != null) {
+                    stats.addBossCleared(cleared.worldId());
+                }
+            } else if (f instanceof TickFact.ObjectiveMet) {
+                stats.setObjectiveMet(true);
             } else if (f instanceof TickFact.Crashed crashed) {
                 cause = crashed.cause();
                 stats.setDeathKind(crashed.kind());
@@ -202,29 +220,37 @@ public final class Run {
     }
 
     /**
-     * Brings the run phase in line with the draft the director is running (D11).
+     * Brings the run phase in line with the draft the director is running and the boss the
+     * encounter is running (D11). The two never overlap in their frozen half — the director
+     * refuses to freeze the run while a boss is pending or active (E7) — and where they do
+     * overlap in flight (a breather waiting for clear air while the warning starts) the boss
+     * phase wins, because that is what the HUD timer and the banner are about.
      *
      * @param facts where the {@code PhaseChanged} goes
      */
     private void syncDraftPhase(List<TickFact> facts) {
-        RunPhase target = phaseOf(sim.modifiers().state());
+        RunPhase target = phaseOf(sim.modifiers().state(), sim.boss());
         if (target != phase) {
             changePhase(target, facts);
         }
     }
 
-    private static RunPhase phaseOf(ModifierDirector.State state) {
+    private static RunPhase phaseOf(ModifierDirector.State state, BossEncounter boss) {
         switch (state) {
-            case BREATHER:
-                return RunPhase.BREATHER;
             case CHOOSING:
                 return RunPhase.CHOOSING_MODIFIER;
             case HOLD:
                 return RunPhase.RESUME_HOLD;
-            case IDLE:
             default:
-                return RunPhase.FLYING;
+                break;
         }
+        if (boss.isWarning()) {
+            return RunPhase.BOSS_WARNING;
+        }
+        if (boss.isFighting()) {
+            return RunPhase.BOSS;
+        }
+        return state == ModifierDirector.State.BREATHER ? RunPhase.BREATHER : RunPhase.FLYING;
     }
 
     private TickReport tickDying() {

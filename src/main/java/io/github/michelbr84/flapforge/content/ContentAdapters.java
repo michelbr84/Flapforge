@@ -2,6 +2,8 @@ package io.github.michelbr84.flapforge.content;
 
 import io.github.michelbr84.flapforge.content.defs.AmbientDef;
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
+import io.github.michelbr84.flapforge.content.defs.BossDef;
+import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
 import io.github.michelbr84.flapforge.content.defs.CurveDef;
 import io.github.michelbr84.flapforge.content.defs.PatternDef;
 import io.github.michelbr84.flapforge.content.defs.PatternStepDef;
@@ -17,6 +19,8 @@ import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleParams;
 import io.github.michelbr84.flapforge.gameplay.spec.AmbientSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.BirdProfile;
+import io.github.michelbr84.flapforge.gameplay.spec.BossSpec;
+import io.github.michelbr84.flapforge.gameplay.spec.ChallengeSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.CurveSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.PatternSpec;
 import io.github.michelbr84.flapforge.gameplay.spec.RampEffect;
@@ -114,6 +118,45 @@ public final class ContentAdapters {
                 new AmbientSpec(ambient.darkness(), ambient.windX(), ambient.windY(),
                         ambient.lightningEveryGates()),
                 toSpec(def.ruleCycles()));
+    }
+
+    /**
+     * Converts a boss block (M8) with its phases resolved.
+     *
+     * @param def the definition
+     * @param ownerId the id the encounter belongs to: the world of a world boss, the challenge of
+     *     a challenge boss
+     * @param worldId the world the encounter clears, or {@code null} for a challenge boss (E26)
+     * @param content the content the phase ids are resolved against
+     * @return the spec
+     * @throws UnknownIdException when a phase id is not in the pattern registry
+     */
+    public static BossSpec toSpec(BossDef def, String ownerId, String worldId,
+            GameContent content) {
+        List<PatternSpec> phases = new ArrayList<>(def.patterns().size());
+        for (String id : def.patterns()) {
+            phases.add(content.patternSpec(id));
+        }
+        return new BossSpec(ownerId, worldId, def.atGate(), def.warningTicks(), phases,
+                def.surviveTicks());
+    }
+
+    /**
+     * Converts the simulation half of a challenge (M8): the {@code CHALLENGE} layer effects and
+     * the objective. The world, tier, flags, forced modifiers and offer switch travel in the
+     * {@code RunConfig} ({@link RunFactory#challengeConfig}); the curve override, the forced
+     * pattern and the boss are resolved into the {@code RunSetup} by {@link RunFactory#setup}.
+     *
+     * @param def the definition
+     * @return the spec
+     */
+    public static ChallengeSpec toSpec(ChallengeDef def) {
+        String source = "challenge:" + def.id();
+        List<StatModifier> effects = new ArrayList<>(def.effects().size());
+        for (StatModifierDef e : def.effects()) {
+            effects.add(e.toModifier(source));
+        }
+        return new ChallengeSpec(def.id(), effects, def.objective());
     }
 
     /**

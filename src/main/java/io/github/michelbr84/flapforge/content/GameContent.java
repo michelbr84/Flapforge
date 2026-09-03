@@ -101,11 +101,17 @@ public final class GameContent {
         FEATURE_MILESTONES = Collections.unmodifiableMap(milestones);
     }
 
-    /** The kinds whose systems already exist; every other kind is authored but not yet playable. */
+    /**
+     * The kinds whose systems already exist; every other kind is authored but not yet playable.
+     * Challenges joined in M8 with {@code ObjectiveEvaluator} and {@code BossEncounter}, and
+     * achievements with {@code AchievementEvaluator} in the same milestone (E19): from M8 every
+     * kind plays, and only {@link #featureMilestone} still stages anything.
+     */
     private static final Set<ContentKind> PLAYABLE_KINDS = Collections.unmodifiableSet(EnumSet.of(
             ContentKind.BIRD, ContentKind.COSMETIC, ContentKind.UPGRADE, ContentKind.TREE,
             ContentKind.TIER, ContentKind.FEATURE, ContentKind.WORLD, ContentKind.ABILITY,
-            ContentKind.MODIFIER, ContentKind.SYNERGY));
+            ContentKind.MODIFIER, ContentKind.SYNERGY, ContentKind.CHALLENGE,
+            ContentKind.ACHIEVEMENT));
 
     private final Set<String> files;
     private final Registry<BirdDef> birds;

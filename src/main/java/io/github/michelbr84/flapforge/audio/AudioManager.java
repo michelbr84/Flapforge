@@ -5,7 +5,9 @@ import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.event.GameEvent;
 import io.github.michelbr84.flapforge.persistence.Settings;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -62,6 +64,9 @@ public final class AudioManager {
     private long suppressed;
     private SfxSet sfxSet = SfxSet.FIELDS;
     private Function<String, SfxSet> sfxSetResolver;
+    private volatile String musicId;
+    private volatile float musicBaseGain;
+    private final Map<String, float[]> preparedMusic = new ConcurrentHashMap<>();
 
     /**
      * Creates a manager over a backend. Volumes start at the {@link Settings} defaults; call
@@ -145,21 +150,39 @@ public final class AudioManager {
     }
 
     /**
-     * Sets all three volumes at once. Values outside {@code [0, 1]} are clamped.
+     * Sets all three volumes at once. Values outside {@code [0, 1]} are clamped. A changed music
+     * volume retargets the current loop immediately, so the slider is audible without waiting for
+     * the next screen change — and a slide to zero stops the loop, the same silence
+     * {@link #startMusic} and {@link #duckMusic} treat volume zero as; raising the volume again
+     * re-issues the loop, the way unmuting does.
      *
      * @param master the global fader
      * @param sfx the sound-effect volume
-     * @param music the music volume, stored for the M8 sequencer
+     * @param music the music volume
      */
     public void setVolumes(double master, double sfx, double music) {
         masterVolume = clampVolume(master);
         sfxVolume = clampVolume(sfx);
+        double previousMusic = musicVolume;
         musicVolume = clampVolume(music);
         pushMasterGain();
+        String id = musicId;
+        if (muted || id == null || musicVolume == previousMusic) {
+            return;
+        }
+        if (musicVolume <= 0.0) {
+            // Zero is not a retarget: a loop has nowhere to fade to, so it is stopped instead of
+            // left sounding at the old gain until the next screen change.
+            backend.stopLooping(id);
+        } else {
+            backend.playLooping(id, (float) (musicBaseGain * musicVolume), 0.0f);
+        }
     }
 
     /**
-     * Mutes or unmutes every output.
+     * Mutes or unmutes every output. Muting stops every voice, the music included; unmuting
+     * re-issues the loop the screens last asked for, so the music resumes where the mix expects
+     * it instead of staying silent until the next screen change.
      *
      * @param muted {@code true} to silence the game
      */
@@ -168,6 +191,11 @@ public final class AudioManager {
         pushMasterGain();
         if (muted) {
             backend.stopAll();
+        } else {
+            String id = musicId;
+            if (id != null && musicVolume > 0.0) {
+                backend.playLooping(id, (float) (musicBaseGain * musicVolume), 0.0f);
+            }
         }
     }
 
@@ -199,7 +227,8 @@ public final class AudioManager {
     }
 
     /**
-     * The music volume, in {@code [0, 1]}. Stored now, consumed by {@code MusicSequencer} in M8.
+     * The music volume, in {@code [0, 1]}. Every music loop plays at its asked-for base gain
+     * times this (M8, D19).
      *
      * @return the music volume
      */
@@ -333,6 +362,102 @@ public final class AudioManager {
         backend.stopAll();
     }
 
+    // ------------------------------------------------------------------ music (M8, D19)
+
+    /**
+     * Hands a rendered loop over to the backend and remembers it, so the screens can ask
+     * {@link #hasMusic(String)} before paying for a render. Rendering itself happens in
+     * {@code MusicSequencer}, on the calling thread — at boot for the menu loop, at run start for
+     * the world loop — never here.
+     *
+     * @param id the loop id, e.g. {@code music/green_fields}
+     * @param samples interleaved stereo samples from {@code MusicSequencer.render}
+     */
+    public void prepareMusic(String id, float[] samples) {
+        if (id == null || samples == null) {
+            return;
+        }
+        preparedMusic.put(id, samples);
+        backend.registerLoop(id, samples);
+    }
+
+    /**
+     * Whether a loop is already prepared.
+     *
+     * @param id the loop id
+     * @return {@code true} when it need not be rendered again
+     */
+    public boolean hasMusic(String id) {
+        return id != null && preparedMusic.containsKey(id);
+    }
+
+    /**
+     * Starts — or moves to — the looping music under an id. A first call fades the loop in; a
+     * call for a <em>different</em> id fades the previous loop out at the same time, which is the
+     * whole crossfade (the mixer owns the ramps, the manager only records which loop is wanted).
+     * Calling it again for the id already playing just retargets its gain, so a volume change or
+     * a re-entered screen never restarts or stutters the music.
+     *
+     * <p>The loop's gain is the asked-for base gain times {@link #musicVolume()}; the backend's
+     * master fader (master volume, mute) applies after that. A muted manager records the request
+     * and stays silent; unmuting re-issues the current loop.
+     *
+     * @param id the loop id, a {@code MusicSequencer} id registered in the bank
+     * @param baseGain the requested gain before the music volume
+     */
+    public void startMusic(String id, float baseGain) {
+        if (id == null) {
+            return;
+        }
+        String previous = musicId;
+        musicId = id;
+        musicBaseGain = Math.max(0.0f, baseGain);
+        if (muted || musicVolume <= 0.0) {
+            suppressed++;
+            return;
+        }
+        if (previous != null && !previous.equals(id)) {
+            backend.stopLooping(previous);
+        }
+        backend.playLooping(id, (float) (musicBaseGain * musicVolume), 0.0f);
+    }
+
+    /**
+     * Retargets the current loop's gain — the pause duck and its undo. A no-op when nothing is
+     * playing.
+     *
+     * @param factor the factor on the loop's usual gain, in {@code [0, 1]}
+     */
+    public void duckMusic(float factor) {
+        String id = musicId;
+        if (id == null || muted || musicVolume <= 0.0) {
+            return;
+        }
+        float clamped = Math.max(0.0f, Math.min(1.0f, factor));
+        backend.playLooping(id, (float) (musicBaseGain * musicVolume * clamped), 0.0f);
+    }
+
+    /**
+     * Fades the current loop out and forgets it. A no-op when nothing is playing.
+     */
+    public void stopMusic() {
+        String id = musicId;
+        musicId = null;
+        musicBaseGain = 0.0f;
+        if (id != null) {
+            backend.stopLooping(id);
+        }
+    }
+
+    /**
+     * The id of the loop the manager has been asked for.
+     *
+     * @return the id, or {@code null} when no music is wanted
+     */
+    public String currentMusicId() {
+        return musicId;
+    }
+
     /** Detaches from the bus and closes the backend. */
     public void close() {
         detach();
@@ -419,10 +544,14 @@ public final class AudioManager {
         if (event instanceof GameEvent.BossWarning || event instanceof GameEvent.BossStarted) {
             return ToneSynth.BOSS_WARNING;
         }
-        if (event instanceof GameEvent.BossCleared
-                || event instanceof GameEvent.UnlockGranted
-                || event instanceof GameEvent.AchievementUnlocked
-                || event instanceof GameEvent.ObjectiveMet) {
+        if (event instanceof GameEvent.BossCleared) {
+            return ToneSynth.BOSS_CLEARED;
+        }
+        if (event instanceof GameEvent.ObjectiveMet) {
+            return ToneSynth.OBJECTIVE_MET;
+        }
+        if (event instanceof GameEvent.UnlockGranted
+                || event instanceof GameEvent.AchievementUnlocked) {
             return ToneSynth.UNLOCK;
         }
         if (event instanceof GameEvent.LevelUp

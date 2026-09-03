@@ -1,4 +1,4 @@
-# Balancing — the conversion table (M1), the run economy (M3), the meta-progression (M4), the abilities (M5), the modifiers (M6) and the worlds (M7)
+# Balancing — the conversion table (M1), the run economy (M3), the meta-progression (M4), the abilities (M5), the modifiers (M6), the worlds (M7) and the bosses and challenges (M8)
 
 Flapforge is a rewrite of a 30 Hz Flappy Bird clone
 ([kingyuluk/FlappyBird](https://github.com/kingyuluk/FlappyBird), the tree at commit `b811782` of
@@ -899,3 +899,113 @@ consequence of the physics, so the numbers are worth writing down.
   the 6.25 px/tick climb at the 6 px/tick cap with the bird free to start moving inside the
   previous gap. The shipped file passes both; `content_bad/bolt_then_gate.json` pins three
   pointers.
+
+---
+
+## 11. Bosses and challenges (M8)
+
+Every number here comes from `./gradlew balancing -PtoolArgs="--seeds 50 --challenge all --skill
+all"` and `--seeds 50 --boss all --skill all` (seeds 1–50, 20 000-tick budget, classic bird,
+no ability, no drafts), and the two `≥ 30 %` rows are asserted by `ContentFeasibilityTest`
+(`@Tag("sim")`) on the same seeds. A challenge is played as the player would
+(`RunFactory.challengeConfig`: its world, tier, curve, flags, effects, forced cards, forced
+pattern and boss); a boss cell starts the run *at* the boss (`RunSetup.startingAtBoss`: the
+warning fires at the first gate and the curve is shifted so that gate plays under the
+difficulty of the authored `atGate`), so the table measures the fight and not the road to it —
+§10.1 already measures the road.
+
+### 11.1 Challenge objectives, by skill
+
+Objective completion rate over 50 seeds; the expert column is the bar (≥ 30 %).
+
+| challenge | world / objective | novice | average | expert | perfect | expert gates p50 | deaths (expert) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `no_shield_1` | green_fields / SURVIVE_GATES 30 | 0 % | 74 % | **92 %** | 98 % | 69 | gate 50 |
+| `speed_run_1` | wind_valley / SURVIVE_GATES 30 (SPEED_RAMP) | 0 % | 34 % | **62 %** | 68 % | 33 | gate 50 |
+| `tiny_wings_1` | green_fields / SURVIVE_GATES 20 (FLAP_VELOCITY ×0.7, classic curve) | 0 % | 50 % | **80 %** | 82 % | 33 | gate 49, alive 1 |
+| `moving_world_1` | green_fields / SURVIVE_GATES 25 (ALL_OBSTACLES_MOVE) | 6 % | 88 % | **96 %** | 98 % | 66 | gate 50 |
+| `one_life_1` | iron_forge / SURVIVE_GATES 30 (NO_DEFENSIVE_ABILITIES, NO_REVIVE) | 0 % | 66 % | **98 %** | 98 % | 89 | gate 37, piston 12, alive 1 |
+| `coin_rush_1` | wind_valley / COLLECT_COINS 60 (COIN_SPAWN_RATE ×3, `coin_drops`) | 0 % | 56 % | **98 %** | 100 % | 137 | alive 29, gate 21 |
+| `boss_corridor_1` | green_fields / BOSS_CLEARED (corridor_1 looped, own boss at gate 20) | 0 % | 58 % | **100 %** | 100 % | 343 | alive 50 |
+
+Two things the table says:
+
+- **`speed_run_1` was retuned from 40 to 30 gates.** The plan's table (§4) ships it at
+  `SURVIVE_GATES 40`; shipped is `30`, a plan deviation recorded here pending sign-off as a new
+  errata item against §4 (the plan file itself is not edited). The expert met 40 gates in
+  14/50 seeds (28 %) and in 49/200 (24.5 %) — the
+  ramp is `SCROLL_SPEED × (1 + 0.0005 × ticksAlive)`, ×2.5 by gate 30, on top of Wind Valley's
+  wind zones, and the expert's gate count is p50 29–33 (200-seed CDF: ≥ 30 in 49.5 %, ≥ 32 in
+  43.5 %, ≥ 35 in 33 %, ≥ 40 in 24.5 %). The bot is not tuned (§10.4); the objective is. Thirty
+  gates puts the expert at 62 % (31/50) and the average bot at 34 %, which is the shape of every
+  other challenge; the strings say "thirty" in both languages. The alternative — a compensating
+  `GAP_SIZE` effect — would have changed the challenge's feel rather than its length.
+- **`boss_corridor_1` is a survival cap, not a fight.** The looped `corridor_1` never opens a gap
+  the expert cannot hold, so every expert seed reaches the budget at 343 gates and clears the
+  corridor boss (`corridor_boss_p1`, 900 ticks) on the way; the average bot clears it in 58 %
+  of seeds. Its reward is `tier:nightmare`, which is what makes that reasonable: the fight is
+  the entry ticket, the tier is the challenge.
+
+### 11.2 Boss encounters, by skill
+
+Clear rate over 50 seeds, started at the boss; "phases" is the mean of the furthest phase
+reached (2 phases everywhere, 3 in the Void).
+
+| world | fight | novice | average | expert | perfect | phases (expert) | deaths (expert) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| green_fields | 1 200 ticks at gate 30 | 4 % | 72 % | **100 %** | 100 % | 2.00 | alive 47, gate 3 |
+| wind_valley | 1 500 ticks at gate 30 | 8 % | 66 % | **96 %** | 100 % | 2.00 | gate 30, alive 20 |
+| iron_forge | 1 800 ticks at gate 30 | 0 % | 46 % | **100 %** | 100 % | 2.00 | gate 31, piston 19 |
+| storm_sky | 1 800 ticks at gate 35 | 4 % | 70 % | **100 %** | 100 % | 2.00 | gate 50 |
+| void | 2 100 ticks at gate 40 | 0 % | 66 % | **100 %** | 98 % | 3.00 | gate 50 |
+
+The bosses are, for the expert, easier than the road to them (§10.1: 32 % on Green Fields
+nightmare, 38 % on Storm Sky hard) — the phases are authored patterns the bot's per-kind
+oracles read exactly, and §10.3 already showed every phase survivable in isolation. The novice
+column is the honest one: a boss is a wall for a beginner and a coin flip for the average bot,
+which is the difficulty the world unlock chain (`world_cleared` or a purchase, E18) is designed
+around. No boss block was changed.
+
+### 11.3 What the encounter does to a run, in numbers
+
+- **Warning.** 120 ticks (150 in the Void) with spawning suppressed: 240 px of scroll at the
+  classic speed, so the last table column is gone from the screen before the first phase
+  column appears; that first column is floored at the right edge (`ObstacleSpawner` resume
+  floor) because the cursor's `last.x + 160` would otherwise land inside the playfield.
+- **Fight.** The phases loop by ticks, not by columns: 1 200 ticks of Green Fields at
+  2 px/tick is 2 400 px, five loops of the two 640/600 px phases, and a scroll card makes it
+  more columns in the same time. The spawn decisions are therefore seed-only *up to the
+  warning* (`DeterminismTest`), and the number of phase steps — and where the streams resume
+  after the clear — depends on the build; E32.d's invariance is asserted on the prefix.
+- **Clear.** The next ordinary column is 1.5 intervals further out (400 px behind the last
+  phase column instead of 160), and an offer whose schedule gate fell inside the encounter opens
+  in that air, after the last phase column passes the bird (`BossOfferInterplayTest`).
+- **Pay.** A first Green Fields clear is `bossBonus 150 + boss.reward.coins 200` on the boss
+  line plus `world:wind_valley`; a repeat is 150. `boss_corridor_1` pays on the challenge
+  line only (`challengeBonus 100 + 500` once, then 100): a challenge boss is not a world boss
+  (E26) and enters neither the boss coin term nor `xp.bossBonus`.
+- **The pinned run.** `RunConfig.classic` keeps `bossEnabled` off, so `--headless-run 3000
+  --seed 42` still prints `hash=eaaa01685261a433 ticks=3000 gates=36 points=36` — that run
+  passes gate 30, where Green Fields' boss would have started, and the golden fixture is
+  untouched. Every profile run, challenge, balancing cell and feasibility row has the boss on.
+
+### 11.4 The music renders
+
+Every world's loop is rendered synchronously — at boot for the menu, at run start for the world —
+so the render cost is a startup/budget number, not a frame number. `MusicSequencerTest` times one
+render per shipped world and prints it; the run of 2026-09-03 on the development machine
+(JDK 17) measured:
+
+| world | base loop | boss variant (×1.15 tempo) | loop length |
+| --- | --- | --- | --- |
+| green_fields | 17 ms | 13 ms | 756 032 frames |
+| wind_valley | 27 ms | 23 ms | 881 984 frames |
+| iron_forge | 12 ms | 10 ms | 672 000 frames |
+| storm_sky | 14 ms | 13 ms | 631 872 frames |
+| void | 21 ms | 19 ms | 814 144 frames |
+
+The cost scales with tempo (a faster 8-bar loop is shorter in frames but draws more notes) and
+with the layer count; the range across the shipped content is 10–27 ms against the 150 ms budget
+the test asserts (`RENDER_BUDGET_MS`), so a new world has room to be denser than any shipped
+one. The numbers move a few ms between runs and machines — the assertion is the budget, not
+these cells; re-run `./gradlew test --tests '*MusicSequencerTest*'` after retuning a block.

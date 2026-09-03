@@ -1234,6 +1234,197 @@ is fixed here, with a test that fails without the fix.
   `ContentFeasibilityTest` floor is gone; the oracle is re-measured when the
   baseline is re-recorded on purpose (M9 tier balance).
 
+### Added — M8 bosses: boss encounters, challenge runs, objectives and their rewards
+
+- `gameplay/run/BossEncounter` (D11, E7, E26): at `boss.atGate` the run enters
+  `BOSS_WARNING` for `warningTicks` with spawning suppressed and a `BossWarning`
+  fact carrying the boss id and the world id; then `BOSS`, where the boss phases
+  stream through the spawner's `PatternStreamer` in order and looped until
+  `surviveTicks` of flying time (scoring steps keep scoring, coins, streaks and
+  the difficulty curve keep going; `phasesReached` is the furthest phase reached);
+  then `BossCleared`: the remaining boss columns scroll out and ordinary spawning
+  resumes 1.5 gate intervals out. Dying during the encounter clears nothing; a
+  clear is kept at run end even if the bird crashes later. Only a world boss
+  writes `RunStats.bossesCleared`; a challenge boss (`worldId == null`) only sets
+  the flag a `BOSS_CLEARED` objective reads.
+- `gameplay/run/ObjectiveEvaluator`: `SURVIVE_GATES`, `SURVIVE_TICKS`,
+  `COLLECT_COINS`, `REACH_POINTS` and `BOSS_CLEARED` (D11's full five-type set)
+  judged every tick from the run's tallies, latched once with one
+  `ObjectiveMet` fact; the run continues.
+- `gameplay/spec/{BossSpec, ChallengeSpec}`, `RunSetup.boss` / `.challenge` /
+  `startingAtBoss()`, `CurveSpec.shiftedBy`, `PatternStreamer` boss mode
+  (`startBoss` / `endBoss`, phases over forced and world patterns, fold into the
+  hash), `ObstacleSpawner` resume floor (the first column after a suppression is
+  placed at the right edge, never inside the playfield).
+- `RunConfig.bossEnabled`: on by default, pinned off by `RunConfig.classic` so
+  the published `--headless-run` hash (`eaaa01685261a433` for 3000 ticks, seed
+  42) and the golden fixture stay where M1 recorded them; a profile-less
+  `ContentRunFactory` plays the same pinned configuration.
+- Challenge runs end to end: `RunFactory.challengeConfig` stamps the mode, world,
+  tier, flags, forced modifiers and offer switch on a base configuration and
+  `RunFactory.setup` resolves the curve override, the `CHALLENGE` layer effects,
+  the objective, the forced pattern and the challenge's own boss (a challenge
+  without a `boss` block has no boss, whatever its world says);
+  `RunLoadout.challengeConfigFor` and `ui/screens/ChallengeRunSource`
+  (`ContentRunFactory.forChallenge`) keep the profile's bird, palette and
+  loadout. Nothing checks that the challenge's world is unlocked (E6).
+  `GameContent.playable(CHALLENGE)` is true; the shop no longer labels
+  challenges "Arrives in M8".
+- Rewards (E11, E32.a): `RewardContext.firstBossClearCoins` /
+  `firstChallengeCoins`, resolved by `ProgressionManager.rewardContext` from
+  `ProgressionRules.FirstClearRewards` (`ProgressionRules.fromContent`), feed the
+  boss and challenge terms of `RunRewardCalculator`; the unlock step grants
+  `boss.reward.unlocks` and `challenge.rewards.unlocks` once, before the
+  evaluator's pass. A repeat clear pays `bossBonus` / `challengeBonus` alone.
+- `ContentValidator`: a `BOSS_CLEARED` objective needs a boss block; a boss past
+  a `SURVIVE_GATES` objective is rejected (E14); `warningTicks ≥ 60` and
+  `surviveTicks ≥ 300` on every boss block.
+- `speed_run_1` ships `SURVIVE_GATES 30`, one step below the plan table's 40: at
+  40 the expert bot met the objective in 14/50 seeds (28 %; 24.5 % over 200),
+  under the milestone's ≥ 30 % bar, because `SPEED_RAMP` roughly doubles the
+  scroll by gate 30 on top of Wind Valley's wind zones. A deliberate plan
+  deviation, measured and recorded in `docs/BALANCING.md` §11.1, pending sign-off
+  as an errata item against §4 (the plan file itself is not edited).
+- `BalancingSim --challenge <id|all>` (objective and boss clear rates, phases,
+  deaths by kind) and `--boss <worldId|all>` (the encounter on its own, started at
+  the boss under the difficulty of `atGate`).
+- `GameScreen` maps `BossWarning` / `BossStarted` / `BossCleared` /
+  `ObjectiveMet` to their events and treats the two boss phases as live;
+  `BotPilot` flies through them.
+- Tests: `BossEncounterTest`, `ObjectiveEvaluatorTest`, `BossOfferInterplayTest`
+  (E7 against the real encounter), `UnlockChainTest` (Green Fields boss →
+  `world:wind_valley`; `no_shield_1` → `cosmetic:classic:ember`), M8 rows of
+  `HashFoldTest`, `RunLifecycleTest`, `DeterminismTest`, `PatternStreamerTest`,
+  `ObstacleSpawnerTest`, `RunRewardCalculatorTest`, `ProgressionManagerTest`,
+  `ContentValidatorTest`; `ContentFeasibilityTest` (@sim) covers every challenge
+  objective and every world boss at ≥ 30 % expert success.
+
+### Added — M8 music, font and accessibility: world loops, the bundled OFL font, live accessibility modes
+
+- `audio/MusicSequencer` (D19): each world's `worlds.json` music block
+  (`tempo`, `scale` from `major_pent`/`minor_pent`/`dorian`/`phrygian`/
+  `whole_tone`, a per-world `seed`, `layers` among `bass`/`lead`/`arp`/`pad`/
+  `drums`, all validated by `ContentValidator.checkMusic`) renders a
+  deterministic 8-bar chiptune loop — square/triangle/noise voices, linear
+  envelopes, note tails wrapped across the loop point, peak normalised. Two
+  renders of one block are byte-identical; each layer draws from its own seeded
+  stream. The boss variant is the same block at ×1.15 tempo (capped at 170 BPM)
+  — the switch happens on `BossStarted`/`BossCleared` through the existing music
+  ramp. Renders measured at 11–29 ms per loop on the development machine
+  (budget 150 ms), synchronously at boot for the menu loop and at run start for
+  the world loop, never on a new thread.
+- `Voice` gains looping (the cursor wraps, so a rendered loop plays seamlessly)
+  and a linear gain ramp with a target (fade-ins, fade-outs, the crossfade, the
+  pause duck); `SoftwareMixer` exposes `playLooping`/`stopLooping`/
+  `registerLoop` over the same command queue and `MAX_VOICES`; one looping voice
+  per id, retargeted rather than stacked. `AudioBackend` carries the loop
+  methods as defaults, so `NullAudio` stays silent for free.
+- `AudioManager` consumes `settings.musicVolume` at last: every loop plays at
+  its base gain × the music volume × the master fader; mute stops the loop and
+  unmuting re-issues it; the menu plays the Green Fields loop at −6 dB
+  (`MusicSequencer.MENU_GAIN`), a run its world's loop at the run gain, the
+  pause overlay ducks it to 35 %.
+- Bundled OFL font (D18, D25): Nunito (variable, 277 KB) ships under
+  `assets/fonts/` with its `OFL.txt`, declared in `assets/manifest.json` as the
+  `font/ui` FONT entry; `AssetManager.font` decodes it with
+  `Font.createFont(TRUETYPE_FONT, …)` and `BootSequence`'s first step installs
+  it through `Fonts.install` — lazily, never a static initialiser (E10); a
+  missing entry or a bad file leaves the logical `SansSerif` in place. Bold is
+  a derived style on the single face. `THIRD_PARTY_NOTICES.md` records the
+  licence; the jar grows by the font's 277 KB.
+- Accessibility settings, all persisted and live (D17, §4): high contrast
+  (hazards and bird outline a pixel stronger, HUD panels go opaque, text
+  outlines pick a black-or-white fill, the darkness veil is capped at 0.25),
+  the Machado 2009 colour-blind palettes (`none`/`protanopia`/`deuteranopia`/
+  `tritanopia`, applied to whole world palettes and to the semantic danger,
+  coin and flame colours with per-world luminance targets keeping hazard vs
+  background, telegraph vs hazard and coin vs accent ≥ 40 luma apart —
+  asserted numerically in `ProceduralRenderTest`), text scale (every screen
+  reflows at 1.5×, test-covered) and hold-to-flap (wired to
+  `RunInput.autoFlapHeld`; the bot never sets it). `SettingsScreen` carries all
+  four rows in both languages.
+- Tests: `MusicSequencerTest` (audibility through `CaptureAudioBackend` over
+  two seconds, byte determinism, per-world difference, boss variant, render
+  budget, mute, duck, crossfade, volume retarget), the loop and ramp cases in
+  `VoiceTest`/`SoftwareMixerTest` (wrap, monotonic ramps, fade-out drop, the
+  crossfade holding loudness), the bundled-font cases in `FontsTest` and
+  `AssetManagerTest`, the a11y render cases in `ProceduralRenderTest`, the
+  settings rows in `SettingsScreenTest`, and a music-audible assertion in the
+  smoke rig's run (through `CaptureAudioBackend`, never a sound device).
+
+### Added — M8 progression screens: challenges, achievements, milestones, collections
+
+- The main menu grows two entries (D17): *Challenges* and *Achievements*.
+- `ui/screens/ChallengesScreen`: the seven challenges in content order with a
+  detail block — the world (labelled, never checked for unlocks, E6), the tier,
+  the objective in words, the rewards, the forced modifiers and the challenge's
+  own boss when it has one. *Play* pushes a `GameScreen` over the menu through
+  `ui/screens/ChallengeRunSource` (`ContentRunFactory.forChallenge`) with the
+  profile's bird, palette and loadout (`RunLoadout.challengeConfigFor`); the
+  objective's outcome is told after the run.
+- `ui/screens/AchievementsScreen`, the three tabs of D13/D17:
+  *Achievements* — every definition in content order, unlocked ones with their
+  unlock date, locked ones dimmed, hidden ones a `???` until they fire, header
+  counting them; *Milestones* — the level progress bar, then the next five
+  thresholds among unclaimed level rewards and not-yet-fired lifetime-threshold
+  achievements (nearest first, each with a `ProgressBar` fed by
+  `AchievementEvaluator.progressOf`; hidden achievements stay out of the list);
+  *Collections* — one bar per category of `progression/CollectionProgress`,
+  owned over total with the floored percentage, `all` last, the same arithmetic
+  the evaluators act on. Read-only, like `StatisticsScreen`.
+- `ui/screens/BossBanner` (a non-blocking overlay modelled on
+  `RuleShiftBanner`, parked in the ground strip opposite the rule banner): the
+  warning countdown, the survival countdown and the "cleared!" flash; a world
+  boss is named by its world, a challenge boss by its challenge (E26).
+  `HudRenderer` centres a boss timer over the playfield during
+  `BOSS_WARNING`/`BOSS`, with the phase number while the fight runs.
+- The finished run tells the player what the objective paid (D29): the
+  game-over strip shows MET/missed for a challenge run and how the boss
+  encounter went, the summary breaks the same facts out, and
+  `GameScreen.publishProgress` raises a toast per newly earned achievement —
+  naming the coins it paid when it pays any (`toast.achievement`,
+  `toast.achievement_coins`) — and per granted unlock
+  (`toast.unlock_granted`), beside the events the audio manager already heard.
+- `progression/AchievementEvaluator`: scope (`RUN`/`LIFETIME`/`PRESTIGE`)
+  conditions over `Statistics.resolve`, counter conditions
+  (`RUN_COUNTERS`, collection categories), `progressOf` for the bars, hidden
+  handling; `progression/CollectionProgress` reuses `UnlockEvaluator`'s counter
+  arithmetic instead of duplicating it. `ProgressionManager.apply` keeps the
+  D14 order (rewards → wallet → XP/level → statistics → challenge record →
+  daily record → achievements → unlocks) and `applyPurchase` re-runs
+  achievements → unlocks (E17).
+- Strings for both languages (`menu.*`, `challenges.*`, `achievements.*`,
+  `objective.*`, `hud.boss_*`, the toasts); `ProgressionText` resolves the
+  content names the screens and toasts share.
+- Tests: `ChallengesScreenTest`, `AchievementsScreenTest` (tabs, bars, hidden),
+  `BossBannerTest`, `CollectionProgressTest`, `AchievementEvaluatorTest`,
+  `SmokeWindowTest` walks the two menu entries; the game-over strip's objective
+  and boss rows are covered in the overlay tests.
+
+### Fixed — M8 (review pass)
+
+- `GameScreen`: newly earned achievements and granted unlocks now push toasts;
+  they only fired `GameEvent`s (a sound) before, so the plan's
+  "earn achievements with toasts" never reached the screen.
+- `AudioManager.setVolumes`: sliding the music volume to zero with a loop live
+  now stops the loop instead of leaving it sounding at the old gain until the
+  next screen change; raising the volume again re-issues it. Covered by
+  `AudioManagerTest`.
+- `content/defs/ObjectiveType`: `SURVIVE_TICKS` was missing from the enum, so
+  D11's five-type objective set could not be authored or validated. Added with
+  `ObjectiveEvaluator`/HUD/screen/`ContentValidator` support; no shipped
+  challenge uses it.
+- `GameOverOverlay`: the boss row is only added once the encounter actually
+  began (`phasesReached > 0` or a clear recorded), so a run that ended before
+  `atGate` no longer reads "Boss: Phase 0".
+- Test pins the review pass asked for: `BossEncounterTest` drives a three-phase
+  boss whose fight loops past the last phase back to phase 1 and asserts
+  `phasesReached` stays at 3 (the `Math.max` fold was unguarded); 
+  `ProceduralRenderTest` asserts the colour-blind palette separations against
+  the 60/45 luma contract numerically and two-sided instead of a weaker
+  literal; `SoftwareMixerTest` pins the music crossfade/fade ramp at exactly
+  `MUSIC_RAMP_FRAMES`.
+
 ## Inherited upstream history (kingyuluk/FlappyBird)
 
 The entries below are the original release notes of

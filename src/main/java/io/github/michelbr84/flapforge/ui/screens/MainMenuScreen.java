@@ -15,6 +15,7 @@ import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.render.TextPainter.Align;
+import io.github.michelbr84.flapforge.audio.MusicSequencer;
 import io.github.michelbr84.flapforge.render.WorldPalette;
 import io.github.michelbr84.flapforge.ui.FocusRing;
 import io.github.michelbr84.flapforge.ui.Screen;
@@ -49,14 +50,17 @@ import java.util.Objects;
  * paid roll up in front of the player on the screen they land on rather than appearing as a
  * silently different number.
  *
- * <p>M4 adds Birds, Upgrades and Shop between Play and Statistics. They are built only when the
- * session actually has content and a profile behind it, because all three screens edit a profile;
- * a menu without one (a bare screen stack in a test, the headless launch) keeps the M2 entries and
- * lays the panel out for what it has.
+ * <p>M4 adds Birds, Upgrades and Shop between Play and Statistics, and M8 adds Challenges and
+ * Achievements after them. They are built only when the session actually has content and a profile
+ * behind it, because all these screens edit a profile; a menu without one (a bare screen stack in
+ * a test, the headless launch) keeps the M2 entries and lays the panel out for what it has. The
+ * two extra M8 rows share the button height the panel fits into.
  */
 public final class MainMenuScreen implements Screen {
 
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
+    /** World whose loop the menu plays — the plan's menu music is Green Fields (M8, D19). */
+    private static final String MENU_MUSIC_WORLD = "green_fields";
     private static final int BOB_PERIOD_TICKS = 96;
     private static final double BOB_AMPLITUDE = 6;
     private static final int WING_PERIOD_TICKS = 48;
@@ -67,10 +71,10 @@ public final class MainMenuScreen implements Screen {
     private static final int TITLE_BASELINE = 208;
     private static final int TAGLINE_BASELINE = 242;
     private static final int PANEL_X = 70;
-    private static final int PANEL_Y = 256;
+    private static final int PANEL_Y = 250;
     private static final int PANEL_W = Playfield.WIDTH - 2 * PANEL_X;
-    private static final int BUTTON_H = 38;
-    private static final int BUTTON_GAP = 6;
+    private static final int BUTTON_H = 34;
+    private static final int BUTTON_GAP = 4;
     private static final int WALLET_W = 130;
     private static final int FOOTER_BASELINE = Playfield.HEIGHT - 14;
     private static final int BUILD_BASELINE = Playfield.HEIGHT - 28;
@@ -89,6 +93,8 @@ public final class MainMenuScreen implements Screen {
     private final Button birds;
     private final Button upgrades;
     private final Button shop;
+    private final Button challenges;
+    private final Button achievements;
     private final Button statistics;
     private final Button settings;
     private final Button quit;
@@ -152,6 +158,8 @@ public final class MainMenuScreen implements Screen {
         birds = meta ? panel.add(new Button("", this::openBirds)) : null;
         upgrades = meta ? panel.add(new Button("", this::openUpgrades)) : null;
         shop = meta ? panel.add(new Button("", this::openShop)) : null;
+        challenges = meta ? panel.add(new Button("", this::openChallenges)) : null;
+        achievements = meta ? panel.add(new Button("", this::openAchievements)) : null;
         statistics = panel.add(new Button("", this::openStatistics));
         settings = panel.add(new Button("", this::openSettings));
         quit = panel.add(new Button("", screens::requestClose));
@@ -204,6 +212,14 @@ public final class MainMenuScreen implements Screen {
         screens.push(new ShopScreen(context));
     }
 
+    private void openChallenges() {
+        screens.push(new ChallengesScreen(context));
+    }
+
+    private void openAchievements() {
+        screens.push(new AchievementsScreen(context));
+    }
+
     /**
      * The Birds button.
      *
@@ -229,6 +245,24 @@ public final class MainMenuScreen implements Screen {
      */
     public Button shopButton() {
         return shop;
+    }
+
+    /**
+     * The Challenges button (M8).
+     *
+     * @return the button, or {@code null} when the session has no profile to show
+     */
+    public Button challengesButton() {
+        return challenges;
+    }
+
+    /**
+     * The Achievements button (M8).
+     *
+     * @return the button, or {@code null} when the session has no profile to show
+     */
+    public Button achievementsButton() {
+        return achievements;
     }
 
     /**
@@ -339,6 +373,8 @@ public final class MainMenuScreen implements Screen {
             birds.setText(strings.get(StringKey.MENU_BIRDS));
             upgrades.setText(strings.get(StringKey.MENU_UPGRADES));
             shop.setText(strings.get(StringKey.MENU_SHOP));
+            challenges.setText(strings.get(StringKey.MENU_CHALLENGES));
+            achievements.setText(strings.get(StringKey.MENU_ACHIEVEMENTS));
         }
         statistics.setText(strings.get(StringKey.MENU_STATISTICS));
         settings.setText(strings.get(StringKey.MENU_SETTINGS));
@@ -357,6 +393,7 @@ public final class MainMenuScreen implements Screen {
         ring.focus(play);
         screens.setLetterboxRgb(PALETTE.letterbox());
         particles.setReduceFlashing(ParticleSystem.defaultReduceFlashing());
+        startMenuMusic();
         // Rolling up rather than jumping: the coins a finished run paid are credited while the
         // game screen is still up, so this is the first frame the player can see them on.
         wallet.setVisible(context != null && context.profile() != null);
@@ -364,6 +401,24 @@ public final class MainMenuScreen implements Screen {
         refreshWorldLine();
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
+        }
+    }
+
+    /**
+     * Starts the menu loop (M8, D19): the Green Fields one at −6 dB
+     * ({@link MusicSequencer#MENU_GAIN}), which the boot's audio step has already rendered and
+     * prepared. The menu only ever <em>plays</em> a prepared loop — it never renders one — so a
+     * test building the screen directly costs nothing, and in the application the boot step has
+     * always run first. A run's loop that is still playing crossfades out as this one fades in;
+     * re-entering the menu after a run therefore lands back on the menu music without a restart.
+     */
+    private void startMenuMusic() {
+        if (context == null) {
+            return;
+        }
+        String id = MusicSequencer.idForWorld(MENU_MUSIC_WORLD);
+        if (context.audio().hasMusic(id)) {
+            context.audio().startMusic(id, MusicSequencer.MENU_GAIN);
         }
     }
 

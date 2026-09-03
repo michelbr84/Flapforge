@@ -162,9 +162,12 @@ public final class BotPilot implements Pilot {
             // would do with it — and it is what stops a headless run from freezing on a draft.
             return RunInput.choose(FIRST_CARD);
         }
-        if (run.phase() != RunPhase.FLYING && run.phase() != RunPhase.BREATHER) {
+        if (run.phase() != RunPhase.FLYING && run.phase() != RunPhase.BREATHER
+                && run.phase() != RunPhase.BOSS_WARNING && run.phase() != RunPhase.BOSS) {
             // A breather is ordinary flight with the next obstacle pushed further out (D11), so
-            // the bot has to keep flying through it; the frozen phases need no input.
+            // the bot has to keep flying through it, and so are the two boss phases (M8): the
+            // warning is empty sky and the fight is a looped set piece. The frozen phases need
+            // no input.
             return RunInput.NONE;
         }
         Simulation sim = run.simulation();

@@ -72,6 +72,12 @@ public final class SoftwareMixer implements AudioBackend {
     public static final int COMMAND_CAPACITY = 128;
     /** Amplitude below which the limiter is completely transparent. */
     public static final float LIMITER_KNEE = 0.8f;
+    /**
+     * Length of every music gain ramp — starts, crossfades, the pause duck, the boss layer — in
+     * frames: half a second at the mixer's rate (M8, D19). Long enough to be inaudible as a step,
+     * short enough that a screen change does not smear two songs together.
+     */
+    public static final int MUSIC_RAMP_FRAMES = SAMPLE_RATE / 2;
     /** How long {@link #close()} waits for the mixing thread, in milliseconds. */
     public static final long CLOSE_TIMEOUT_MS = 1_000L;
 
@@ -99,6 +105,10 @@ public final class SoftwareMixer implements AudioBackend {
     private enum Kind {
         /** Start a voice. */
         PLAY,
+        /** Start a looping voice, or retarget the one already looping under this id. */
+        PLAY_LOOP,
+        /** Fade a looping voice out; it is dropped when its ramp reaches silence. */
+        STOP_LOOP,
         /** Stop every voice. */
         STOP_ALL,
         /** Decode and cache every known sound. */
@@ -220,12 +230,54 @@ public final class SoftwareMixer implements AudioBackend {
         offer(new Command(Kind.PLAY, id, gain, pan));
     }
 
+    /**
+     * Starts the loop under an id, or — when a looping voice with the same id is already in
+     * flight — retargets its gain with a ramp instead of starting a second copy (M8, D19): the
+     * music voice is one per id, and repeated requests (a new volume, the pause duck) just move
+     * it. Never blocks; a request that does not fit in the queue is dropped.
+     *
+     * @param id the sound id, resolved through {@link SoundBank}
+     * @param gain target linear gain in {@code [0, 1]}, reached over {@link #MUSIC_RAMP_FRAMES}
+     * @param pan {@code -1} hard left, {@code 0} centre, {@code +1} hard right
+     */
+    @Override
+    public void playLooping(String id, float gain, float pan) {
+        if (id == null) {
+            return;
+        }
+        offer(new Command(Kind.PLAY_LOOP, id, gain, pan));
+    }
+
+    /**
+     * Fades the looping voice under an id out over {@link #MUSIC_RAMP_FRAMES}; the mixing thread
+     * drops it when the ramp reaches silence. A no-op when nothing loops under that id.
+     *
+     * @param id the sound id
+     */
+    @Override
+    public void stopLooping(String id) {
+        if (id == null) {
+            return;
+        }
+        offer(new Command(Kind.STOP_LOOP, id, 0.0f, 0.0f));
+    }
+
     @Override
     public void stopAll() {
         // Pending plays are exactly what a stop is meant to cancel, so clearing first is correct
         // and also guarantees the stop itself finds room in the queue.
         commands.clear();
         offer(new Command(Kind.STOP_ALL, null, 0.0f, 0.0f));
+    }
+
+    @Override
+    public void registerLoop(String id, float[] samples) {
+        bank.register(id, samples);
+    }
+
+    @Override
+    public boolean hasLoop(String id) {
+        return bank.isLoaded(id);
     }
 
     @Override
@@ -422,6 +474,12 @@ public final class SoftwareMixer implements AudioBackend {
                 case PLAY:
                     start(command);
                     break;
+                case PLAY_LOOP:
+                    startLooping(command);
+                    break;
+                case STOP_LOOP:
+                    stopLooping(command);
+                    break;
                 case STOP_ALL:
                     voices.clear();
                     break;
@@ -451,6 +509,49 @@ public final class SoftwareMixer implements AudioBackend {
         }
         voices.add(new Voice(command.id, samples, command.gain, command.pan));
         startedVoices.incrementAndGet();
+    }
+
+    /**
+     * Handles a {@link Kind#PLAY_LOOP}: the music voice is one per id, so a looping voice still
+     * in flight under the id is retargeted (it may even be mid fade-out — the new target revives
+     * it) and only an absent one is created, fading in from silence over the music ramp (M8).
+     */
+    private void startLooping(Command command) {
+        for (int i = 0; i < voices.size(); i++) {
+            Voice voice = voices.get(i);
+            if (voice.id().equals(command.id) && voice.isLooping() && !voice.finished()) {
+                voice.revive();
+                voice.rampTo(command.gain, command.pan, MUSIC_RAMP_FRAMES);
+                return;
+            }
+        }
+        float[] samples;
+        try {
+            samples = bank.samples(command.id);
+        } catch (RuntimeException e) {
+            log.accept("Audio: cannot load '" + command.id + "' (" + e + ").");
+            return;
+        }
+        if (samples.length < 2) {
+            return;
+        }
+        if (voices.size() >= MAX_VOICES) {
+            voices.remove(0);
+            stolenVoices.incrementAndGet();
+        }
+        voices.add(Voice.loop(command.id, samples, command.gain, command.pan,
+                MUSIC_RAMP_FRAMES));
+        startedVoices.incrementAndGet();
+    }
+
+    /** Handles a {@link Kind#STOP_LOOP}: fade whatever loops under the id, drop it at silence. */
+    private void stopLooping(Command command) {
+        for (int i = 0; i < voices.size(); i++) {
+            Voice voice = voices.get(i);
+            if (voice.id().equals(command.id) && voice.isLooping() && !voice.finished()) {
+                voice.fadeOut(MUSIC_RAMP_FRAMES);
+            }
+        }
     }
 
     /** The mixing thread body: drain, mix, encode, write, repeat. */

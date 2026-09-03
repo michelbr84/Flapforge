@@ -1,5 +1,5 @@
 {
-  "_comment": "The five worlds (plan section 4, E19). The unlock and boss.reward blocks are final since M4: boss.reward is what chains the worlds together in the unlock graph. M7 completed the file in place: every world is playable (GameContent.playable), 'patterns' names the set pieces of patterns.json the world draws (weight > 0 there) and 'ruleCycles' is the Void's rule shift (every 5 gates, 90-tick telegraph, options as {flags, effects} per E31.g, never the same option twice in a row). Ambient: windX is a permanent change of the relative scroll speed in px/s (Wind Valley's -20 pushes the bird back), windY a permanent vertical acceleration in px/s2, darkness what the renderer hides (plan section 4: only Storm Sky is dark, 0.5; the 0.15/0.35 the M4 stub left on Iron Forge and the Void were placeholders and are 0), lightningEveryGates a cosmetic sky flash (E8: no hitbox; lethal bolts are the lightning spawn kind). M8 fills 'music'.",
+  "_comment": "The five worlds (plan section 4, E19). The unlock and boss.reward blocks are final since M4: boss.reward is what chains the worlds together in the unlock graph. M7 completed the file in place: every world is playable (GameContent.playable), 'patterns' names the set pieces of patterns.json the world draws (weight > 0 there) and 'ruleCycles' is the Void's rule shift (every 5 gates, 90-tick telegraph, options as {flags, effects} per E31.g, never the same option twice in a row). Ambient: windX is a permanent change of the relative scroll speed in px/s (Wind Valley's -20 pushes the bird back), windY a permanent vertical acceleration in px/s2, darkness what the renderer hides (plan section 4: only Storm Sky is dark, 0.5; the 0.15/0.35 the M4 stub left on Iron Forge and the Void were placeholders and are 0), lightningEveryGates a cosmetic sky flash (E8: no hitbox; lethal bolts are the lightning spawn kind). M8 fills 'music': one block per world {tempo 90-140 BPM, scale (major_pent/minor_pent/dorian/phrygian/whole_tone), seed, layers among bass/lead/arp/pad/drums}, which MusicSequencer renders into the world's loop; the boss variant raises the tempo 15% (cap 170).",
   "worlds": [
     { "id": "green_fields", "order": 1, "curve": "classic", "style": "hills",
       "unlock": { "type": "default" },
@@ -12,7 +12,7 @@
       "ruleCycles": null,
       "boss": { "atGate": 30, "warningTicks": 120, "patterns": ["gf_boss_p1", "gf_boss_p2"],
         "surviveTicks": 1200, "reward": { "coins": 200, "unlocks": ["world:wind_valley"] } },
-      "music": null, "sfxSet": "FIELDS" },
+      "music": { "tempo": 112, "scale": "major_pent", "seed": 11, "layers": ["bass", "lead", "drums"] }, "sfxSet": "FIELDS" },
     { "id": "wind_valley", "order": 2, "curve": "standard", "style": "canyon",
       "unlock": { "type": "any_of", "conditions": [
         { "type": "world_cleared", "id": "green_fields" },
@@ -28,7 +28,7 @@
       "boss": { "atGate": 30, "warningTicks": 120, "patterns": ["wv_boss_p1", "wv_boss_p2"],
         "surviveTicks": 1500,
         "reward": { "coins": 300, "unlocks": ["world:iron_forge", "tree:forge"] } },
-      "music": null, "sfxSet": "CANYON" },
+      "music": { "tempo": 96, "scale": "dorian", "seed": 22, "layers": ["bass", "lead", "arp", "pad"] }, "sfxSet": "CANYON" },
     { "id": "iron_forge", "order": 3, "curve": "standard", "style": "factory",
       "unlock": { "type": "any_of", "conditions": [
         { "type": "world_cleared", "id": "wind_valley" },
@@ -43,7 +43,7 @@
       "ruleCycles": null,
       "boss": { "atGate": 30, "warningTicks": 120, "patterns": ["forge_boss_p1", "forge_boss_p2"],
         "surviveTicks": 1800, "reward": { "coins": 400, "unlocks": ["world:storm_sky"] } },
-      "music": null, "sfxSet": "FACTORY" },
+      "music": { "tempo": 126, "scale": "phrygian", "seed": 33, "layers": ["bass", "lead", "drums"] }, "sfxSet": "FACTORY" },
     { "id": "storm_sky", "order": 4, "curve": "standard", "style": "storm",
       "unlock": { "type": "any_of", "conditions": [
         { "type": "world_cleared", "id": "iron_forge" },
@@ -58,7 +58,7 @@
       "ruleCycles": null,
       "boss": { "atGate": 35, "warningTicks": 120, "patterns": ["storm_boss_p1", "storm_boss_p2"],
         "surviveTicks": 1800, "reward": { "coins": 500, "unlocks": ["world:void"] } },
-      "music": null, "sfxSet": "STORM" },
+      "music": { "tempo": 134, "scale": "minor_pent", "seed": 44, "layers": ["bass", "lead", "arp", "drums"] }, "sfxSet": "STORM" },
     { "id": "void", "order": 5, "curve": "standard", "style": "void",
       "unlock": { "type": "any_of", "conditions": [
         { "type": "world_cleared", "id": "storm_sky" },
@@ -79,6 +79,6 @@
       "boss": { "atGate": 40, "warningTicks": 150,
         "patterns": ["void_boss_p1", "void_boss_p2", "void_boss_p3"], "surviveTicks": 2100,
         "reward": { "coins": 800, "unlocks": ["cosmetic:classic:voidglass"] } },
-      "music": null, "sfxSet": "VOID" }
+      "music": { "tempo": 104, "scale": "whole_tone", "seed": 55, "layers": ["bass", "pad", "arp"] }, "sfxSet": "VOID" }
   ]
 }

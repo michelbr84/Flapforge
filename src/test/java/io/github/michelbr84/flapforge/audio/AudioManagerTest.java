@@ -84,7 +84,7 @@ class AudioManagerTest {
                 AudioManager.sfxIdFor(new GameEvent.UnlockGranted("bird:zephyr")));
         assertEquals(ToneSynth.UNLOCK,
                 AudioManager.sfxIdFor(new GameEvent.AchievementUnlocked("first_flight")));
-        assertEquals(ToneSynth.UNLOCK,
+        assertEquals(ToneSynth.BOSS_CLEARED,
                 AudioManager.sfxIdFor(new GameEvent.BossCleared("gale", "wind_valley")));
         assertEquals(ToneSynth.LEVEL_UP, AudioManager.sfxIdFor(new GameEvent.LevelUp(4)));
         assertEquals(ToneSynth.LEVEL_UP,
@@ -274,5 +274,35 @@ class AudioManagerTest {
         assertEquals(defaults.sfxVolume, fresh.sfxVolume(), 1e-9);
         assertEquals(defaults.musicVolume, fresh.musicVolume(), 1e-9);
         assertEquals(defaults.muted, fresh.isMuted());
+    }
+
+    // ---------------------------------------------------------------- music loops (M8, D19)
+
+    @Test
+    void slidingTheMusicVolumeToZeroStopsTheLiveLoop() {
+        backend.registerLoop("music/test", new float[SoundBank.SAMPLE_RATE
+                * SoundBank.CHANNELS]);
+        manager.startMusic("music/test", 1.0f);
+        assertEquals(List.of("music/test"), backend.activeLoopIds(), "the loop is live");
+        int playsAtStart = backend.loopPlayCount();
+
+        // A change above zero retargets the one loop, so the slider is audible live.
+        manager.setVolumes(1.0, 1.0, 0.5);
+        assertEquals(playsAtStart + 1, backend.loopPlayCount());
+        assertFalse(backend.isLoopStopped("music/test"));
+
+        // Zero is not a retarget: the live loop is stopped, not left at the old gain.
+        manager.setVolumes(1.0, 1.0, 0.0);
+        assertTrue(backend.isLoopStopped("music/test"));
+        assertEquals(playsAtStart + 1, backend.loopPlayCount(), "zero does not retarget");
+
+        // And the stop is audible: past the music ramp the mix is silence.
+        for (float sample : backend.mixedLoopSeconds(0.6)) {
+            assertEquals(0.0f, sample, 1e-6f);
+        }
+
+        // Raising the volume again re-issues the loop, the way unmuting does.
+        manager.setVolumes(1.0, 1.0, 0.5);
+        assertTrue(backend.loopPlayCount() > playsAtStart + 1, "the loop came back");
     }
 }
