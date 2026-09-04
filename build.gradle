@@ -1,6 +1,11 @@
 plugins {
     id 'java'
     id 'application'
+    // Method-level retry for the @Tag("gui") suite only: Robot-delivered input is occasionally
+    // dropped by the CI Xvfb under load (the same commit passes on a re-run, observed on the
+    // identical merge refs during M10-pre), so a failed smoke method is retried on a fresh
+    // instance instead of failing the whole run.
+    id 'org.gradle.test-retry' version '1.6.4'
 }
 
 group = 'io.github.michelbr84'
@@ -123,6 +128,10 @@ tasks.register('smokeTest', Test) {
     // the logged set does not depend on Gradle's add-vs-replace semantics for `events`.
     testLogging {
         events = ['started', 'failed', 'standardOut', 'standardError']
+    }
+    retry {
+        maxRetries = 2
+        maxFailures = 10
     }
 }
 
