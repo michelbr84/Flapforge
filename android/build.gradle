@@ -1,0 +1,46 @@
+// The Android port builds separately from the desktop build (`./gradlew -p android ...`).
+// It never shares the root project's plugins or classpath: the desktop build stays pure Java
+// (M0–M9 invariant), and this project exists only to turn the transformed sources into an APK.
+plugins {
+    id 'com.android.application' version '9.4.0'
+}
+
+android {
+    namespace = 'io.github.michelbr84.flapforge'
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = 'io.github.michelbr84.flapforge'
+        minSdk = 33          // onSpinWait / VarHandle setRelease are API 33+
+        targetSdk = 36
+        versionCode = 1
+        versionName = '0.1.0'
+    }
+
+    buildTypes {
+        release {
+            // Sideload distribution (M10 decision): minification would rewrite the Gson
+            // reflection on the record types, and the APK ships debug-signed.
+            minifyEnabled = false
+            signingConfig = signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests {
+            // The shim unit tests (P1+) run as JVM unit tests against Robolectric's
+            // in-JVM Android implementation instead of an emulator.
+            includeAndroidResources = true
+        }
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16'
+}

@@ -28,3 +28,8 @@ Thumbs.db
 
 # Ephemeral git worktrees created by tooling
 .claude/worktrees/
+
+# Android SDK path (machine-local)
+android/local.properties
+android/.gradle/
+android/build/
