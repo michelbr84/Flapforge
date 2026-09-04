@@ -7,6 +7,11 @@ updates:
     commit-message:
       prefix: ci
     labels: [dependencies, ci]
+    # One grouped PR for every action bump: the actions are used pairwise (upload/download)
+    # and a burst of six separate PRs is what amplified the CI smoke flake during M10-pre.
+    groups:
+      github-actions:
+        patterns: ['*']
 
   - package-ecosystem: gradle
     directory: /
