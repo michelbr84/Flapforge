@@ -1530,6 +1530,12 @@ is fixed here, with a test that fails without the fix.
   test replays the sweep over content whose hard tier carries `NO_COINS` and
   whose every card declares it in `requiresFlagsAbsent` — on a flagged day
   nothing may be forced, so a draw that dropped the world/tier rules fails.
+- macOS packaging: `jpackage` feeds `--app-version` into `CFBundleVersion`, which
+  rejects a first component of zero, so the mac bundle of 0.1.0 failed to build
+  (the Linux and Windows bundles were unaffected). `scripts/package.sh` now
+  repacks a `0.y.z` version as its significant form on Darwin — 0.1.0 becomes
+  `1.0` in the bundle's `CFBundleVersion` — while the jar keeps the real version
+  in `Implementation-Version`.
   Before, a mutation swapping the daily pool's rule set for the empty one left
   the suite green because the shipped flags happen to be empty.
 - `AttractModeTest`: the attract delay is pinned at the literal 1199/1200 ticks

@@ -53,12 +53,26 @@ fi
 
 echo "== Packaging $jar (app-version $version, icon $icon)"
 rm -rf build/dist
+# macOS: --app-version feeds CFBundleVersion, whose first component cannot be
+# zero ("The first number in an app-version cannot be zero or negative"), so a
+# 0.y.z version is repacked there as its significant form (0.1.0 -> 1.0). The
+# jar keeps the real version in its Implementation-Version.
+bundle_version="$version"
+if [ "$(uname -s)" = Darwin ]; then
+    bundle_version="$(printf '%s' "$version" | awk -F. '
+        { i = 1; while (i <= NF && $i + 0 == 0) i++;
+          out = ""; for (; i <= NF; i++) out = out (out == "" ? "" : ".") $i;
+          print (out == "" ? "1" : out) }')"
+    if [ "$bundle_version" != "$version" ]; then
+        echo "   macOS: app-version $version repacked as CFBundleVersion $bundle_version (first component cannot be zero)"
+    fi
+fi
 "$jpackage_cmd" \
     --type app-image \
     --input build/libs \
     --main-jar "$(basename "$jar")" \
     --name Flapforge \
-    --app-version "$version" \
+    --app-version "$bundle_version" \
     --icon "$icon" \
     --dest build/dist
 
