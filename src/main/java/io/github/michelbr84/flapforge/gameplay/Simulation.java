@@ -166,6 +166,10 @@ public final class Simulation implements AbilityHost, DraftWorld {
         this.stats = new StatSheet(birdProfile.baseStats(), stack, rules);
         stack.setLayer(Layer.BIRD, birdProfile.effects());
         stack.setLayer(Layer.UPGRADES, config.permanentEffects());
+        // The PRESTIGE layer (E23): the prestige bonus banked on the profile that started the
+        // run, pushed by RunLoadout. Empty for every profile that never prestiged — and an empty
+        // setLayer is a no-op — so the pinned classic run and the published hash never see it.
+        stack.setLayer(Layer.PRESTIGE, config.prestigeEffects());
         ChallengeSpec challenge = setup.challenge();
         if (challenge != null && !challenge.effects().isEmpty()) {
             // The CHALLENGE layer (D8, M8): a challenge's own stat effects, alongside the

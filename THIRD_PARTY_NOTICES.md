@@ -17,9 +17,9 @@ Flapforge started as a fork of this Java Flappy Bird implementation. The
 rewrite replaced every upstream source file with new code under
 `io.github.michelbr84.flapforge`, but the game's *feel* is a deliberate
 reproduction of the upstream behaviour: its physics constants and update
-order were studied and are converted to a fixed 60 Hz simulation that will be
-pinned by a literal transliteration of the upstream integer loop in the test
-suite (`ClassicReference`, milestone M1). The inherited release notes are preserved in
+order were studied and are converted to a fixed 60 Hz simulation pinned by
+a literal transliteration of the upstream integer loop in the test
+suite (`ClassicReference`). The inherited release notes are preserved in
 `CHANGELOG.md` under "Inherited upstream history", and the original sources
 remain available in this repository's git history (commit `b811782` and
 earlier). Credit is also given in `README.md` ("Original Project").
@@ -68,9 +68,10 @@ For those reasons **Flapforge ships none of the inherited assets**. They were
 deleted from the working tree in milestone M0 (they remain in git history
 only, and are not part of any build, jar or release), and no file derived from
 them exists in `src/`. Every image in the game is generated procedurally at
-runtime (`render.ProceduralArt`); the game ships no audio yet, and the sound
-effects and music planned for later milestones will be synthesised at runtime
-as well (`audio.ToneSynth` in M2, `audio.MusicSequencer` in M8). The upstream
+runtime (`render.ProceduralArt`), and every sound effect and music track is
+synthesised at runtime by the software mixer, tone synthesiser and music
+sequencer (`audio.SoftwareMixer`, `audio.ToneSynth`, `audio.MusicSequencer`) —
+no audio files ship. The upstream
 wordmarks are never drawn. Future original art or audio packs are added through
 `src/main/resources/assets/manifest.json`, which records the licence and
 provenance of every file, and get an entry in this document.

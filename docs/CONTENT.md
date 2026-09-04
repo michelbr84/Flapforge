@@ -49,8 +49,10 @@ shipped set is checked in full.
 before its system exists. Abilities became playable in M5, worlds in M7, challenges in M8 (with
 `BossEncounter` and `ObjectiveEvaluator`); achievements do with the M8 evaluator. One kind
 answers per id: `playable(FEATURE, id)` is false while
-`GameContent.featureMilestone(id)` names a milestone — `modifiers` named M6 until the draft overlay shipped and is live now, `seeded_runs`
-names M9. A feature is *buyable* before that, which is what the plan asks for, so the shop labels
+`GameContent.featureMilestone(id)` names a milestone — `modifiers` named M6 until the draft overlay shipped and is live now, and `seeded_runs`
+named M9 until the run-mode row of the bird screen shipped. **The staging table is empty
+today**: every shipped id is buyable and playable, and the mechanism stays in the code for the
+next feature that lands ahead of its system. A feature is *buyable* before that, which is what the plan asks for, so the shop labels
 it with the milestone rather than presenting a switch that does nothing. The UI asks these to show
 content as locked by milestone rather than offering something that cannot happen yet.
 
@@ -357,14 +359,15 @@ are of the 598 px playable height):
 
 | Kind | Params | Ranges |
 | --- | --- | --- |
-| `pipe_gate` | `layout` (`STANDARD`/`FLOATING`), `gapCenter` (`0..1` or `"random"`), `gapSize`, `oscillate`, `amplitude`, `speed` | `gapSize` is a base value the run scales by its gap multiplier (tier ×0.9/×0.8, the curve's ramp, a cycle option, a card) and keeps centred; `"random"` draws upstream's geometry from the `obstacle` stream; `speed` 0 uses the `OSCILLATION_SPEED` stat |
+| `pipe_gate` | `layout` (`STANDARD`/`FLOATING`), `gapCenter` (`0..1` or `"random"`), `gapSize`, `oscillate`, `amplitude`, `speed` | `gapSize` is a base value the run scales by its gap multiplier (tier ×0.92/×0.85, the curve's ramp, a cycle option, a card) and keeps centred; `"random"` draws upstream's geometry from the `obstacle` stream; `speed` 0 uses the `OSCILLATION_SPEED` stat |
 | `gear` | `cy`, `radius`, `rail {amplitude, speed}` | `radius` 24–56; the rail is a triangle wave of `amplitude` px at `speed` px/s of world time |
 | `piston` | `side` (`TOP`/`BOTTOM`), `length`, `telegraphTicks`, `extendTicks`, `holdTicks`, `retractTicks`, `phaseOffset` | `length` 80–360, `telegraphTicks ≥ 15`; defaults 40/12/30/20 |
 | `wind_zone` | `width`, `cy`, `height`, `accelY`, `scrollDelta` | `width` 60–240, `accelY` −900..900 px/s² (negative lifts), `scrollDelta` −60..60 px/s (positive scrolls faster) |
 | `lightning` | `side`, `lengthFrac`, `warningTicks`, `strikeTicks` | `lengthFrac` 0.3–0.7 (a safe band always exists), `warningTicks ≥ 30`, `strikeTicks` 6–16 |
 
 **Feasibility rules** (the validator, §4): `dx ≥ 100`; a gate's `gapSize × (tightest tier
-multiplier) × 0.9 ≥ 54.5`, i.e. `gapSize ≥ 76` with the nightmare tier's ×0.8; `telegraphTicks ≥
+multiplier) × 0.9 ≥ 54.5`, i.e. `gapSize ≥ 72` with the nightmare tier's ×0.85 — exactly the
+`pipe_gate` spec's floor; `telegraphTicks ≥
 15`; `lengthFrac ≤ 0.7`; a gate right after a bolt has an authored `gapCenter` on the bolt's unlit
 side (`≤ 0.5` after a `BOTTOM` bolt, `≥ 0.5` after a `TOP` one, never `"random"`); a bolt's safe
 band is no further from the previous lethal column's band than the scroll between them
@@ -444,6 +447,23 @@ every collection category) and every reward unlock id.
 both string files, run `./gradlew contentCheck`; `AchievementEvaluatorTest` is the place for a
 new shape of condition, and a threshold achievable in one run belongs in
 `ProgressionManagerTest`'s purchase-pass assertions (E17: a purchase can fire achievements).
+
+### A difficulty tier (balanced in M9)
+
+One entry of `difficulty.json`'s `tiers[]`: `{id, default, effects[], flags[], rewardMult,
+unlock}`. `effects` are stat modifiers resolved in the `TIER` layer (typically
+`SCROLL_SPEED MULTIPLY` and `GAP_SIZE MULTIPLY`); `flags` are rule flags for the whole run
+(`ALL_OBSTACLES_MOVE`, `LETHAL_CEILING` — both shipped on `nightmare`); `rewardMult` scales the
+run's coin payout; `unlock` follows the usual condition shape, and a non-cosmetic tier needs a
+**cumulative** path (§5).
+
+Two rules protect the feel of the game: the `classic` curve and the `normal` tier are frozen by
+the validator and by the published determinism hash (`--headless-run 3000 --seed 42` prints
+`hash=eaaa01685261a433` on the classic configuration, which carries no tier effects), and every
+world × tier cell must keep the expert bot's boss-gate reach at ≥ 30 % (`ContentFeasibilityTest`,
+`docs/BALANCING.md` §12.1 measures the shipped 1.10/0.92 and 1.20/0.85 shapes). Tiers are also
+content the daily challenge draws from: an id listed in `economy.json.daily.tierPool` must
+validate like every other cross-reference.
 
 ### A music block (M8)
 
@@ -533,7 +553,7 @@ error; a weight-0 pattern nothing names is a warning. Every step's `params` are 
 the kind's `ObstacleParams` contract — unknown keys, wrong shapes and out-of-range values are
 reported with the step's pointer — and the feasibility rules of the plan hold: `dx ≥ 100` between
 columns, a gate's `gapSize × (the tightest tier's GAP_SIZE multiplier) × 0.9 ≥ 54.5` (the
-nightmare tier's 0.8 makes that `gapSize ≥ 76`; the run scales an authored gap by the same
+nightmare tier's 0.85 makes that `gapSize ≥ 72`; the run scales an authored gap by the same
 multiplier, so the rule describes what the tier plays), a piston's `telegraphTicks ≥ 15`, a bolt's
 `lengthFrac ≤ 0.7`, a gate right after a bolt authored on the bolt's unlit side (never `"random"`),
 and a bolt's safe band within reach of the previous lethal column's band — no further than the

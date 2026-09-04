@@ -1,0 +1,95 @@
+name: Release
+
+# Runs on a v* tag only (M9): builds and tests once per OS, packages each OS
+# with jpackage through scripts/package.sh (per-OS icon, E9), zips the app
+# images and attaches them — with the fat jar — to the GitHub release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Read the version
+        id: version
+        shell: bash
+        run: echo "version=$(sed -n 's/^version=//p' src/main/resources/version.properties)" >> "$GITHUB_OUTPUT"
+
+      - name: Build, test, export icons and package
+        shell: bash
+        run: |
+          ./gradlew build fatJar iconExport --stacktrace
+          bash scripts/package.sh
+
+      - name: Zip the app image (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          cd build/dist
+          zip -qr "../Flapforge-${{ steps.version.outputs.version }}-linux.zip" Flapforge
+
+      - name: Zip the app image (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          cd build/dist
+          zip -qry "../Flapforge-${{ steps.version.outputs.version }}-macos.zip" Flapforge.app
+
+      - name: Zip the app image (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Compress-Archive -Path build/dist/Flapforge -DestinationPath build/Flapforge-${{ steps.version.outputs.version }}-windows.zip
+
+      - name: Upload the app image bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: flapforge-${{ matrix.os }}
+          path: build/Flapforge-*.zip
+          if-no-files-found: error
+
+      - name: Upload the fat jar (once, from Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flapforge-jar
+          path: build/libs/flapforge-*-all.jar
+          if-no-files-found: error
+
+  release:
+    name: Attach the bundles to the release
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: flapforge-*
+          path: bundles
+          merge-multiple: true
+
+      - name: Attach to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bundles/*
+          fail_on_unmatched_files: true

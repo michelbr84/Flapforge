@@ -96,8 +96,9 @@ public final class GameContent {
     private static final Map<String, String> FEATURE_MILESTONES;
 
     static {
+        // M9 emptied the table: Seeded and Daily mode ship with the mode picker of
+        // BirdSelectionScreen, so no shipped feature is authored ahead of its system any more.
         Map<String, String> milestones = new LinkedHashMap<>();
-        milestones.put("seeded_runs", "M9");
         FEATURE_MILESTONES = Collections.unmodifiableMap(milestones);
     }
 
@@ -354,9 +355,10 @@ public final class GameContent {
      * director, synergies, the two stat layers — was complete, but without
      * {@code ModifierChoiceOverlay} a run would have frozen on a draft nobody could answer. The
      * overlay ships in M6, so the entry is gone and {@code RunLoadout.allowOffers} now says yes to
-     * a profile that owns the feature. {@code feature:seeded_runs} is read by the Seeded mode
-     * entry in M9. Neither is a lie the shop is allowed to tell silently, which is what this table
-     * is for.
+     * a profile that owns the feature. {@code feature:seeded_runs} was listed until M9, when the
+     * mode picker of {@code BirdSelectionScreen} gave Seeded and Daily mode somewhere to be
+     * played; the table is empty today and stays for the next feature that lands ahead of its
+     * system, because that is a lie the shop is not allowed to tell silently.
      *
      * @param id the bare feature id
      * @return the milestone name, or {@code null} when the feature works today

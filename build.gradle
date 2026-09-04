@@ -51,6 +51,8 @@ configurations {
 
 dependencies {
     toolsImplementation sourceSets.main.output
+    // Lets the test suite verify the tools' own byte output directly (IconExportTest, M9).
+    testImplementation sourceSets.tools.output
 }
 
 def toolArgs = providers.gradleProperty('toolArgs')

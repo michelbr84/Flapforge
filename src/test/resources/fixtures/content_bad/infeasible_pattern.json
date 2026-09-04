@@ -1,5 +1,5 @@
 {
-  "_comment": "content_bad fixture (M7): patterns.json breaking the feasibility rules - forge_gear_corridor has a 74 px gate gap (74 x 0.8 x 0.9 = 53.3 < 54.5) and a 60 px step, gf_boss_p1 spans 450 px (< 480). ContentValidatorTest pins the three pointers.",
+  "_comment": "content_bad fixture (M7): patterns.json breaking the feasibility rules - forge_gear_corridor has a 71 px gate gap (71 x 0.85 x 0.9 = 54.3 < 54.5) and a 60 px step, gf_boss_p1 spans 450 px (< 480). ContentValidatorTest pins the three pointers.",
   "patterns": [
     { "id": "wv_updraft_run", "world": "wind_valley", "weight": 25, "minGate": 6, "scoringSteps": true,
       "steps": [
@@ -18,7 +18,7 @@
         { "dx": 240, "kind": "pipe_gate", "params": { "layout": "STANDARD", "gapCenter": 0.5, "gapSize": 136 } } ] },
     { "id": "forge_gear_corridor", "world": "iron_forge", "weight": 40, "minGate": 8, "scoringSteps": true,
       "steps": [
-        { "dx": 160, "kind": "pipe_gate", "params": { "layout": "STANDARD", "gapCenter": 0.45, "gapSize": 74 } },
+        { "dx": 160, "kind": "pipe_gate", "params": { "layout": "STANDARD", "gapCenter": 0.45, "gapSize": 71 } },
         { "dx": 60, "kind": "gear", "params": { "cy": 0.3, "radius": 36, "rail": { "amplitude": 60, "speed": 40 } }, "scoring": false },
         { "dx": 130, "kind": "piston", "params": { "side": "TOP", "length": 240, "telegraphTicks": 40 } },
         { "dx": 160, "kind": "pipe_gate", "params": { "layout": "STANDARD", "gapCenter": 0.6, "gapSize": 128 } } ] },

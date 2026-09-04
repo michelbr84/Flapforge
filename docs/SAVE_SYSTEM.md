@@ -280,14 +280,16 @@ undo the flag.
 
 ---
 
-## 8. Pre-1.0 reset policy (D15)
+## 8. The pre-1.0 reset policy and the frozen v1 (D15)
 
-Until the `v0.1.0` tag, **the save format is not stable**. A build before that tag may raise
-`SaveFile.VERSION` without shipping a migration, in which case the older file is refused (§7) and
-the player starts over with `--reset-save` and a banner explaining it. That freedom is the price of
-getting the schema right while the game is still being designed.
+Until the `v0.1.0` tag, **the save format was not stable**. A build before that tag could raise
+`SaveFile.VERSION` without shipping a migration, in which case the older file was refused (§7) and
+the player started over with `--reset-save` and a banner explaining it. That freedom was the price
+of getting the schema right while the game was still being designed.
 
-From `v0.1.0` on the promise flips: every change to the persisted shape ships a `Migration`, every
+The `v0.1.0` tag **froze save v1** (`SaveFile.VERSION == 1`, sample:
+`src/test/resources/fixtures/save_v1.json`), and from that build on the promise flips: every
+change to the persisted shape ships a `Migration`, every
 migration ships its fixture pair, and a save written by any released build loads in every later one.
 The synthetic `1 → 2` step in `SaveMigrationTest` exists precisely so that the machinery which makes
 that promise keepable is already tested on the day the first real change lands.

@@ -247,6 +247,23 @@ public final class RunSummaryScreen implements Screen {
         header(StringKey.SUMMARY_SECTION_INFO);
         line("seed", strings.format(StringKey.SUMMARY_SEED, result.config().seed(),
                 modeName(result.config().mode())));
+        // M9 (D28): a daily run is one of many attempts at the same seed, so the summary says
+        // where the day stands -- the best gate count of the date and the attempt just flown.
+        if (result.config().mode() == RunMode.DAILY && profile != null) {
+            row("daily", StringKey.MODE_DAILY, dailyValue());
+        }
+    }
+
+    /**
+     * The daily row's value: the best gate count of today's date and the attempt just flown.
+     *
+     * @return the translated value
+     */
+    private String dailyValue() {
+        PlayerProfile.DailyRecord daily = profile.daily;
+        return daily == null || daily.attempts <= 0
+                ? strings.get(StringKey.DAILY_UNPLAYED)
+                : strings.format(StringKey.DAILY_RESULT, daily.bestGates, daily.attempts);
     }
 
     /**

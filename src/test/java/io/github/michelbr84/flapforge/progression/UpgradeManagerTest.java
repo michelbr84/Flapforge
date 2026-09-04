@@ -313,7 +313,8 @@ class UpgradeManagerTest {
         assertEquals("upgrade:feather_1", effects.get(0).source(),
                 "content order, not the order the player bought them in");
         assertEquals("upgrade:glide_1", effects.get(1).source());
-        assertEquals(-0.20, effects.get(1).value(), EPS, "two levels of -0.10");
+        assertEquals(-0.35, effects.get(1).value(), EPS,
+                "two levels: the level-2 override replaces the scaled effect (BALANCING.md 12.2)");
     }
 
     @Test

@@ -6,7 +6,8 @@ The data lives in `src/main/resources/data/` and is described in [`CONTENT.md`](
 this document describes the **code that reads and writes it** — the `progression` package.
 
 The decisions behind it are D13 (meta-progression), D14 (the write path), D8 (the stat
-pipeline), D15 (the save triggers) and errata E3, E5, E17, E18, E20, E21, E23 and E31.f of the
+pipeline), D15 (the save triggers), D28 (the daily challenge) and errata E3, E5, E17, E18, E20,
+E21, E23, E27 and E31.f of the
 implementation plan.
 
 Two rules everything else follows from:
@@ -329,7 +330,8 @@ and in the profile's two lifetime map counters (`statistics.modifiersTaken`,
 `statistics.synergiesActivated`) that the statistics screen totals.
 
 **Forced modifiers** are the other way a run gets cards. `RunConfig.forcedModifiers` is filled by
-the run *source* — a challenge's `forcedModifiers`, and M9's daily — never by the profile, and the
+the run *source* — a challenge's `forcedModifiers`, and the daily's pair of cards (§8) — never by
+the profile, and the
 cards are taken before the first tick, so they count for synergies exactly like drafted ones. Two
 consequences worth knowing:
 
@@ -350,7 +352,7 @@ the words the player reads and the arithmetic the run uses cannot drift apart.
 
 | Screen | What it shows | What it writes |
 | --- | --- | --- |
-| `BirdSelectionScreen` | the seven birds as a `CardGrid` with a procedural portrait in the selected palette, the archetype, and — for a locked one — the **cheapest** way to open it in words; the palette swatches with their conditions; the tier picker with the locked tiers marked (E19); the loadout row — one active chip, one chip per passive slot the bird and the `passive_slot` grant give, and a fixed chip per innate passive — with the ability panel beside it (level, next level's price, and what each level does); and the stat breakdown of the run that would start right now | `SelectionManager` (bird, palette, tier, loadout), `UnlockManager` (Buy), `UpgradeManager.buyAbilityLevel` |
+| `BirdSelectionScreen` | the seven birds as a `CardGrid` with a procedural portrait in the selected palette, the archetype, and — for a locked one — the **cheapest** way to open it in words; the palette swatches with their conditions; the tier picker with the locked tiers marked (E19); the run-mode row (§8) — Standard, Seeded and, when the screen has a clock, Daily, each saying what it would play; the loadout row — one active chip, one chip per passive slot the bird and the `passive_slot` grant give, and a fixed chip per innate passive — with the ability panel beside it (level, next level's price, and what each level does); and the stat breakdown of the run that would start right now | `SelectionManager` (bird, palette, tier, loadout), `UnlockManager` (Buy), `UpgradeManager.buyAbilityLevel`, and the mode row's write of the daily pick (E27) |
 | `UpgradeTreeScreen` | one tab per tree, nodes laid out by tier with a line from every prerequisite, each card carrying level/maximum, what one level does in words, the price of the next level and its state (tree locked / prerequisite missing / affordable / maxed / already unlocked); a locked tree shows its condition instead | `UpgradeManager.buy` |
 | `ShopScreen` | everything with a `purchase` branch the profile does not own, grouped into four tabs (birds, abilities, worlds, features), cheapest first, each with its price and whether the wallet covers it; an offer that is not playable yet says which milestone it arrives in | `UnlockManager.purchase` |
 | `ChallengesScreen` (M8) | the seven challenges in content order with a detail block — the world (labelled, never checked for unlocks, E6), the tier, the objective in words, the rewards, the forced modifiers and the challenge's own boss when it has one; each row carries the record `challenges.<id>` holds (attempted/completed) | pushes a `GameScreen` over itself through `ChallengeRunSource` (`RunLoadout.challengeConfigFor`), the profile's bird, palette and loadout under the challenge's world, tier, rules, forced cards and boss |
@@ -360,7 +362,7 @@ the words the player reads and the arithmetic the run uses cannot drift apart.
 
 | Where | What it says |
 | --- | --- |
-| `ShopScreen` | — per id, from `GameContent.featureMilestone` — only `feature:seeded_runs` *Arrives in M9* is left, which is buyable and read by nothing until then, so `GameContent.playable(FEATURE, id)` is false for it. Abilities carried the same note until M5 turned them on, `feature:modifiers` until M6 did, the four worlds behind Green Fields until M7 did, and challenges and achievements until M8 did (`BossEncounter`/`ObjectiveEvaluator` and `AchievementEvaluator`) |
+| `ShopScreen` | — per id, from `GameContent.featureMilestone` — **nothing today**: M9 shipped Seeded and Daily mode, which emptied the staging table, so every shipped id is buyable and playable. Abilities carried the note until M5 turned them on, `feature:modifiers` until M6 did, the four worlds behind Green Fields until M7 did, challenges and achievements until M8 did (`BossEncounter`/`ObjectiveEvaluator` and `AchievementEvaluator`) and `feature:seeded_runs` until M9 did (the mode row of the bird screen). The table stays in the code for the next feature that lands ahead of its system |
 | `UpgradeTreeScreen` | nothing any more. The seven nodes whose whole effect is `ABILITY_COOLDOWN_MULT`, `ABILITY_DURATION_MULT`, `SHIELD_CHARGES` or `REVIVES`, or whose grant is `ABILITY_CAP` / `PASSIVE_SLOT`, carried *Arrives in M5* on the card and on the stat row; M5 consumes all of them and the note is gone |
 | `BirdSelectionScreen` | the ability line still names the bird's innate passives, without a milestone note: Ironbeak's −20 % `COIN_MULT` buys a shield that is live from M5 (`docs/BALANCING.md` §7.1 measures it at +96 % gates for the `average` bot) |
 
@@ -390,21 +392,90 @@ still clickable).
 
 ---
 
-## 7. Prestige (M9)
+## 7. Prestige
 
-`PrestigeSystem` lands in M9; the data it will read is already final. At level 25 a prestige
-snapshots `prestigeBaseline` from the lifetime statistics, resets coins, experience, level,
-upgrades, ability levels, the caps, challenge records and the daily pick, keeps birds,
-cosmetics, achievements and statistics, increments `prestigeCount` (max 5), grants
-`cosmetic:<selectedBird>:prestige` and pushes `bonusPerPrestige × prestigeCount` into the
-`PRESTIGE` layer (E4, E23).
+`PrestigeSystem.prestige(profile, content)` is the one writer the reset has (E4, E23). It
+requires `level ≥ prestige.requiredLevel` (25) and `prestigeCount < prestige.maxPrestige` (5),
+then, in order:
 
-The evaluator already implements the half of it that matters to every other milestone: the
-cumulative conditions read "since prestige", so nothing condition-derived is granted twice.
+1. **Snapshot.** `profile.prestigeBaseline` is frozen from the lifetime statistics —
+   `totalRuns`, `totalGates`, `coinsEarned`, `bossesCleared[]`. This is the "before" every
+   cumulative unlock condition reads against afterwards.
+2. **Reset.** The wallet, the experience, the level (to 1), the upgrades, the ability levels,
+   `abilityLevelCap` (back to 2), `passiveSlotBonus` (back to 0), the challenge records and the
+   daily record are cleared. The selection falls back to the defaults too — not because E23
+   names it, but because E15's implied-unlock repair would otherwise re-grant whatever
+   `selected` pointed at on every load, forever, undoing the reset.
+3. **Rebuild `unlocked`** as the defaults (E18) union the kept ids — every `bird:*` and every
+   `cosmetic:*` the profile owned. Worlds, tiers, trees, abilities, challenges and features are
+   all earned again.
+4. **Keep.** The achievements and the lifetime statistics are untouched, which is why
+   `achievement`, `best_gates` and `best_points` conditions keep working across a prestige.
+5. **Bank.** `prestigeCount++` and `cosmetic:<selectedBird>:prestige` is granted — the golden
+   palette every bird ships (E20) — and `bonusPerPrestige × prestigeCount`
+   (`COIN_MULT PERCENT_ADD 0.05` per stack) travels into the `PRESTIGE` stat layer of every
+   later run through `PrestigeSystem.effectsOf`.
+
+The cumulative conditions themselves live in `UnlockEvaluator` (§2): `runs`, `total_gates` and
+`coins_earned_total` read the lifetime total **minus the baseline**, `world_cleared(w)` reads
+`bossesCleared` minus the baseline's list, and `level` reads the reset level — so a prestige
+neither dead-locks the progression nor re-grants anything already earned. `PrestigeSystemTest`
+asserts exactly that: nothing condition-derived is granted again on the next evaluation.
+
+The player-facing half is a panel in the statistics screen: what the profile has banked, what a
+prestige would reset, and an action button with a two-step confirm (press, then press again to
+arm it). The write goes straight back to the save, and the main menu grows the
+"Prestige ×{0}" badge while the count is above zero.
 
 ---
 
-## 8. Tests
+## 8. The daily challenge
+
+`progression.DailyChallenge` turns the UTC date into one fixed configuration (D28, E27), and
+`DailyRunSource` plays it. The pieces:
+
+- **The date is the whole seed.** `seed = fnv1a("daily:" + yyyy-MM-dd)`; the UTC date comes
+  from the injected `core.TimeSource` (`LocalDate.ofEpochDay(millis / 86 400 000)`), never from
+  a wall clock in a pure package. The pick is streamed from `RandomProvider(seed).stream("daily")`
+  — its own named stream, so it draws nothing the simulation uses — and two players on opposite
+  sides of the planet get the same challenge on the same UTC day with no server involved.
+- **The pick is drawn from unlocked content only**: one world the profile owns, one tier from
+  `economy.daily.tierPool` (`normal`, `hard`) intersected with the tiers it owns, and
+  `economy.daily.forcedModifierCount` (2) forced modifiers compatible with each other and with
+  the world and tier just drawn — `ModifierPool` is re-asked under `maxStacks`, `excludes`,
+  `requiresFlagsAbsent` and E12's derived inertness after every pick. The draw is uniform over
+  the eligible cards, not rarity-weighted: a daily is a fixed configuration, not an offer. An
+  empty pool degrades to the selected/default world and the lowest unlocked tier rather than
+  throwing. Forced daily modifiers do **not** require `feature:modifiers` — only drafting
+  mid-run does; what the daily does require is `feature:seeded_runs`, which the bird screen's
+  mode row checks.
+- **The pick is persisted (E27), and that is the point.** The first time the daily is *viewed*
+  or played, `profile.daily = {date, seed, worldId, tierId, modifierIds[], attempts, bestGates}`
+  is written; every later question about that date is answered from the record, so unlocking a
+  new world at lunchtime cannot move the challenge the player practised in the morning. A
+  stored pick is rebuilt exactly once, and only when the content can no longer play it (an id
+  removed by an edit or an older save) — `Pick.reused()`/`note()` say which happened.
+- **Rewards and records.** A daily run pays `economy.daily.rewardMult` (×1.25) on top of the
+  normal formula, and `ProgressionManager.apply` records `attempts++` and the best gate count
+  for every finished daily run. The instant retry (D29) keeps the seed — `DailyRunSource`
+  ignores the seed the game-over screen asks for — so one day is one configuration, played as
+  often as the player likes.
+
+The mode row of `BirdSelectionScreen` (§6) carries the UI: Standard and Seeded are always
+listed; Daily is listed when the screen has a clock and marked with its unlock condition while
+`feature:seeded_runs` is locked; the row's detail line names the world, tier and cards of the
+run Play would start — and *that* is the read that settles the day.
+
+**The MetaSim thresholds (E25)** that pin the economy the daily and the prestige sit on top of
+are measured, with the full runs-to-unlock table, in `docs/BALANCING.md` §13: the saver reaches
+world 2 in a mean of 2.2 runs (bound ≤ 10; novice ≤ 15), the spender owns every non-cosmetic
+unlockable by run 25 on average (bound ≤ 200) and has every node and ability level maxed by
+run 15.3 (bound ≤ 600), and the novice journey cells of E17 (upgrade run 3, Ironbeak run 3,
+shield run 5, `feature:modifiers` run 7) all hold.
+
+---
+
+## 9. Tests
 
 | Test | Covers |
 | --- | --- |
@@ -426,6 +497,10 @@ cumulative conditions read "since prestige", so nothing condition-derived is gra
 | `CollectionProgressTest` (M8) | per-category owned/total and the floored percentage, `all` last, agreement with `UnlockEvaluator`'s counter arithmetic |
 | `ProgressionManagerTest`, `UnlockChainTest` (M8) | a first world clear granting `boss.reward` and paying the boss term (E26: a challenge boss grants neither), a first challenge completion paying `challenge.rewards` (E11) and repeats paying the bonus alone, hidden achievements evaluating like any other, and E17's purchase-fired achievements |
 | `AchievementsScreenTest`, `ChallengesScreenTest` (M8) | the three tabs (unlock dates, `???` rows, the five milestone bars, the collection bars), and the challenge list's detail block, records and locked state with E6's no-unlock-check rule |
+| `DailyChallengeTest` (M9) | the same UTC date picking the same configuration, the pick drawn only from unlocked content, the forced pair's compatibility, the stored pick surviving a new unlock (E27), the once-only rebuild when content can no longer play it, and `attempts`/`bestGates` recorded per attempt |
+| `PrestigeSystemTest` (M9) | the E23 reset to the letter — the baseline snapshot, what is reset and what is kept, the cap at 5, the golden palette, the `PRESTIGE` layer — and that nothing condition-derived is re-granted on the next evaluation |
+| `MetaSimTest` (`@sim`, M9) | the E25 thresholds of §8 and `docs/BALANCING.md` §13.1: the saver cells, the spender's completion cells, the E17 journey and the synergy rate |
+| `DailyModeUiTest`, `PrestigeWiringTest`, `PrestigeUiTest` (M9) | the mode row listing Daily only with a clock and marking the unlock condition, the run the mode starts, the two-step prestige confirm writing the save, and the menu badge |
 | `ProceduralRenderTest`, `SmokeWindowTest` | the three screens headless in both languages, and through a real window with the Robot buying the cheapest bird |
 
 Run them with `./gradlew test` and `./gradlew simTest`.

@@ -282,8 +282,9 @@ Three groups come out of this:
 * **Economy nodes do exactly what they say.** `coin_purse_1` maxed is +17.6 % payout for 1 200
   coins and `coin_rain_1` is +7.0 % for 840; both pay for themselves and neither touches survival.
   `lodestone_1` is worth 0.15 coins a run to the bot, which flies a fixed line and picks up almost
-  the whole trail without a magnet — it is a comfort node for a human, and M9's MetaSim should
-  re-measure it against a policy that misses coins.
+  the whole trail without a magnet — it is a comfort node for a human, and M9's MetaSim (§13)
+  confirmed it is harmless to the thresholds rather than re-measuring it against a coin-missing
+  policy; that measurement stays open (docs/ROADMAP.md).
 * **Seven nodes were M5 content** (`quick_recharge_1`, `ability_scholar_1`, `tempered_shield_1`,
   `ability_forge_1`, `cooldown_forge_1`, `master_forge_1`, `second_chance_1`) — 10 150 of the
   21 400. Until M5 their effects resolved in the stat sheet and nothing consumed them, so the
@@ -313,6 +314,9 @@ written and records the measurement here instead of re-authoring it. **For M9:**
 buy a dead node on the way to a live one. Note also that nothing refunds an upgrade —
 `UpgradeManager` has no respec path; only an `aliases.json` removal pays coins back — so a player
 who buys it on `heavy` cannot undo it.
+
+M9 took the first fork: §12.2 retunes the node in data so its cap cuts into the measured dive
+range, and §6.2's `+0.00` row is the M4-era measurement it supersedes.
 
 ### 6.4 The bot is not a monotone oracle
 
@@ -363,7 +367,9 @@ Two of these are honest and five need M9's attention:
   two defensive passives measure 205.4 mean gates against 158.8 for one) and is not visible in this
   M4 table.
 * **Jackdaw (`gambler`) does not recover its −54 % gates** with +30 % score and coins, at any tree
-  level — 222.26 plain and 171.79 maxed. It is the clearest retune candidate for M9.
+  level — 222.26 plain and 171.79 maxed. It was the clearest retune candidate for M9; M9's pass
+  (§12, §13) retuned only what a threshold demanded, and the meta cells passed on the shipped
+  bird data, so the retune stays an open, recorded question (docs/ROADMAP.md).
 * `swift` and `heavy` both lose payout when the tree is maxed, for the §6.4 reason.
 
 ### 6.6 The participation gate catches beginners
@@ -690,10 +696,10 @@ already took something.
 
 ## 9. What is not yet measured here
 
-The runs-to-unlock table that `BalancingSim --meta` prints (M9, E25) extends this document when
-it lands; the worlds are §10. Four M4 measurements, three M5 ones and two M6 ones are
-recorded above as open questions for M9 rather than as settled balance:
-`glide_1` cannot bind (§6.3), the bot is not monotone in the stats the tree sells (§6.4), Jackdaw and
+The runs-to-unlock table that `BalancingSim --meta` prints (M9, E25) landed as §13; the worlds
+are §10. Four M4 measurements, three M5 ones and two M6 ones are
+recorded above as open questions rather than as settled balance:
+`glide_1` cannot bind (§6.3 — closed by the M9 retune, §12.2), the bot is not monotone in the stats the tree sells (§6.4), Jackdaw and
 Oracle do not pay for themselves (§6.5), the participation gate zeroes one novice run in five (§6.6),
 `coin_magnet` needs off-path coins to be worth anything (§7.3), `emergency_recovery` and `shield` are
 priced apart but measure the same (§7.4), the ground save has no animation (§7.5), `glass_wings` is
@@ -964,7 +970,45 @@ nightmare, 38 % on Storm Sky hard) — the phases are authored patterns the bot'
 oracles read exactly, and §10.3 already showed every phase survivable in isolation. The novice
 column is the honest one: a boss is a wall for a beginner and a coin flip for the average bot,
 which is the difficulty the world unlock chain (`world_cleared` or a purchase, E18) is designed
-around. No boss block was changed.
+around. No boss block was changed (M9 later softened one phase pattern — the note below).
+
+### 11.2.1 Boss clear by tier, and the `forge_boss_p2` fix (M9 review)
+
+The table above measured every boss on the default tier only, and the M9 review swept the
+encounters per tier (`--boss all --tier all`, 2026-09-04): every world × tier cell clears 30 %
+with the expert — except **iron_forge on hard: 0/30 at every skill**, all thirty expert deaths a
+`PISTON`, while the same fight on the same build cleared 30/30 on normal and 30/30 on nightmare.
+A 100-seed perfect sweep on hard scored 0/100, and whole-run clears on hard (`--world
+iron_forge --tier hard --seeds 40`) were 0/40 expert, 0/40 perfect and 1/40 average — so on hard
+the boss reward (400 coins) and the `world:storm_sky` unlock were unreachable, and the daily
+(`economy.daily.tierPool [normal, hard]`) could draw a day whose boss payout could not be earned.
+
+The isolated pattern was *not* the problem (§10.3: survivable for 2 400 ticks) and the tier
+shape alone was not either: reverting only the speed (`×1.15`) or only the gap (`×0.90`) left
+the perfect pilot at 0/20 — the fight hung on which phase the presses had reached when their
+columns crossed the bird at the hard combination (world `×1.10` on top of tier `×1.10`). The
+root cause is geometric: `forge_boss_p2`'s presses were `length 300`, and `2 × 300 > 598` leaves
+the top and bottom corridors with **no overlap** — a crossing window in which both heads reach
+their authored extension has no legal y, so survival depended on the arrival phase, and hard's
+speed landed the columns in the trapped phases while normal and nightmare landed them in open
+ones. The fix is the shape `void_boss_p2` already plays: `length 300 → 260` on all four presses,
+so the corridors overlap at every arrival phase and the fight is won by flying, not by phase
+luck. `dx`, `telegraphTicks` and `phaseOffset` are untouched; no tier block moved for this.
+
+After the fix (`--boss iron_forge`, expert, 30 seeds per tier): normal 30/30, hard 30/30,
+nightmare 30/30; perfect, 100 seeds per tier: 99/97/95. In-run clears on hard are back to the
+shape of the other worlds: average 35 %, expert 85 %, perfect 90 % (40 seeds). The per-tier
+sweep is now a gate — `ContentFeasibilityTest.theExpertSurvivesEveryWorldBossEncounter` loops
+every world over `normal`, `hard` and `nightmare` at the same 30 % bar, so an unwinnable tier
+boss cannot ship again. The shipped per-tier table (expert, 50 seeds, started at the boss):
+
+| world | normal | hard | nightmare |
+| --- | --- | --- | --- |
+| green_fields | 100 % | 94 % | 94 % |
+| wind_valley | 96 % | 98 % | 92 % |
+| iron_forge | 100 % | 96 % | 98 % |
+| storm_sky | 100 % | 96 % | 90 % |
+| void | 100 % | 94 % | 98 % |
 
 ### 11.3 What the encounter does to a run, in numbers
 
@@ -1009,3 +1053,260 @@ with the layer count; the range across the shipped content is 10–27 ms against
 the test asserts (`RENDER_BUDGET_MS`), so a new world has room to be denser than any shipped
 one. The numbers move a few ms between runs and machines — the assertion is the budget, not
 these cells; re-run `./gradlew test --tests '*MusicSequencerTest*'` after retuning a block.
+
+## 12. M9 tier balance and the `glide_1` retune
+
+Both retunes are data-only: `difficulty.json`'s two tier blocks and `upgrades.json`'s `glide_1`
+node, plus the one boss-phase softening the M9 review demanded (`forge_boss_p2`'s press length,
+§11.2.1), each verified against the published hash (`hash=eaaa01685261a433`) afterwards — the
+classic headless run carries no tier, no upgrades and no boss, so none of the three can move it.
+
+### 12.1 The hard and nightmare tiers (D20, E19, E25)
+
+The expert's boss-gate reach per world × tier cell is `ContentFeasibilityTest`'s first method
+(50 seeds per cell, `--world all --tier all --skill expert --seeds 50`), held to the same 30 %
+bar (`MIN_RATE = 0.30`) the M8 challenge and boss rows use. On the D20 shape the table measured
+(reach of `boss.atGate`, percent of 50 seeds, review pass of 2026-09-04):
+
+| world | normal | hard | nightmare |
+| --- | --- | --- | --- |
+| green_fields | 100 | 84 | **32** |
+| wind_valley | 98 | 98 | 92 |
+| iron_forge | 98 | 80 | 64 |
+| storm_sky | 90 | **38** | **38** |
+| void | 98 | 92 | 58 |
+
+Every cell clears the bar, but the three tightest sit two to eight points over it — inside the
+noise of a 50-seed binomial (the 95 % interval of a 32 % cell spans roughly 20–47 %). The shipped
+shape softens the speed and gap multipliers only:
+
+* `hard`: `SCROLL_SPEED ×1.15 → ×1.10`, `GAP_SIZE ×0.9 → ×0.92`;
+* `nightmare`: `SCROLL_SPEED ×1.3 → ×1.20`, `GAP_SIZE ×0.8 → ×0.85`.
+
+The flags (`ALL_OBSTACLES_MOVE`, `LETHAL_CEILING`), the reward multipliers (1.5 / 2.5), the
+classic and standard curves, the normal tier and `birds.json` are untouched; the diff of
+`difficulty.json` against the M8 commit moves exactly the two tier blocks and this section's
+comment. The table after the retune:
+
+| world | normal | hard | nightmare |
+| --- | --- | --- | --- |
+| green_fields | 100 | 96 | 64 |
+| wind_valley | 98 | 94 | 96 |
+| iron_forge | 98 | 84 | 86 |
+| storm_sky | 90 | 52 | 46 |
+| void | 98 | 92 | 78 |
+
+The tightest cell moves from 32 % to 46 % (storm_sky nightmare) and no cell lost ground on hard
+beyond noise; the bar is now cleared with a margin a 50-seed cell can actually resolve.
+
+### 12.2 `glide_1`: from a dead node to a binding one (§6.3 closed)
+
+§6.3's M9 fork was "give `glide_1` an effect that binds inside the reachable range … or drop it
+from `updraft_1.prereqs`". The measurement closes it with the first option, in data.
+
+**The census.** Driven by the section 6.2 methodology (bird `classic`, tier `normal`, Green
+Fields, `average` bot), the deepest per-run dive over the seed families 1–1000 and
+100000–100999 (2000 runs) is p50 1035, p75 1065, p90 1095, p95 1125, p99 1155, max 1215 px/s —
+far under both the 1500 px/s cap and §6.3's 1447 px/s free-fall bound, so the plan's `−0.10`
+(cap 1350) never engages and caps 1200 and 1125 engage on almost no seed.
+
+**The sweep.** Mean ΔGates / ΔPayout against the no-node baseline (71.92 gates / 375.30 payout
+on seeds 1–1000), one row per per-level value, `average` bot:
+
+| per-level value | L1 cap | L2 cap | L1 ΔGates / ΔPayout | L2 ΔGates / ΔPayout |
+| --- | --- | --- | --- | --- |
+| `−0.10` (plan) | 1350 | 1200 | **+0.00 / +0.00** | **+0.00 / +0.00** |
+| `−0.25` (first M9 draft) | 1125 | 750 | +0.00 / +0.00 (300 seeds) | −5.97 / −31.15 (300 seeds) |
+| `−0.30` linear | 1050 | 600 | +2.53 / +10.25 (300 seeds); +1.40 / +6.16 (1000) | +1.17 / +6.08 (300 seeds); **−4.17 / −20.54** (1000) |
+| `−0.35` linear | 975 | 450 | +1.47 / +4.57 (300 seeds) | −13.73 / −64.76 (300 seeds) |
+| `−0.40` linear | 900 | 300 (floor) | −3.17 / −15.57 (300 seeds) | −39.92 / −198.13 (300 seeds) |
+
+Two facts fall out. Every cap that binds shallowly (1350, 1200, 1125) measures exactly zero —
+the node cannot register until its cap cuts into the dive distribution, whose top is ~1155–1215.
+And every cap that binds deeply (900 and below) measures two to three sigma negative: the clamped
+dive arrives at the low band too late. The only operating points that are not zero or negative
+are caps 1050 and 975.
+
+**The shipped shape.** `effectsPerLevel −0.30` (L1 cap 1050) with the format's `levelOverrides`
+carrying its first use: level 2 is overridden to `−0.35` (cap 975) instead of the linear `−0.60`
+(cap 600, the 1000-seed negative above). Pooled over both 1000-seed families, against the
+no-node baseline (71.90 gates / 375.17 payout over 2000 runs):
+
+| owned level | cap | ΔGates | ΔPayout | deaths per 2000 |
+| --- | --- | --- | --- | --- |
+| L1 (90 coins) | 1050 | +0.71 | +2.90 | 925 vs 937 (−12) |
+| L2 (290 total) | 975 | +1.09 | +3.60 | 918 vs 937 (−19) |
+
+The deltas are small — about one sigma — but they agree in direction across both families and
+the death count, and the expert bot is unchanged (240.45 / 239.83 / 242.05 gates at L0/L1/L2 on
+300 seeds, well inside its own spread). The plan's shape measured *exactly* nothing; the shipped
+shape measurably survives longer and pays more, which is what E25's spender needs from the
+second-cheapest node on the flight tree. `updraft_1` keeps `glide_1` as a prerequisite now that
+the prerequisite is alive. Prices are untouched (90/200), so `NewPlayerJourneyTest`'s run-window
+pins hold; the economy needs no compensation because neither the tier reward multipliers nor any
+node cost moved.
+
+*Measurement note:* the harness was the section 6.2 cell methodology driven through
+`RunConfig.Builder.permanentEffects` + `UpgradeDef.effectsAt` (the same binding the run loadout
+uses), deleted after recording; re-derive any row with a five-line variant of the §6.2 harness.
+
+## 13. MetaSim (M9)
+
+§6 measured the meta-progression cell by cell; this section closes it with the measurement E25
+demands — whole careers. `MetaSim` (`gameplay/harness`) plays a fresh profile run after run
+through the *real* progression stack (`ProgressionManager.apply` with the shipped
+`AchievementEvaluator` and `UnlockEvaluator`, purchases through `UnlockManager` and
+`UpgradeManager`) under one of the two purchase policies, and `BalancingSim --meta` prints the
+runs-to-unlock table: per non-cosmetic unlockable id, the run index at which the id was first
+owned, averaged over the seed lines (a purchase made in the shopping pass after run *r* counts
+as run *r*; the defaults the fresh profile already owns, E18, are recorded as owned at run 0 —
+that is why `bird:classic` and `tree:flight` read 0.0).
+
+**The fixed rules.** Both policies fly the same runs and differ only at the shop, so a table row
+means one thing:
+
+* the run is the default cell (classic bird, Green Fields, normal tier) with the *hard* tier as
+  soon as `tier:hard` is owned (E25 asks the spender to max the trees "playing `tier:hard` once
+  unlocked"); the owned abilities are auto-equipped in content order — the first owned `ACTIVE`
+  ability into the active slot, every owned `PASSIVE` ability into the passive slots (the run
+  strips what the bird's slots cannot hold, D9);
+* `spender` empties the wallet every run by priority class — features, then worlds, then birds
+  and abilities, then ability levels, then trees and nodes — always the cheapest affordable item
+  of the current class, skipping to the next class when nothing there is affordable, never
+  hoarding (trees ride with the node class: a node whose tree is locked is bought by unlocking
+  the tree first). Cosmetics and the three purchasable modifiers sit outside the classes E25
+  names, so the spender never buys them; the modifiers arrive through their level branch instead;
+* `saver` buys at most one item per run, the cheapest not-yet-owned world or feature, and keeps
+  the rest — the player who saves for the next world and nothing else;
+* the skill is a shipped `BotPilot` preset (novice 12/24, average 8/12). Nothing here tunes the
+  bot: when a threshold below failed, the lever was a price or a reward in `data/*.json`, never
+  the pilot;
+* determinism: seed line *l* plays run *i* on seed `1_000_000 × (firstSeed + l) + i`, iteration
+  is content order everywhere, the clock is an injected `TimeSource` stepped once per run. Every
+  number in this section reproduces from the command lines verbatim.
+
+**Commands.** `./gradlew --offline balancing -PtoolArgs="--meta --policy spender --skill average
+--runs 250"` (the E25 gate cell, 20 seed lines from seed 1, tick budget 20 000), `--policy saver
+--skill average --runs 60`, `--policy saver --skill novice --runs 60` and `--policy spender
+--skill novice --runs 8` (the E17 journey cell). `MetaSimTest` (@sim) asserts the same cells.
+
+### 13.1 The E25 thresholds, measured
+
+| threshold | bound | measured | where asserted |
+| --- | --- | --- | --- |
+| spender-average owns every non-cosmetic unlockable | ≤ 200 runs | **mean 25.0**, worst 25, 20/20 lines | `MetaSimTest` |
+| spender-average maxes every node and ability level | ≤ 600 runs | **mean 15.3**, 20/20 lines | `MetaSimTest` |
+| saver-average reaches `world:wind_valley` | ≤ 10 runs | **mean 2.2**, worst 4 | `MetaSimTest` |
+| saver-novice reaches `world:wind_valley` | ≤ 15 runs | **mean 7.0**, worst 9 | `MetaSimTest` |
+| spender-novice buys `feather_1` (E17) | ≤ run 3 | **mean 1.15**, worst 3 | `MetaSimTest` |
+| spender-novice owns `bird:guardian` (E17) | ≤ run 3 | **mean 3.0**, worst 3 | `MetaSimTest` |
+| spender-novice owns `ability:shield` (E17) | ≤ run 5 | **mean 5.0**, worst 5 | `MetaSimTest` |
+| spender-novice owns `feature:modifiers` (E17) | ≤ run 7 | **mean 5.6**, worst 7 | `MetaSimTest` |
+| synergy activation among runs reaching offer 3 (M6) | ≥ 20 % | **69.9 %** (304 of 435) | `MetaSimTest` |
+
+All nine gates pass on the shipped data. **No data tuning was needed for the meta thresholds** —
+the only M9 data changes remain §12's blocks (the two tiers, `glide_1` and the `forge_boss_p2`
+softening of §11.2.1), none of which carries a meta price or reward. The
+spender's lines end early: everything is owned and maxed by run 25 on average, so the 250-run
+budget is never reached (the simulation stops once both milestones are met). The synergy rate is
+measured over the spender-average runs that opened the third modifier offer; the novice cells
+almost never reach offer 3 (one run in the saver-novice cell did), so the M6 criterion is only
+meaningful for the average bot, which is the bot the M6 criterion names.
+
+### 13.2 The runs-to-unlock table (spender-average, 20 seed lines)
+
+`runs<=250`, seed family from seed 1; "mean / worst" is the run index at which the id was first
+owned; "owned" is the lines that owned it. Every line owns everything, so the ≤ 200 gate reads
+directly off the worst column: the last id to land is `challenge:one_life_1` at run 25 (its
+`all_of` of endgame purchases is the designed tail, and it *is* the completion row of §13.1).
+
+| id | mean | worst | owned |
+| --- | --- | --- | --- |
+| bird:classic | 0.0 | 0 | 20/20 |
+| bird:swift | 1.4 | 4 | 20/20 |
+| bird:heavy | 2.1 | 4 | 20/20 |
+| bird:guardian | 1.8 | 3 | 20/20 |
+| bird:gambler | 1.7 | 6 | 20/20 |
+| bird:mystic | 3.5 | 6 | 20/20 |
+| bird:forge | 2.7 | 6 | 20/20 |
+| ability:double_flap | 0.0 | 0 | 20/20 |
+| ability:shield | 2.8 | 5 | 20/20 |
+| ability:dash | 1.4 | 3 | 20/20 |
+| ability:coin_magnet | 1.5 | 5 | 20/20 |
+| ability:slow_time | 1.6 | 4 | 20/20 |
+| ability:emergency_recovery | 3.3 | 6 | 20/20 |
+| ability:score_multiplier | 1.5 | 5 | 20/20 |
+| ability:invulnerability | 3.5 | 6 | 20/20 |
+| modifier:tailwind | 1.0 | 1 | 20/20 |
+| modifier:score_plus | 1.0 | 1 | 20/20 |
+| modifier:coin_drops | 1.0 | 1 | 20/20 |
+| modifier:slower_obstacles | 1.0 | 1 | 20/20 |
+| modifier:quick_hands | 1.0 | 1 | 20/20 |
+| modifier:light_frame | 1.0 | 1 | 20/20 |
+| modifier:streak_bounty | 1.0 | 1 | 20/20 |
+| modifier:temp_shield | 1.0 | 1 | 20/20 |
+| modifier:magnet_burst | 1.0 | 1 | 20/20 |
+| modifier:wide_gaps | 1.0 | 1 | 20/20 |
+| modifier:heavy_wallet | 1.0 | 1 | 20/20 |
+| modifier:glass_wings | 1.0 | 1 | 20/20 |
+| modifier:second_wind | 1.0 | 1 | 20/20 |
+| modifier:long_fuse | 1.0 | 1 | 20/20 |
+| modifier:gold_rush | 2.6 | 6 | 20/20 |
+| modifier:phoenix | 2.6 | 6 | 20/20 |
+| modifier:stormrider | 2.6 | 6 | 20/20 |
+| tree:flight | 0.0 | 0 | 20/20 |
+| tree:economy | 1.4 | 4 | 20/20 |
+| tree:forge | 7.6 | 13 | 20/20 |
+| tier:normal | 0.0 | 0 | 20/20 |
+| tier:hard | 2.5 | 6 | 20/20 |
+| tier:nightmare | 5.2 | 8 | 20/20 |
+| world:green_fields | 0.0 | 0 | 20/20 |
+| world:wind_valley | 2.5 | 6 | 20/20 |
+| world:iron_forge | 2.7 | 6 | 20/20 |
+| world:storm_sky | 3.2 | 6 | 20/20 |
+| world:void | 4.2 | 6 | 20/20 |
+| challenge:no_shield_1 | 1.5 | 5 | 20/20 |
+| challenge:speed_run_1 | 1.7 | 6 | 20/20 |
+| challenge:tiny_wings_1 | 1.4 | 4 | 20/20 |
+| challenge:moving_world_1 | 2.7 | 6 | 20/20 |
+| challenge:one_life_1 | 25.0 | 25 | 20/20 |
+| challenge:coin_rush_1 | 2.3 | 5 | 20/20 |
+| challenge:boss_corridor_1 | 2.7 | 6 | 20/20 |
+| feature:modifiers | 1.6 | 5 | 20/20 |
+| feature:seeded_runs | 1.4 | 3 | 20/20 |
+
+The headline for the reader: an average player who buys something every run has everything the
+game sells by run 25 — 12.5 % of E25's 200-run budget — and the trees maxed by run 15, because the
+hard tier's ×1.5 reward multiplier arrives at run 2.5 and the economy compounds from there. The
+tail is one designed id (`challenge:one_life_1`, an `all_of` of endgame purchases), not a
+grind wall; if a future content change wants a longer progression curve, the lever is the
+challenge's condition and the late prices, not the reward rate that nine thresholds above sit
+on.
+
+### 13.3 The saver cells
+
+The saver never buys birds, abilities, tiers or nodes, so its table is sparse by construction:
+birds arrive through their unlock conditions (`bird:heavy` mean 4.0, `bird:mystic` 19/20 lines at
+60 runs under saver-novice), and 0/20 lines complete or max — the saver is not a completion
+policy, it is the "how fast is world 2" instrument:
+
+| cell | `world:wind_valley` mean / worst | bound |
+| --- | --- | --- |
+| saver-average, 60 runs | **2.2 / 4** | ≤ 10 |
+| saver-novice, 60 runs | **7.0 / 9** | ≤ 15 |
+
+Under saver-novice the later worlds land at `world:iron_forge` 14.0, `world:storm_sky` 19.3,
+`world:void` 34.7 — a rough "one world every 7–15 novice runs" cadence that the M4 prices were
+designed for and that these cells now measure.
+
+### 13.4 What the cells do not cover
+
+* The spender-novice cell at 60 runs does *not* complete (0/20 maxed): a novice spender needs
+  roughly 5× the average bot's run count to max the trees. E25 sets no novice maxing gate, so
+  this is recorded, not thresholded.
+* `MetaSim` tracks node first-buys (`Outcome.meanFirstBuy`) for the E17 journey but the printed
+  table covers unlockables only; §13.1's `feather_1` row was read from `Outcome` directly.
+* Prestige is out of scope for the simulation: its spender lines end at run 25 on average (the
+  simulation stops once everything is owned and maxed), so it never plays a second career, and
+  E25's thresholds are written about a first one. `PrestigeSystem`'s semantics carry their own
+  test (`PrestigeSystemTest`) and its conditions are cosmetic-only (E20).

@@ -38,6 +38,8 @@ import java.util.Objects;
  * @param passiveSlotBonus extra passive slots the profile earned (E3, {@code
  *     profile.passiveSlotBonus}); the loadout keeps {@code BirdDef.passiveSlots + this} passives
  * @param permanentEffects snapshot of upgrade effects (layer {@code UPGRADES})
+ * @param prestigeEffects snapshot of prestige-bonus effects (layer {@code PRESTIGE}, E23); empty
+ *     for a profile that never prestiged, which is what keeps the pinned classic run where it is
  * @param abilityLevels owned level per ability id
  * @param upgradeLevelsTotal total of owned upgrade levels (bird synergies)
  * @param forcedModifiers modifiers pre-taken at start (challenge/daily)
@@ -52,6 +54,7 @@ import java.util.Objects;
 public record RunConfig(long seed, String birdId, String paletteId, String worldId, String tierId,
         String challengeId, RunMode mode, String activeAbilityId, List<String> passiveAbilityIds,
         int passiveSlotBonus, List<StatModifier> permanentEffects,
+        List<StatModifier> prestigeEffects,
         Map<String, Integer> abilityLevels, int upgradeLevelsTotal, List<String> forcedModifiers,
         List<String> availableModifiers, RuleSet rules, boolean allowOffers,
         boolean bossEnabled) {
@@ -79,6 +82,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
      * @param passiveAbilityIds passive abilities
      * @param passiveSlotBonus extra passive slots
      * @param permanentEffects upgrade effects
+     * @param prestigeEffects prestige-bonus effects (E23)
      * @param abilityLevels ability levels
      * @param upgradeLevelsTotal total upgrade levels
      * @param forcedModifiers forced modifiers
@@ -96,6 +100,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         Objects.requireNonNull(rules, "rules");
         passiveAbilityIds = List.copyOf(passiveAbilityIds);
         permanentEffects = List.copyOf(permanentEffects);
+        prestigeEffects = List.copyOf(prestigeEffects);
         abilityLevels = Collections.unmodifiableMap(new LinkedHashMap<>(abilityLevels));
         forcedModifiers = List.copyOf(forcedModifiers);
         availableModifiers = List.copyOf(availableModifiers);
@@ -141,6 +146,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         b.passiveAbilityIds = new ArrayList<>(passiveAbilityIds);
         b.passiveSlotBonus = passiveSlotBonus;
         b.permanentEffects = new ArrayList<>(permanentEffects);
+        b.prestigeEffects = new ArrayList<>(prestigeEffects);
         b.abilityLevels = new LinkedHashMap<>(abilityLevels);
         b.upgradeLevelsTotal = upgradeLevelsTotal;
         b.forcedModifiers = new ArrayList<>(forcedModifiers);
@@ -174,6 +180,7 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         private List<String> passiveAbilityIds = new ArrayList<>();
         private int passiveSlotBonus;
         private List<StatModifier> permanentEffects = new ArrayList<>();
+        private List<StatModifier> prestigeEffects = new ArrayList<>();
         private Map<String, Integer> abilityLevels = new LinkedHashMap<>();
         private int upgradeLevelsTotal;
         private List<String> forcedModifiers = new ArrayList<>();
@@ -319,6 +326,28 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         }
 
         /**
+         * Sets the prestige-bonus effects (E23).
+         *
+         * @param value the modifiers
+         * @return this builder
+         */
+        public Builder prestigeEffects(List<StatModifier> value) {
+            prestigeEffects = new ArrayList<>(value);
+            return this;
+        }
+
+        /**
+         * Adds one prestige-bonus effect.
+         *
+         * @param value the modifier
+         * @return this builder
+         */
+        public Builder addPrestigeEffect(StatModifier value) {
+            prestigeEffects.add(value);
+            return this;
+        }
+
+        /**
          * Sets the ability levels.
          *
          * @param value level per ability id
@@ -404,8 +433,8 @@ public record RunConfig(long seed, String birdId, String paletteId, String world
         public RunConfig build() {
             return new RunConfig(seed, birdId, paletteId, worldId, tierId, challengeId, mode,
                     activeAbilityId, passiveAbilityIds, passiveSlotBonus, permanentEffects,
-                    abilityLevels, upgradeLevelsTotal, forcedModifiers, availableModifiers, rules,
-                    allowOffers, bossEnabled);
+                    prestigeEffects, abilityLevels, upgradeLevelsTotal, forcedModifiers,
+                    availableModifiers, rules, allowOffers, bossEnabled);
         }
     }
 }

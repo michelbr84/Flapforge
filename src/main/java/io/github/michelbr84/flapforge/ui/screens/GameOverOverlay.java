@@ -4,6 +4,7 @@ import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.run.RewardSummary;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunResult;
 import io.github.michelbr84.flapforge.gameplay.run.RunStats;
 import io.github.michelbr84.flapforge.input.InputAction;
@@ -75,8 +76,9 @@ public final class GameOverOverlay implements Screen {
     private final List<Row> rows = new ArrayList<>();
     private final String levelUpText;
     private final String challengeLine;
-    private final int panelY;
-    private final int panelH;
+    private int panelY;
+    private int panelH;
+    private boolean dailyShown;
     private PlayerProfile profile;
     private ProgressionRules rules;
     private int ticks;
@@ -165,6 +167,11 @@ public final class GameOverOverlay implements Screen {
         this.challengeLine = outcome != null && outcome.challengeFirstCompleted()
                 ? strings.format(StringKey.GAMEOVER_CHALLENGE_COMPLETED,
                         outcome.rewardSummary().challengeCoins()) : null;
+        layout();
+    }
+
+    /** Sizes the panel around the rows it holds and keeps it centred on {@link #PANEL_Y}. */
+    private void layout() {
         this.panelH = PANEL_H + (rows.size() - BASE_ROWS) * ROW_STEP
                 + (levelUpText == null ? 0 : LEVEL_LINE_H)
                 + (challengeLine == null ? 0 : LEVEL_LINE_H);
@@ -222,7 +229,28 @@ public final class GameOverOverlay implements Screen {
     public GameOverOverlay withProfile(PlayerProfile newProfile, ProgressionRules newRules) {
         this.profile = newProfile;
         this.rules = newRules;
+        // M9 (D28): a daily run says here how the day is going -- the best gate count of the date
+        // and which attempt this was. The numbers live on the profile, which arrives with this
+        // call, so the row joins the strip here rather than in the constructor.
+        if (newProfile != null && result.config().mode() == RunMode.DAILY && !dailyShown) {
+            dailyShown = true;
+            rows.add(new Row(strings.get(StringKey.MODE_DAILY), dailyValue(newProfile)));
+            layout();
+        }
         return this;
+    }
+
+    /**
+     * The daily row's value: the best gate count of the date and the attempt just flown (D28).
+     *
+     * @param owner the profile the run was written into
+     * @return the translated value
+     */
+    private String dailyValue(PlayerProfile owner) {
+        PlayerProfile.DailyRecord daily = owner.daily;
+        return daily == null || daily.attempts <= 0
+                ? strings.get(StringKey.DAILY_UNPLAYED)
+                : strings.format(StringKey.DAILY_RESULT, daily.bestGates, daily.attempts);
     }
 
     @Override

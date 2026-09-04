@@ -24,6 +24,9 @@ import org.junit.jupiter.api.Test;
  * <ul>
  *   <li>world × tier: the expert reaches {@code boss.atGate} in at least {@value #MIN_RATE} of
  *       {@value #SEEDS} seeds — {@code --world all --tier all --skill expert --seeds 50};</li>
+ *   <li>world boss × tier (M9 review): the expert clears the boss encounter in at least
+ *       {@value #MIN_RATE} of {@value #SEEDS} seeds on every tier —
+ *       {@code --boss all --tier all --skill expert --seeds 50};</li>
  *   <li>every pattern in isolation (boss phases and corridors included): the expert is still
  *       flying after {@value #PATTERN_TICKS} ticks in at least {@value #MIN_RATE} of the seeds —
  *       {@code --pattern all --skill expert --seeds 50 --ticks 2400}. The budget is longer than
@@ -31,11 +34,11 @@ import org.junit.jupiter.api.Test;
  *       that phase.</li>
  * </ul>
  *
- * <p>Every cell is held to the same bar. Green Fields nightmare is the tightest (32 % on the
- * review pass of 2026-09-02, up from 22 %): the tier's {@code ALL_OBSTACLES_MOVE} no longer
- * bends the gate layout roll (E32.d: the rule is applied at materialisation, so a gate rolled
- * static keeps the static layout mix, half of which floats), and M9's tier balance reads the
- * table from here.
+ * <p>Every cell is held to the same bar. The bar drove M9's tier balance: on the review pass of
+ * 2026-09-02 Green Fields nightmare was the tightest cell (32 %, up from 22 % once E32.d stopped
+ * the tier's {@code ALL_OBSTACLES_MOVE} from bending the gate layout roll — a gate rolled static
+ * keeps the static layout mix, half of which floats), so hard and nightmare were softened in
+ * {@code difficulty.json} and every world × tier cell now clears the bar with margin.
  */
 @Tag("sim")
 class ContentFeasibilityTest {
@@ -129,38 +132,49 @@ class ContentFeasibilityTest {
     }
 
     /**
-     * §6 M8: the expert survives every world's boss encounter in at least {@value #MIN_RATE} of
-     * {@value #SEEDS} seeds. The run starts at the boss ({@code RunSetup.startingAtBoss}: the
-     * warning at the first gate, the curve shifted to {@code atGate}), so what is measured is
-     * the fight and not the road to it, which the M7 table above already covers —
-     * {@code --boss all --skill expert --seeds 50}.
+     * §6 M8, M9 review: the expert survives every world's boss encounter in at least
+     * {@value #MIN_RATE} of {@value #SEEDS} seeds <b>on every tier</b>. The run starts at the
+     * boss ({@code RunSetup.startingAtBoss}: the warning at the first gate, the curve shifted to
+     * {@code atGate}), so what is measured is the fight and not the road to it, which the M7
+     * table above already covers — {@code --boss all --tier all --skill expert --seeds 50}.
+     *
+     * <p>The per-tier bar exists because tier speed interacts with an authored pattern's phase
+     * clock: M8 shipped a {@code forge_boss_p2} that the expert cleared 100 % on normal and
+     * nightmare and 0/30 on hard (the presses' corridors did not overlap, so the fight hung on
+     * the phase the columns arrived in at {@code 1.1 × 1.10} scroll), which made the boss reward
+     * and the {@code world:storm_sky} unlock unreachable on hard. The fight was softened in data
+     * (BALANCING.md §11.2); this gate is what stops an unwinnable tier boss from shipping again.
      */
     @Test
     void theExpertSurvivesEveryWorldBossEncounter() {
         List<String> report = new ArrayList<>();
         List<String> failures = new ArrayList<>();
         for (WorldDef world : CONTENT.worlds()) {
-            int cleared = 0;
-            int phases = 0;
-            for (int i = 0; i < SEEDS; i++) {
-                long seed = 1 + i;
-                RunConfig config = RunConfig.builder(seed).worldId(world.id()).build();
-                Run run = new Run(config, FACTORY.setup(config).startingAtBoss());
-                int budget = world.boss().warningTicks() + world.boss().surviveTicks() + 1200;
-                HeadlessRunner.run(run, new BotPilot(BotPilot.Preset.EXPERT, seed), budget);
-                if (run.stats().bossesCleared().contains(world.id())) {
-                    cleared++;
+            for (String tier : TIERS) {
+                int cleared = 0;
+                int phases = 0;
+                for (int i = 0; i < SEEDS; i++) {
+                    long seed = 1 + i;
+                    RunConfig config = RunConfig.builder(seed).worldId(world.id())
+                            .tierId(tier).build();
+                    Run run = new Run(config, FACTORY.setup(config).startingAtBoss());
+                    int budget = world.boss().warningTicks() + world.boss().surviveTicks() + 1200;
+                    HeadlessRunner.run(run, new BotPilot(BotPilot.Preset.EXPERT, seed), budget);
+                    if (run.stats().bossesCleared().contains(world.id())) {
+                        cleared++;
+                    }
+                    phases += run.stats().phasesReached();
                 }
-                phases += run.stats().phasesReached();
-            }
-            double rate = cleared / (double) SEEDS;
-            String line = String.format(Locale.ROOT, "%s boss (%d ticks, %d phases): %d/%d"
-                    + " cleared (%.0f %%, required %.0f %%), phases reached mean %.2f",
-                    world.id(), world.boss().surviveTicks(), world.boss().patterns().size(),
-                    cleared, SEEDS, 100 * rate, 100 * MIN_RATE, phases / (double) SEEDS);
-            report.add(line);
-            if (rate < MIN_RATE) {
-                failures.add(line);
+                double rate = cleared / (double) SEEDS;
+                String line = String.format(Locale.ROOT, "%s boss on %s (%d ticks, %d phases):"
+                        + " %d/%d cleared (%.0f %%, required %.0f %%), phases reached mean %.2f",
+                        world.id(), tier, world.boss().surviveTicks(),
+                        world.boss().patterns().size(), cleared, SEEDS, 100 * rate,
+                        100 * MIN_RATE, phases / (double) SEEDS);
+                report.add(line);
+                if (rate < MIN_RATE) {
+                    failures.add(line);
+                }
             }
         }
         System.out.println(String.join(System.lineSeparator(), report));

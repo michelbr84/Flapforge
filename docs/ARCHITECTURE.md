@@ -552,6 +552,63 @@ against a target, so two equal ramps at one target crossfade without a dip. A sl
 music volume to zero stops the loop instead of leaving it at the old gain, and raising it
 re-issues the loop the screens last asked for.
 
+## Run modes, daily, prestige and attract `[M9]`
+
+M9 adds four systems on top of the write path above. None of them changes its order; they only
+add readers of the profile and one new record.
+
+**The daily challenge (D28, E27).** `progression.DailyChallenge` derives the whole
+configuration from the UTC date: `seed = fnv1a("daily:" + yyyy-MM-dd)`, the date from the
+injected `core.TimeSource`, the pick streamed from `RandomProvider(seed).stream("daily")` — a
+named stream no simulation shares. One world, one tier from `economy.daily.tierPool` and two
+forced modifiers are drawn from *unlocked* content only, the modifier pair re-checked against
+the pool's compatibility rules after every draw. The first read settles the day: the pick is
+written to `profile.daily` (`date, seed, worldId, tierId, modifierIds, attempts, bestGates`) and
+reused for the date even if new content is unlocked afterwards, so a stored pick is rebuilt at
+most once and only when the content can no longer play it. `ui/screens.DailyRunSource` builds
+the run and ignores the retry seed — one day is one configuration, and `ProgressionManager.apply`
+records the attempts and the best gate count under `RunMode.DAILY` (the reward calculator
+applies `economy.daily.rewardMult`, ×1.25, for the mode).
+
+**Run modes (D28).** `RunMode` is `STANDARD / SEEDED / DAILY / CHALLENGE`; `RunConfig` carries
+the mode and `RunRewardCalculator` reads it. The bird selection screen's mode row lists
+Standard and Seeded always and Daily when it has a clock, marks the two gated ones with their
+`feature:seeded_runs` condition, and falls back to a standard run when Play is pressed on a
+locked mode. Seeded replays `profile.lastSeed`; a challenge keeps its own screen and source
+(M8).
+
+**Prestige (D13, E4, E23).** `progression.PrestigeSystem.prestige` is the one writer of the
+reset: it snapshots `profile.prestigeBaseline` from the lifetime statistics, resets wallet, XP,
+level, upgrades, ability levels and caps, challenge records and the daily pick, rebuilds
+`unlocked` as the defaults union the kept `bird:*`/`cosmetic:*` ids, keeps achievements and
+statistics, raises `prestigeCount` (max 5), grants `cosmetic:<selectedBird>:prestige` and pushes
+`bonusPerPrestige × prestigeCount` into the `PRESTIGE` stat layer via `effectsOf`. The
+"since prestige" reading of the cumulative conditions lives where it always has, in
+`UnlockEvaluator`, which subtracts the baseline — so the reset grants nothing twice. The
+statistics screen owns the two-step confirm and writes the save; the menu draws the badge.
+
+**Attract mode (M9).** `ui/screens.DemoScreen` plays a real `Run` with the `average` bot on a
+fixed attract seed, drawn from the named `attract` stream, behind the main menu: the menu starts
+it after twenty seconds without input (20 × tick-rate ticks), dims it under its own veil, and
+any input — a key, a click, a focus change that reaches the menu — cancels the demo and resets
+the idle timer; a focus loss or iconify freezes it. The demo runs profile-less (the content
+path of `ContentRunFactory`, boss off, no drafts, no banked rewards), so it can never depend on
+or mutate a save.
+
+**MetaSim (E25).** `gameplay.harness.MetaSim` is the career-scale harness: a fresh profile plays
+run after run through the real progression stack under one of two purchase policies
+(`spender`, `saver`) until a run budget is spent or nothing is left to buy, and
+`tools.BalancingSim --meta` prints the runs-to-unlock table `docs/BALANCING.md` §13 records.
+The policies branch on `PurchaseResult` values (§ "Spending" of `docs/PROGRESSION.md`), never
+on exceptions; the pilot is a shipped `BotPilot` preset, and thresholds are met by data, never
+by tuning the bot.
+
+**IconExport (E9).** `tools.IconExport` renders the procedural icon from its vector form and
+writes `build/icon/flapforge.png` (256²), `flapforge.ico` (PNG-in-ICO, 16/32/48/256) and
+`flapforge.icns` (PNG-in-ICNS, ic07–ic10); `scripts/package.sh` and `release.yml` hand the
+per-OS file to `jpackage --icon`. The tool is presentation-adjacent but ships in the `tools`
+source set, run by `./gradlew iconExport`.
+
 ## Package tree with milestone tags
 
 The tree below is the authoritative file plan (Appendix A §3 of the
@@ -695,7 +752,7 @@ removed from the tree once this table superseded it.
 | currency/Currency, Wallet, CurrencyReward | merged | `Wallet` + `economy.json.currencies` + `RewardSummary` |
 | unlock/Unlock, UnlockCondition, UnlockType, UnlockManager | merged | `UnlockConditionDef` + `UnlockEvaluator` + `UnlockManager` + namespaced id strings |
 | upgrade/Upgrade, UpgradeNode, UpgradeTree, UpgradeEffect, UpgradeManager | merged | `UpgradeDef` + `TreeDef` + `StatModifierDef` + `UpgradeManager` |
-| prestige/PrestigeSystem, PrestigeReward | deferred to M9 | `PrestigeSystem` + `economy.json.prestige` |
+| prestige/PrestigeSystem, PrestigeReward | landed [M9] | `PrestigeSystem` + `economy.json.prestige` |
 | ability/Ability, AbilityManager | kept | `ability.AbilityInstance`/`AbilityManager` |
 | ability/AbilityType, AbilityCooldown | merged | `AbilityDef.kind` + `AbilityInstance` |
 | abilities/Shield, DoubleFlap, Dash, SlowTime, CoinMagnet | kept (+3) | `ability.behaviors.*` (8 behaviours) |

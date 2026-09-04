@@ -8,7 +8,7 @@
 [![Gradle](https://img.shields.io/badge/Gradle-9.7-02303A?logo=gradle&logoColor=white)](https://gradle.org/)
 ![Genre](https://img.shields.io/badge/Genre-Arcade%20Roguelite-blueviolet)
 ![Meta Progression](https://img.shields.io/badge/Progression-Persistent-success)
-![Status](https://img.shields.io/badge/Status-In%20Development%20(rewrite)-yellow)
+![Release](https://img.shields.io/badge/Release-v0.1.0-blue)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **Flapforge** reimagines the classic Flappy Bird formula as a **Skill-Based Arcade Roguelite with Persistent Meta-Progression**.
@@ -39,6 +39,7 @@ The result is a game that preserves the instant accessibility and mechanical pre
 - [Challenges and Boss Runs](#challenges-and-boss-runs)
 - [World Progression](#world-progression)
 - [Difficulty](#difficulty)
+- [Game Modes](#game-modes)
 - [Controls](#controls)
 - [Getting Started](#getting-started)
 - [Running the Game](#running-the-game)
@@ -196,20 +197,23 @@ The most important difference between Flapforge and a traditional Flappy Bird ga
 
 A run may end, but the player's overall journey continues.
 
-Persistent progression can include:
+Persistent progression includes:
 
 | System | Description |
 | --- | --- |
-| **Currency** | Earn resources during runs and spend them between games |
-| **Birds** | Unlock playable birds with different characteristics |
-| **Abilities** | Unlock new mechanics and special actions |
-| **Upgrade Trees** | Permanently improve specific aspects of future runs |
-| **Worlds** | Unlock new environments and obstacle sets |
-| **Challenges** | Access special runs with unique rules |
-| **Milestones** | Reward long-term achievements |
-| **Difficulty Tiers** | Open harder variants with better rewards |
-| **Modifiers** | Change the rules of future runs |
+| **Currency** | Earn coins during runs and spend them in the shop |
+| **Birds** | Unlock seven playable birds with different characteristics |
+| **Abilities** | Unlock and level up eight mechanics and special actions |
+| **Upgrade Trees** | Permanently improve specific aspects of future runs across three trees |
+| **Worlds** | Unlock five environments and their obstacle sets |
+| **Challenges** | Access seven special runs with unique rules |
+| **Milestones** | Reward long-term achievements (41 in total) |
+| **Difficulty Tiers** | Open harder variants (`hard`, `nightmare`) with better rewards |
+| **Modifiers** | Draft run-changing cards mid-run |
 | **Collections** | Give players long-term completion goals |
+| **Daily Challenge** | One deterministic run per UTC day, with a recorded best |
+| **Seeded Runs** | Replay a seed to race yourself or share a challenge |
+| **Prestige** | Bank a career at level 25 for a permanent coin bonus and a golden palette |
 
 Progress should increase **possibilities**, not simply remove the need for skill.
 
@@ -225,15 +229,15 @@ A simplified early-game progression could look like this:
 
 | Run | Progression |
 | --- | --- |
-| **Run 1** | Classic flight → earn 50 coins |
-| **Run 2** | Purchase a movement upgrade |
-| **Run 3** | Unlock a bird with a special ability |
-| **Run 5** | Unlock a shield |
-| **Run 7** | Gain access to run modifiers |
-| **Run 10** | Unlock a new environment and obstacle family |
+| **Run 1** | Classic flight → earn ≈ 50 coins |
+| **Run 2–3** | Purchase a movement upgrade, unlock a bird with a special ability |
+| **Run 3** | Unlock the defensive bird (Ironbeak, innate shield) |
+| **Run 5** | Unlock the shield ability |
+| **Run 7** | Gain access to run modifiers (or buy in for 150 coins earlier) |
+| **≈ Run 3–10** | Unlock a new environment and obstacle family (Wind Valley) |
 | **Challenge** | Complete a special objective |
-| **Boss Run** | Defeat a major challenge |
-| **Reward** | Unlock a new upgrade tree |
+| **Boss Run** | Defeat a world boss and open the next world |
+| **Level 25** | Bank the career with a prestige |
 
 This progression is not intended to make every run easier.
 
@@ -275,7 +279,7 @@ Examples:
 
 ### Abilities
 
-Possible abilities include:
+The eight shipped abilities:
 
 - Double Flap.
 - Shield.
@@ -414,11 +418,14 @@ Gambler Bird
 
 ## Upgrades
 
-Flapforge can support two major categories of upgrades.
+Flapforge has two major categories of upgrades.
 
 ### Run Upgrades
 
-Temporary upgrades exist only during the current run.
+Temporary upgrades exist only during the current run. They ship as the
+mid-run modifier drafts: at fixed gates a breather offers a choice of three
+rarity-weighted cards, and set-bonus synergies fire when the build completes
+a pattern.
 
 Examples:
 
@@ -462,9 +469,8 @@ Permanent options unlocked across attempts
 
 ## Challenges and Boss Runs
 
-Challenges provide structured goals beyond simply beating a high score.
-
-Examples:
+Challenges provide structured goals beyond simply beating a high score. Seven
+ship with the game:
 
 ### No Shield
 
@@ -538,9 +544,9 @@ A world can contain:
 - Exclusive unlocks.
 - Different difficulty curves.
 
-Worlds unlock in order: clearing a world's boss opens the next one (boss
-encounters arrive with the challenges milestone), or the next world can be
-bought in the shop. A launch can also pin any world with `--world <id>`.
+Worlds unlock in order: clearing a world's boss opens the next one, or the
+next world can be bought in the shop. A launch can also pin any world with
+`--world <id>`.
 
 ---
 
@@ -576,6 +582,72 @@ and
 
 ---
 
+## Game Modes
+
+The bird selection screen has a run-mode row beside the world and tier rows.
+Four modes exist; Challenges live on their own menu screen.
+
+### Standard
+
+A fresh random seed every run. This is the default mode and the one the whole
+meta-progression is tuned around.
+
+### Seeded
+
+Replays the seed of the last run the profile finished, so a run can be retried
+on exactly the obstacles that killed you — or shared as "beat my 63 gates on
+this seed". Seeded mode and Daily mode open together with the
+`feature:seeded_runs` unlock (level 5, or 100 coins in the shop); while it is
+locked the picker says so, and Play falls back to a standard run.
+
+### Daily
+
+One run per UTC day for the whole planet, no server involved: the seed is
+nothing but the date (`fnv1a("daily:" + yyyy-MM-dd)`), and from it the game
+deterministically picks one world, one tier from `{normal, hard}` and two
+forced modifiers — all drawn only from content *you* have unlocked. Daily
+runs pay ×1.25 coins. The pick is written to the profile the first time the
+mode is viewed or played and is then frozen for that date, so unlocking new
+content at lunchtime cannot change the run you were practising in the morning
+— only the attempt counter and the best gate count move, and an instant
+retry keeps the same seed. Daily mode is recorded per attempt
+(attempts, best gates) in the statistics.
+
+### Challenge
+
+The seven special runs of the Challenges menu — their world, tier, rules,
+forced cards and boss are the challenge's own; a challenge is playable whether
+or not its world is unlocked.
+
+### Difficulty tiers
+
+Stacked on top of every mode except where a challenge fixes its own:
+
+| Tier | Effects | Flags | Reward multiplier | Unlocked by |
+| --- | --- | --- | --- | --- |
+| `normal` | — | — | ×1.0 | default |
+| `hard` | scroll ×1.10, gap ×0.92 | — | ×1.5 | 40 gates in one run, 400 across the profile, or the `hard_tier_1` node |
+| `nightmare` | scroll ×1.20, gap ×0.85 | every obstacle moves, lethal ceiling | ×2.5 | the `boss_corridor_1` challenge or level 20 |
+
+### Prestige
+
+At level 25 the statistics screen offers a prestige (a two-step confirm, at
+most five per profile). It banks the career against a baseline snapshot,
+resets coins, XP, level, upgrades, ability levels, challenge records and the
+daily pick, and keeps every bird, cosmetic, achievement and lifetime
+statistic. What you keep forever is the badge on the menu, a
++5 % coin multiplier per prestige on every later run, and the golden
+`prestige` palette of the bird you prestige with. Unlock conditions that count
+a lifetime total read "since prestige" afterwards, so nothing already earned
+is granted twice.
+
+### Attract mode
+
+Idle on the main menu for twenty seconds and a bot plays a demo run behind
+it, dimmed under the menu. Any input takes the game back.
+
+---
+
 ## Controls
 
 | Input | Action |
@@ -593,6 +665,10 @@ focus, `Enter`/`Space` activate, `Esc` goes back, and every control also
 responds to mouse hover and click. All seven keyboard bindings above are
 rebindable in the Settings screen; the arrow keys, `Esc`-to-go-back and the
 mouse buttons are fixed.
+
+On the game-over strip `Space` (or a left click) retries instantly with a
+fresh seed — rewards are banked the moment the run ends, so a retry never
+loses them. A daily's retry keeps its seed and only counts the attempt.
 
 `M`, `F3` and `F11` work on every screen and are remembered: each one changes
 the matching setting, so the game starts up the way you left it.
@@ -668,25 +744,39 @@ if you want to send a change.
 
 ```bash
 ./gradlew fatJar
-java -jar build/libs/flapforge-<version>-all.jar
-java -jar build/libs/flapforge-<version>-all.jar --fullscreen --no-audio
-java -jar build/libs/flapforge-<version>-all.jar --lang pt_BR
+java -jar build/libs/flapforge-0.1.0-all.jar
+java -jar build/libs/flapforge-0.1.0-all.jar --fullscreen --no-audio
+java -jar build/libs/flapforge-0.1.0-all.jar --lang pt_BR
 ```
 
-The jar bundles Gson and needs only a JRE/JDK 17+. Packaged app images
-(`jpackage`) arrive with the release milestone.
+The jar bundles Gson and needs only a JRE/JDK 17+.
+
+### Packaged app image
+
+`scripts/package.sh` (Linux/macOS, or Git Bash on Windows) builds the fat jar,
+exports the procedurally drawn icon in three formats and runs `jpackage` to
+write a self-contained app image to `build/dist/` — `Flapforge/` on Linux,
+`Flapforge.app` on macOS, `Flapforge/` on Windows, each with its platform's
+icon (`.png` / `.icns` / `.ico`). `jpackage` ships with JDK 14+; the script
+exits with a clear message when it cannot find one.
 
 ### Scripts
 
 `scripts/run.sh` (Linux/macOS) and `scripts\run.ps1` (Windows) start the
 game through Gradle and forward every argument to it; `scripts/build.sh` /
-`scripts\build.ps1` run `build fatJar`.
+`scripts\build.ps1` run `build fatJar`; `scripts/package.sh` produces the
+app image above.
 
 ```bash
 scripts/run.sh --seed 42 --world storm_sky --bird zephyr
 ```
 
-Launch flags (some arrive with later milestones, see
+Release artefacts are built by CI: pushing a `v*` tag runs
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which
+builds, tests and packages on all three operating systems and attaches the
+per-OS app-image zips and the fat jar to the GitHub release.
+
+Launch flags (all of them shipped; details in
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)):
 
 | Flag | Meaning |
@@ -771,14 +861,13 @@ Flapforge/
 │   └── version.properties
 ├── src/test/               unit, property, simulation, headless render and GUI smoke tests; fixtures
 ├── src/tools/              balancing simulator, save inspector, content check, asset validator, icon export
-├── scripts/                build and run wrappers (sh + ps1)
-├── docs/                   architecture, development, balancing, content, save system, roadmap
-└── .github/                CI workflows, dependabot, issue and pull request templates
+├── scripts/                build, run and package wrappers (sh + ps1)
+├── docs/                   game design, architecture, progression, balancing, content, save system, development, roadmap
+└── .github/                CI and release workflows, dependabot, issue and pull request templates
 ```
 
-Files arrive milestone by milestone; the full package tree with milestone
-tags, the layer rules and the loop/presenter/input design are documented in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+The full package tree, the layer rules and the loop/presenter/input design
+are documented in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 Keeping the roguelite systems as plain data and pure code, separate from the
 window and the renderer, is what lets the game be simulated, balanced and
@@ -837,78 +926,19 @@ It is:
 
 ## Roadmap
 
-### Phase 1 — Core Arcade Foundation
+Version 0.1.0 ships the complete first pass of the design: the classic core,
+the meta-progression (coins, XP, seven birds, eight abilities, three upgrade
+trees, shops), the roguelite layer (modifier drafts, synergies), five worlds
+with bosses, seven challenges, 41 achievements, difficulty tiers, the daily
+challenge, seeded runs, prestige, attract mode, accessibility settings and
+the packaged release. The per-milestone history is in
+[`CHANGELOG.md`](CHANGELOG.md) and the design in
+[`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md).
 
-- [x] Java-based Flappy Bird gameplay foundation
-- [x] Gravity and flap mechanics
-- [x] Collision detection
-- [x] Scoring
-- [x] Randomized obstacle generation
-- [x] Moving obstacles
-- [ ] Flapforge branding and UI
-
-### Phase 2 — Run Economy
-
-- [ ] Run rewards
-- [ ] Persistent currency
-- [ ] Reward summary screen
-- [ ] Player profile
-- [ ] Save/load system
-- [ ] Progress tracking
-
-### Phase 3 — Meta-Progression
-
-- [ ] Permanent upgrade system
-- [ ] Upgrade tree
-- [ ] Unlock conditions
-- [ ] Multiple playable birds
-- [ ] Bird-specific abilities
-- [ ] Ability progression
-
-### Phase 4 — Roguelite Layer
-
-- [ ] Temporary run upgrades
-- [ ] Random upgrade choices
-- [ ] Build synergies
-- [ ] Run modifiers
-- [ ] Risk/reward mechanics
-- [ ] Rarity system
-
-### Phase 5 — Content
-
-- [ ] Multiple environments
-- [ ] New obstacle families
-- [ ] Challenge runs
-- [ ] Boss challenges
-- [ ] Milestones
-- [ ] Achievements
-
-### Phase 6 — Polish
-
-- [ ] Updated original artwork
-- [ ] Original sound effects
-- [ ] Music
-- [ ] Settings
-- [ ] Accessibility options
-- [ ] Difficulty balancing
-- [ ] Performance optimization
-- [ ] Automated tests
-- [ ] Packaged releases
-
-### Long-Term Ideas
-
-- [ ] Daily challenges
-- [ ] Seeded runs
-- [ ] Endless difficulty tiers
-- [ ] Leaderboards
-- [ ] Challenge sharing
-- [ ] Statistics dashboard
-- [ ] New Game+
-- [ ] Prestige progression
-- [ ] Mod support
-- [ ] Community-created challenge packs
-
-The roadmap represents the intended direction of the project and may evolve during development.
+Everything the first release deliberately leaves out — leaderboards, challenge
+sharing, mod packs, endless tiers, original art and audio packs, and the rest
+— is listed with reasons and next-step anchors in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ---
 
@@ -968,7 +998,8 @@ Instead, the game is **procedural-first**:
   the application icon — is drawn at runtime from per-world palettes and
   bird archetypes;
 - every sound effect and music track is synthesised by a software mixer;
-- text uses the JDK's logical font until an open (OFL) font is bundled.
+- text is drawn with the bundled open (OFL-licensed) Nunito font, with the
+  JDK's logical font as the fallback if the font entry is ever broken.
 
 Original artwork, audio and fonts are welcome later and have a defined
 drop-in path: `src/main/resources/assets/manifest.json` maps an asset id to a

@@ -1,5 +1,6 @@
 package io.github.michelbr84.flapforge.tools;
 
+import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
 import io.github.michelbr84.flapforge.content.defs.AbilityDef;
@@ -14,6 +15,7 @@ import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
 import io.github.michelbr84.flapforge.gameplay.harness.HeadlessRunner;
+import io.github.michelbr84.flapforge.gameplay.harness.MetaSim;
 import io.github.michelbr84.flapforge.gameplay.run.RewardContext;
 import io.github.michelbr84.flapforge.gameplay.run.RewardSummary;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
@@ -31,6 +33,7 @@ import io.github.michelbr84.flapforge.modifier.ModifierOffer;
 import io.github.michelbr84.flapforge.modifier.ModifierPool;
 import io.github.michelbr84.flapforge.modifier.Rarity;
 import io.github.michelbr84.flapforge.core.RandomProvider;
+import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -120,6 +123,10 @@ public final class BalancingSim {
     public static final String NO_CHALLENGE = "none";
     /** {@code --boss} value that plays whole runs rather than encounters (the default). */
     public static final String NO_BOSS = "none";
+    /** Default run budget of a {@code --meta} seed line (E25). */
+    public static final int DEFAULT_META_RUNS = 600;
+    /** Default seed lines of a {@code --meta} simulation. */
+    public static final int DEFAULT_META_SEEDS = 20;
 
     private BalancingSim() {
     }
@@ -165,6 +172,10 @@ public final class BalancingSim {
         String pattern = NO_PATTERN;
         String challenge = NO_CHALLENGE;
         String boss = NO_BOSS;
+        boolean meta;
+        String policy = "spender";
+        int metaRuns = DEFAULT_META_RUNS;
+        int metaSeeds = DEFAULT_META_SEEDS;
         boolean worldGiven;
         boolean drafts;
         Path csv;
@@ -188,6 +199,17 @@ public final class BalancingSim {
         }
         if (options.help) {
             System.out.println(usage());
+            return;
+        }
+        if (options.meta) {
+            if (options.csv != null) {
+                // The meta sweep aggregates first-owned run indices and keeps no per-run rows, so
+                // there is nothing to write: say so instead of silently dropping the option.
+                System.out.println("--csv is ignored with --meta: the meta artefact is the printed"
+                        + " runs-to-unlock table");
+            }
+            GameContent metaContent = GameContent.load();
+            reportMeta(metaContent, options);
             return;
         }
         GameContent content = GameContent.load();
@@ -883,6 +905,54 @@ public final class BalancingSim {
         return new double[] {ticks / n, gates / n, payout / n, coins / n};
     }
 
+    /**
+     * Runs and prints the meta-progression simulation ({@code --meta}, M9, E25): the
+     * runs-to-unlock table — per non-cosmetic unlockable id, the run index at which it was first
+     * owned, averaged over the seed lines — the maxed-out progress of the trees and ability
+     * levels, and the synergy-activation rate of the runs that reached the third offer. The
+     * table is what {@code docs/BALANCING.md} records and what {@code MetaSimTest}'s thresholds
+     * are read against; the thresholds are tuned in data, never by weakening the bot.
+     *
+     * @param content the loaded content
+     * @param options the parsed command line
+     */
+    private static void reportMeta(GameContent content, Options options) {
+        MetaSim.Policy policy = MetaSim.Policy.valueOf(options.policy.toUpperCase(Locale.ROOT));
+        BotPilot.Preset preset = BotPilot.Preset.byName(options.skill);
+        MetaSim.Settings settings = new MetaSim.Settings(policy, preset, options.metaSeeds,
+                DEFAULT_FIRST_SEED, options.metaRuns, options.ticks);
+        UnlockEvaluator evaluator = UnlockEvaluator.of(content);
+        System.out.println("Flapforge meta — policy=" + policy.name().toLowerCase(Locale.ROOT)
+                + " skill=" + preset.name() + " seeds=" + settings.seeds() + " (from "
+                + DEFAULT_FIRST_SEED + ") runs<=" + settings.maxRuns() + " ticks="
+                + settings.maxTicks());
+        MetaSim.Outcome outcome = MetaSim.simulate(content, settings);
+        System.out.printf(Locale.ROOT,
+                "  runs        %d over %d seed lines; %d/%d lines owned every non-cosmetic"
+                        + " unlockable (mean run %.1f), %d/%d maxed every node and ability level"
+                        + " (mean run %.1f)%n",
+                outcome.totalRuns(), settings.seeds(), outcome.seedsCompleted(),
+                settings.seeds(), outcome.meanCompletedRun(), outcome.seedsMaxed(),
+                settings.seeds(), outcome.meanMaxedRun());
+        System.out.println("  runs-to-unlock (mean / worst run index at which the id was first"
+                + " owned; x/y lines owned it)");
+        System.out.printf(Locale.ROOT, "    %-32s %-9s %8s %8s %8s%n",
+                "id", "kind", "mean", "worst", "owned");
+        for (String id : outcome.unlockIds()) {
+            ContentKind kind = evaluator.kindOf(id);
+            System.out.printf(Locale.ROOT, "    %-32s %-9s %8.1f %8d %7d/%d%n",
+                    id, kind == null ? "" : kind.name(),
+                    outcome.meanFirstOwned(id), outcome.maxFirstOwned(id),
+                    outcome.seedsOwning(id), settings.seeds());
+        }
+        double reach = outcome.runsReachingOffer3() == 0 ? 0
+                : 100.0 * outcome.runsReachingOffer3WithSynergy() / outcome.runsReachingOffer3();
+        System.out.printf(Locale.ROOT,
+                "  synergies   %d runs reached offer 3, %d activated at least one synergy"
+                        + " (%.1f %%)%n",
+                outcome.runsReachingOffer3(), outcome.runsReachingOffer3WithSynergy(), reach);
+    }
+
     private static List<BotPilot.Preset> presetsOf(String selector) {
         if ("all".equalsIgnoreCase(selector)) {
             return List.of(BotPilot.Preset.NOVICE, BotPilot.Preset.AVERAGE, BotPilot.Preset.EXPERT,
@@ -945,6 +1015,10 @@ public final class BalancingSim {
                 case "--pattern" -> options.pattern = next(args, ++i);
                 case "--challenge" -> options.challenge = next(args, ++i);
                 case "--boss" -> options.boss = next(args, ++i);
+                case "--meta" -> options.meta = true;
+                case "--policy" -> options.policy = next(args, ++i);
+                case "--runs" -> options.metaRuns = positiveInt(arg, next(args, ++i));
+                case "--meta-seeds" -> options.metaSeeds = positiveInt(arg, next(args, ++i));
                 case "--drafts" -> options.drafts = true;
                 case "--csv" -> options.csv = Path.of(next(args, ++i));
                 case "--help", "-h" -> options.help = true;
@@ -996,6 +1070,12 @@ public final class BalancingSim {
                         + " (its world, tier, rules, boss); 'none' or 'all' (M8)",
                 "  --boss ID     play a world's boss encounter on its own, started at the boss;"
                         + " a world id, 'none' or 'all' (M8)",
+                "  --meta        run the meta-progression simulation (M9): a fresh profile per"
+                        + " seed line plays and shops under the policy until nothing is left",
+                "  --policy NAME spender | saver (default spender, E25)",
+                "  --runs N      run budget per --meta seed line (default " + DEFAULT_META_RUNS
+                        + ")",
+                "  --meta-seeds N  seed lines for --meta (default " + DEFAULT_META_SEEDS + ")",
                 "  --skill NAME  novice | average | expert | perfect | all (default average)",
                 "  --ability ID  ability to equip, 'none' or 'all' (default " + NO_ABILITY + ")",
                 "  --ability-level N  level to play the ability at (default 1)",

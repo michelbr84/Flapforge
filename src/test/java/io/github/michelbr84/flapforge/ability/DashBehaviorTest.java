@@ -52,11 +52,11 @@ class DashBehaviorTest {
 
         Run nightmare = AbilityRuns.started(AbilityRuns.factory().newRun(
                 AbilityRuns.config(9, "dash", List.of()).tierId("nightmare").build()));
-        assertEquals(156.0, nightmare.simulation().stats().resolve(StatId.SCROLL_SPEED), 1e-9,
-                "120 x 1.3 from the tier");
+        assertEquals(144.0, nightmare.simulation().stats().resolve(StatId.SCROLL_SPEED), 1e-9,
+                "120 x 1.2 from the tier");
         nightmare.tick(AbilityRuns.useAbility());
         assertEquals(360.0, nightmare.simulation().stats().resolve(StatId.SCROLL_SPEED), 0.0,
-                "156 x 2.5 = 390 clamps to the SCROLL_SPEED ceiling of 360 (D8)");
+                "144 x 2.5 = 360 clamps to the SCROLL_SPEED ceiling of 360 (D8)");
     }
 
     @Test

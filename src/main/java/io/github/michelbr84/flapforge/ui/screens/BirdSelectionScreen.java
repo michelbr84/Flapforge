@@ -14,8 +14,10 @@ import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.content.defs.WorldPaletteDef;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.core.TimeSource;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
@@ -24,6 +26,7 @@ import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
+import io.github.michelbr84.flapforge.progression.DailyChallenge;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.PurchaseResult;
 import io.github.michelbr84.flapforge.progression.PurchaseStatus;
@@ -153,9 +156,13 @@ public final class BirdSelectionScreen implements Screen {
     private static final int SLOT_HGAP = 6;
     private static final int BREAKDOWN_LABEL_BASELINE = 496;
     private static final int VIEW_TOP = 502;
-    private static final int VIEW_BOTTOM = Playfield.HEIGHT - 58;
-    private static final int FOOTER_TOP = Playfield.HEIGHT - 52;
-    private static final int FOOTER_H = 40;
+    private static final int VIEW_BOTTOM = Playfield.HEIGHT - 76;
+    /** Top of the run-mode row (M9), directly above the two footer buttons. */
+    public static final int MODE_TOP = Playfield.HEIGHT - 70;
+    /** Height of the run-mode row: the mode line and the line that says what it will play. */
+    public static final int MODE_H = 36;
+    private static final int FOOTER_TOP = Playfield.HEIGHT - 32;
+    private static final int FOOTER_H = 26;
     private static final Color SCROLLBAR = new Color(0xF4, 0xF8, 0xF8, 0x50);
     private static final Stroke SWATCH_STROKE = new BasicStroke(2f);
     private static final Color SLOT_BACK = new Color(0x10, 0x1C, 0x1E, 0x9C);
@@ -163,6 +170,7 @@ public final class BirdSelectionScreen implements Screen {
     private static final Color SLOT_FIXED = new Color(0x6F, 0xD1, 0xA8);
 
     private final ScreenManager screens;
+    private final GameContext context;
     private final Strings strings;
     private final GameContent content;
     private final PlayerProfile profile;
@@ -170,6 +178,8 @@ public final class BirdSelectionScreen implements Screen {
     private final UnlockManager unlocks;
     private final UnlockEvaluator evaluator;
     private final ToastLayer toasts;
+    private final TimeSource clock;
+    private final Runnable save;
     private final FocusRing ring = new FocusRing();
     private final CardGrid roster = new CardGrid();
     private final List<Swatch> swatches = new ArrayList<>();
@@ -181,9 +191,14 @@ public final class BirdSelectionScreen implements Screen {
     private final Button buy;
     private final WorldRow world;
     private final ListView tier;
+    private final WorldRow mode;
+    private final Button play;
     private final Button back;
     private final List<String> tierIds = new ArrayList<>();
     private final List<String> worldIds = new ArrayList<>();
+    private final List<RunMode> modes = new ArrayList<>();
+    private RunMode runMode = RunMode.STANDARD;
+    private DailyChallenge.Pick dailyPick;
     private String currentBirdId;
     private String shownLanguage;
     private String abilityLine = "";
@@ -198,14 +213,15 @@ public final class BirdSelectionScreen implements Screen {
      * @param context the application services; its profile is the one edited
      */
     public BirdSelectionScreen(GameContext context) {
-        this(Objects.requireNonNull(context, "context").screens(),
+        this(Objects.requireNonNull(context, "context"), context.screens(),
                 context.strings() != null ? context.strings() : Strings.active(),
                 context.content(), context.profile(),
                 context.canProgress()
                         ? new SelectionManager(context.progression(), context::saveProfile) : null,
                 context.canProgress()
                         ? new UnlockManager(context.progression(), context::saveProfile) : null,
-                context.toasts());
+                context.toasts(), context.timeSource(),
+                context.canProgress() ? context::saveProfile : null);
     }
 
     /**
@@ -222,6 +238,38 @@ public final class BirdSelectionScreen implements Screen {
     public BirdSelectionScreen(ScreenManager screens, Strings strings, GameContent content,
             PlayerProfile profile, SelectionManager selection, UnlockManager unlocks,
             ToastLayer toasts) {
+        this(null, screens, strings, content, profile, selection, unlocks, toasts, null, null);
+    }
+
+    /**
+     * Creates the screen with the clock the daily needs (M9).
+     *
+     * <p>A screen built without a time source cannot know what UTC day it is, so it offers
+     * Standard and Seeded and leaves the Daily entry out of the mode picker altogether rather
+     * than showing an entry that could not say what it would play (D28).
+     *
+     * @param screens the screen stack
+     * @param strings the string table
+     * @param content the loaded content
+     * @param profile the profile to read and write
+     * @param selection the selection writer, or {@code null} for a read-only screen
+     * @param unlocks the purchase path, or {@code null} for a screen that cannot buy
+     * @param toasts the toast queue, or {@code null} for one of its own
+     * @param clock the time source the daily's date comes from, or {@code null} for no daily
+     * @param save flushes the profile after the daily pick is written (E27), or {@code null}
+     */
+    public BirdSelectionScreen(ScreenManager screens, Strings strings, GameContent content,
+            PlayerProfile profile, SelectionManager selection, UnlockManager unlocks,
+            ToastLayer toasts, TimeSource clock, Runnable save) {
+        this(null, screens, strings, content, profile, selection, unlocks, toasts, clock, save);
+    }
+
+    private BirdSelectionScreen(GameContext context, ScreenManager screens, Strings strings,
+            GameContent content, PlayerProfile profile, SelectionManager selection,
+            UnlockManager unlocks, ToastLayer toasts, TimeSource clock, Runnable save) {
+        this.context = context;
+        this.clock = clock;
+        this.save = save;
         this.screens = Objects.requireNonNull(screens, "screens");
         this.strings = Objects.requireNonNull(strings, "strings");
         this.content = Objects.requireNonNull(content, "content");
@@ -290,9 +338,21 @@ public final class BirdSelectionScreen implements Screen {
         tier.setOnChange(this::selectTier);
         ring.add(tier);
 
+        mode = new WorldRow("", modeOptions(), modeIndex());
+        mode.setWrapping(false);
+        mode.setFontSize(14);
+        mode.setBounds(MARGIN, MODE_TOP, CONTENT_W, MODE_H);
+        mode.setOnChange(this::selectMode);
+        ring.add(mode);
+
+        double half = (CONTENT_W - 8) / 2.0;
+        play = new Button("", this::play);
+        play.setFontSize(16);
+        play.setBounds(MARGIN, FOOTER_TOP, half, FOOTER_H);
+        ring.add(play);
         back = new Button("", screens::pop);
         back.setFontSize(16);
-        back.setBounds(MARGIN, FOOTER_TOP, CONTENT_W, FOOTER_H);
+        back.setBounds(MARGIN + half + 8, FOOTER_TOP, half, FOOTER_H);
         ring.add(back);
 
         wallet.setBounds(Playfield.WIDTH - WALLET_W - 14.0, 14, WALLET_W, 26);
@@ -404,6 +464,61 @@ public final class BirdSelectionScreen implements Screen {
     public String currentWorldId() {
         int index = world.selectedIndex();
         return index >= 0 && index < worldIds.size() ? worldIds.get(index) : null;
+    }
+
+    /**
+     * The run-mode picker (M9).
+     *
+     * @return the row
+     */
+    public WorldRow modeList() {
+        return mode;
+    }
+
+    /**
+     * The modes the picker steps through: Standard and Seeded always, Daily when the screen was
+     * given a clock.
+     *
+     * @return an unmodifiable snapshot
+     */
+    public List<RunMode> modes() {
+        return List.copyOf(modes);
+    }
+
+    /**
+     * The mode Play would start.
+     *
+     * @return the mode
+     */
+    public RunMode selectedMode() {
+        return runMode;
+    }
+
+    /**
+     * The line under the mode name, as drawn.
+     *
+     * @return the text
+     */
+    public String modeDetail() {
+        return mode.detail();
+    }
+
+    /**
+     * Today's daily pick, once the mode row has shown it (E27).
+     *
+     * @return the pick, or {@code null} while the row shows another mode
+     */
+    public DailyChallenge.Pick dailyPick() {
+        return dailyPick;
+    }
+
+    /**
+     * The Play button (D17: the selection screen starts the run it is configuring).
+     *
+     * @return the button
+     */
+    public Button playButton() {
+        return play;
     }
 
     /**
@@ -636,6 +751,64 @@ public final class BirdSelectionScreen implements Screen {
         refreshWorldRow();
     }
 
+    /**
+     * Steps the run mode (D28).
+     *
+     * <p>A locked mode can be <em>looked</em> at — the row greys it and says in words what opens
+     * it, which is the only place that sentence is ever read — but it cannot be flown: while
+     * {@code feature:seeded_runs} is missing, {@link #play()} starts a standard run whatever the
+     * row shows, and stepping onto Seeded or Daily says so out loud. That is deliberately not the
+     * tier and world rows' snap-back: those two <em>write</em> the profile's selection, and this
+     * one writes nothing.
+     *
+     * @param index the index in {@link #modes}
+     */
+    private void selectMode(int index) {
+        if (index < 0 || index >= modes.size()) {
+            return;
+        }
+        RunMode next = modes.get(index);
+        runMode = next;
+        refreshModeRow();
+        if (next != RunMode.STANDARD && !DailyChallenge.isAvailable(profile)) {
+            toasts.push(strings.format(StringKey.TOAST_PURCHASE_FAILED, seededUnlockText()),
+                    Toast.Kind.WARNING);
+            return;
+        }
+        if (next == RunMode.DAILY && dailyPick != null) {
+            // The pick is settled the first time it is looked at (E27); saying so out loud is
+            // what makes "the daily does not change under you" visible rather than implied.
+            toasts.push(dailySetup(dailyPick), Toast.Kind.INFO);
+        }
+    }
+
+    /**
+     * Starts a run in the selected mode (D17, D28, D29).
+     *
+     * <p>Standard flies a fresh seed, Seeded replays the seed of the last run the profile
+     * finished, and Daily plays today's pick on the one seed that date has — its instant retry
+     * keeps that seed and only moves the attempt counter, because
+     * {@link DailyRunSource} ignores the seed the game screen asks for.
+     */
+    private void play() {
+        RunMode chosen = DailyChallenge.isAvailable(profile) ? runMode : RunMode.STANDARD;
+        SeededRunSource source;
+        SeedSequence seeds;
+        if (chosen == RunMode.DAILY && clock != null) {
+            DailyRunSource daily = new DailyRunSource(content, () -> profile, clock, save);
+            source = daily;
+            seeds = SeedSequence.of(daily.pick().seed());
+        } else if (chosen == RunMode.SEEDED) {
+            source = new ContentRunFactory(content, RunMode.SEEDED, () -> profile);
+            seeds = SeedSequence.of(profile.lastSeed);
+        } else {
+            source = new ContentRunFactory(content, RunMode.STANDARD, () -> profile);
+            seeds = SeedSequence.random();
+        }
+        screens.push(context != null ? new GameScreen(context, source, seeds)
+                : new GameScreen(screens, source, seeds));
+    }
+
     // ------------------------------------------------------------------ building
 
     /**
@@ -746,12 +919,143 @@ public final class BirdSelectionScreen implements Screen {
         return index < 0 ? 0 : index;
     }
 
+    /**
+     * The mode options: Standard always, Seeded and Daily marked with the condition that opens
+     * them while {@code feature:seeded_runs} is locked (D28). Daily is listed only when the
+     * screen was given a clock, because without one it could not say what it would play.
+     *
+     * @return one label per mode
+     */
+    private List<String> modeOptions() {
+        modes.clear();
+        List<String> options = new ArrayList<>();
+        boolean open = DailyChallenge.isAvailable(profile);
+        modes.add(RunMode.STANDARD);
+        options.add(strings.get(StringKey.MODE_STANDARD));
+        modes.add(RunMode.SEEDED);
+        options.add(modeLabel(StringKey.MODE_SEEDED, open));
+        if (clock != null) {
+            modes.add(RunMode.DAILY);
+            options.add(modeLabel(StringKey.MODE_DAILY, open));
+        }
+        return options;
+    }
+
+    /**
+     * One mode label, carrying the unlock condition while the mode is locked.
+     *
+     * @param key the mode name
+     * @param open whether the profile owns {@code feature:seeded_runs}
+     * @return the label
+     */
+    private String modeLabel(StringKey key, boolean open) {
+        return open ? strings.get(key)
+                : strings.get(key) + " (" + seededUnlockText() + ")";
+    }
+
+    /**
+     * How the profile can open Seeded and Daily mode: the cheapest branch of
+     * {@code feature:seeded_runs}, measured against this profile (D13).
+     *
+     * @return the condition in words
+     */
+    private String seededUnlockText() {
+        if (!content.features().contains(DailyChallenge.SEEDED_RUNS_FEATURE)) {
+            return strings.get(StringKey.COMMON_LOCKED);
+        }
+        return ProgressionText.unlockText(strings, content,
+                content.features().get(DailyChallenge.SEEDED_RUNS_FEATURE).unlock(), profile);
+    }
+
+    /**
+     * The index of the selected mode.
+     *
+     * @return the index, {@code 0} when the mode is not offered
+     */
+    private int modeIndex() {
+        int index = modes.indexOf(runMode);
+        return index < 0 ? 0 : index;
+    }
+
+    /**
+     * The mode the picker points at.
+     *
+     * @return the mode, {@link RunMode#STANDARD} when the row is empty
+     */
+    private RunMode shownMode() {
+        int index = mode == null ? -1 : mode.selectedIndex();
+        return index >= 0 && index < modes.size() ? modes.get(index) : RunMode.STANDARD;
+    }
+
+    /**
+     * Points the mode row's detail line and tooltip at the run Play would start: the seed a
+     * seeded run would replay, or today's daily pick — which is <em>written</em> here, the first
+     * time the row shows it (E27), so a world unlocked later today cannot move it.
+     */
+    private void refreshModeRow() {
+        RunMode shown = shownMode();
+        boolean locked = shown != RunMode.STANDARD && !DailyChallenge.isAvailable(profile);
+        if (locked) {
+            dailyPick = null;
+            String text = strings.format(StringKey.BIRDS_MODE_LOCKED, seededUnlockText());
+            mode.bind(null, text, true, text);
+            return;
+        }
+        if (shown == RunMode.DAILY && clock != null) {
+            dailyPick = new DailyChallenge(clock).today(profile, content);
+            if (save != null) {
+                save.run();
+            }
+            String detail = dailySetup(dailyPick);
+            mode.bind(null, detail, false, detail + " - " + dailyRecordText());
+            return;
+        }
+        dailyPick = null;
+        String detail = shown == RunMode.SEEDED
+                ? strings.format(StringKey.BIRDS_MODE_SEEDED_HINT, profile.lastSeed)
+                : strings.get(StringKey.BIRDS_MODE_STANDARD_HINT);
+        mode.bind(null, detail, false, detail);
+    }
+
+    /**
+     * Today's daily in one line: its world, its tier and the cards it forces.
+     *
+     * @param pick the pick
+     * @return the text
+     */
+    private String dailySetup(DailyChallenge.Pick pick) {
+        List<String> cards = new ArrayList<>(pick.modifierIds().size());
+        for (String id : pick.modifierIds()) {
+            cards.add(ProgressionText.name(strings, ContentKind.MODIFIER, id));
+        }
+        return strings.format(StringKey.BIRDS_MODE_DAILY_HINT,
+                ProgressionText.name(strings, ContentKind.WORLD, pick.worldId()),
+                ProgressionText.name(strings, ContentKind.TIER, pick.tierId()),
+                cards.isEmpty() ? strings.get(StringKey.COMMON_NONE) : String.join(", ", cards));
+    }
+
+    /**
+     * What the profile has done with today's daily so far (D28: "best N gates, attempt K").
+     *
+     * @return the text
+     */
+    private String dailyRecordText() {
+        PlayerProfile.DailyRecord record = profile.daily;
+        return record == null || record.attempts <= 0
+                ? strings.get(StringKey.DAILY_UNPLAYED)
+                : strings.format(StringKey.DAILY_RESULT, record.bestGates, record.attempts);
+    }
+
     /** Re-reads every label from the string table (a language switch, D25). */
     public void refreshTexts() {
         wallet.setFormat(strings.get(StringKey.HUD_COINS));
         select.setText(strings.get(StringKey.COMMON_SELECT));
         buy.setText(strings.get(StringKey.COMMON_BUY));
+        play.setText(strings.get(StringKey.MENU_PLAY));
         back.setText(strings.get(StringKey.COMMON_BACK));
+        mode.setLabel(strings.get(StringKey.BIRDS_MODE));
+        mode.setOptions(modeOptions());
+        mode.selectQuietly(modeIndex());
         tier.setLabel(strings.get(StringKey.BIRDS_TIER));
         tier.setOptions(tierOptions());
         tier.selectQuietly(tierIndex());
@@ -796,6 +1100,9 @@ public final class BirdSelectionScreen implements Screen {
         world.setOptions(worldOptions());
         world.selectQuietly(worldIndex());
         refreshWorldRow();
+        mode.setOptions(modeOptions());
+        mode.selectQuietly(modeIndex());
+        refreshModeRow();
         wallet.setAmount(balance);
         // One preview run answers both questions the panels below ask: what the stats resolve to
         // and which rules the run carries (D8, D9). Building it twice could not disagree, but
@@ -1351,6 +1658,7 @@ public final class BirdSelectionScreen implements Screen {
             // row back; a step onto an owned one already wrote the selection.
             refreshWorldRow();
         }
+        mode.tick(input);
         UiNode focused = ring.focused();
         if (focused != focusedBefore && focused instanceof CardGrid.Card card) {
             currentBirdId = card.id();
@@ -1460,6 +1768,8 @@ public final class BirdSelectionScreen implements Screen {
         g.setClip(oldClip);
         renderScrollbar(g);
 
+        mode.render(g);
+        play.render(g);
         back.render(g);
         tooltip.render(g);
         toasts.render(g);
@@ -1704,6 +2014,8 @@ public final class BirdSelectionScreen implements Screen {
      * zones and its keyboard handling apply unchanged; only the drawing is this class's.
      */
     public static final class WorldRow extends ListView {
+        // A picker row with a detail line under it: the world picker (M7) and, without a swatch,
+        // the run-mode picker (M9), which says what Play would start on the same second line.
 
         private static final Color ARROW_ON = new Color(0xF4, 0xF8, 0xF8);
         private static final Color ARROW_OFF = new Color(0x6E, 0x7A, 0x7C);

@@ -2,6 +2,7 @@ package io.github.michelbr84.flapforge.ui.screens;
 
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
+import io.github.michelbr84.flapforge.core.TimeSource;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
@@ -131,6 +132,18 @@ public final class ContentRunFactory implements SeededRunSource {
      */
     public ChallengeRunSource forChallenge(String challengeId) {
         return new ChallengeRunSource(runs.content(), profiles, challengeId);
+    }
+
+    /**
+     * A source whose every run is today's daily challenge (M9, D28), played with the same live
+     * profile this factory reads. The {@code --world} override does not apply — the daily names
+     * its own world, and every attempt of the day is the same run.
+     *
+     * @param clock the time source the UTC date comes from (D23)
+     * @return the source the mode picker hands a {@code GameScreen}
+     */
+    public DailyRunSource forDaily(TimeSource clock) {
+        return new DailyRunSource(runs.content(), profiles, clock);
     }
 
     @Override

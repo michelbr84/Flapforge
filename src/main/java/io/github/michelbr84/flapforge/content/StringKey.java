@@ -230,6 +230,11 @@ public enum StringKey {
     MODE_DAILY("mode.daily"),
     /** Run mode: a challenge. */
     MODE_CHALLENGE("mode.challenge"),
+    /** Daily challenge record, as the value of a "Daily" row: {@code {0}} best gates today,
+     * {@code {1}} attempts (M9). */
+    DAILY_RESULT("daily.result"),
+    /** Daily challenge record: nothing flown today yet (M9). */
+    DAILY_UNPLAYED("daily.unplayed"),
 
     /** Reward row: the coins any run that got going pays. */
     REWARD_PARTICIPATION("reward.participation"),
@@ -396,6 +401,16 @@ public enum StringKey {
     BIRDS_WORLD_HAZARDS("birds.world.hazards"),
     /** Bird selection: how a locked world opens, {@code {0}} the condition (M7). */
     BIRDS_WORLD_LOCKED("birds.world.locked"),
+    /** Bird selection: the run mode picker label (M9). */
+    BIRDS_MODE("birds.mode"),
+    /** Bird selection: how a locked mode opens, {@code {0}} the condition (M9). */
+    BIRDS_MODE_LOCKED("birds.mode.locked"),
+    /** Bird selection: what Standard mode does (M9). */
+    BIRDS_MODE_STANDARD_HINT("birds.mode.standard_hint"),
+    /** Bird selection: what Seeded mode replays, {@code {0}} the seed (M9). */
+    BIRDS_MODE_SEEDED_HINT("birds.mode.seeded_hint"),
+    /** Bird selection: today's daily, {@code {0}} world, {@code {1}} tier, {@code {2}} cards. */
+    BIRDS_MODE_DAILY_HINT("birds.mode.daily_hint"),
     /** Bird selection: the stat breakdown panel. */
     BIRDS_BREAKDOWN("birds.breakdown"),
     /** Bird selection: the bird's base value of a stat. */
@@ -870,7 +885,44 @@ public enum StringKey {
     /** Toast: a challenge was completed for the first time, {@code {0}} its name. */
     TOAST_CHALLENGE_COMPLETED("toast.challenge_completed"),
     /** Toast: the objective was met mid-run. */
-    TOAST_OBJECTIVE_MET("toast.objective_met");
+    TOAST_OBJECTIVE_MET("toast.objective_met"),
+
+    /** Prestige panel: the statistics group about prestige (M9). */
+    PRESTIGE_GROUP("prestige.group"),
+    /** Prestige panel: how many times the profile has prestiged (M9). */
+    PRESTIGE_COUNT("prestige.count"),
+    /** Prestige panel: the permanent coin bonus the prestiges banked (M9). */
+    PRESTIGE_BONUS("prestige.bonus"),
+    /** Prestige value: the permanent bonus, {@code {0}} is the percentage (M9). */
+    PRESTIGE_BONUS_VALUE("prestige.bonus.value"),
+    /** Prestige panel: the requirement row (M9). */
+    PRESTIGE_REQUIREMENT("prestige.requirement"),
+    /** Prestige panel: what a prestige keeps (M9). */
+    PRESTIGE_KEEPS("prestige.keeps"),
+    /** Prestige panel: what a prestige resets (M9). */
+    PRESTIGE_RESETS("prestige.resets"),
+    /** Prestige panel: the reset list in words (M9). */
+    PRESTIGE_RESETS_LIST("prestige.resets_list"),
+    /** Prestige keep: every owned bird (M9). */
+    PRESTIGE_KEEP_BIRDS("prestige.keep.birds"),
+    /** Prestige keep: every unlocked achievement (M9). */
+    PRESTIGE_KEEP_ACHIEVEMENTS("prestige.keep.achievements"),
+    /** Prestige keep: every owned cosmetic (M9). */
+    PRESTIGE_KEEP_COSMETICS("prestige.keep.cosmetics"),
+    /** Prestige keep: the lifetime statistics (M9). */
+    PRESTIGE_KEEP_STATISTICS("prestige.keep.statistics"),
+    /** Prestige action: the first step of the confirm (M9). */
+    PRESTIGE_ACTION("prestige.action"),
+    /** Prestige action: the second step of the confirm (M9). */
+    PRESTIGE_CONFIRM("prestige.confirm"),
+    /** Prestige refusal: the level is short, {@code {0}} is the level it opens at (M9). */
+    PRESTIGE_NEEDS_LEVEL("prestige.needs_level"),
+    /** Prestige refusal: the cap is reached (M9). */
+    PRESTIGE_MAXED("prestige.maxed"),
+    /** Main menu badge: how many times the player has prestiged, {@code {0}} the count (M9). */
+    MENU_PRESTIGE_BADGE("menu.prestige_badge"),
+    /** Toast: a prestige was performed, {@code {0}} the count (M9). */
+    TOAST_PRESTIGE("toast.prestige");
 
     private static final Map<String, StringKey> BY_KEY;
 

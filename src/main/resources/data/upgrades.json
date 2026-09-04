@@ -1,5 +1,5 @@
 {
-  "_comment": "Upgrade trees and nodes (M4, plan A.0 E3/E21/E31.f). Nodes are NOT unlockables: ownership lives in profile.upgrades and tree:<id> is what has to be unlocked first. costs.length == maxLevel; FLAT_ADD/PERCENT_ADD scale linearly with the level, MULTIPLY compounds. grants: UNLOCK adds an unlockable id, ABILITY_CAP raises profile.abilityLevelCap (E3: exactly one node ships one), PASSIVE_SLOT raises profile.passiveSlotBonus (max +1). levelOverrides replaces the scaled effects of one level and is unused so far.",
+  "_comment": "Upgrade trees and nodes (M4, plan A.0 E3/E21/E31.f). Nodes are NOT unlockables: ownership lives in profile.upgrades and tree:<id> is what has to be unlocked first. costs.length == maxLevel; FLAT_ADD/PERCENT_ADD scale linearly with the level, MULTIPLY compounds. grants: UNLOCK adds an unlockable id, ABILITY_CAP raises profile.abilityLevelCap (E3: exactly one node ships one), PASSIVE_SLOT raises profile.passiveSlotBonus (max +1). levelOverrides replaces the scaled effects of one level (glide_1 L2 is the shipped use). M9 retune (BALANCING.md section 12): glide_1 ships -0.30 per level with a level-2 override of -0.35, instead of the plan's -0.10. The average bot's deepest dive over 2000 seeds is p50 1035 / p90 1095 / p100 1155-1215 px/s, so at -0.10 (cap 1350) the cap never binds and the node measured +0.00 gates and +0.00 payout at both levels; caps 1200 and 1125 measure exactly zero too, and every cap of 900 or below measures 2-3 sigma NEGATIVE (the slowed dive arrives too late). The two shipped values pin the only two binding points that do not lose gates (1050 at L1, 975 at L2): pooled over the seed families 1-1000 and 100000-100999 the node measures +0.71 gates / +2.9 payout at L1 and +1.09 / +3.6 at L2 with about 10-19 fewer deaths per 2000 runs, and the expert bot is unchanged. levelOverrides carries its first use here.",
   "trees": [
     { "id": "flight", "unlock": { "type": "default" } },
     { "id": "economy", "unlock": { "type": "any_of", "conditions": [
@@ -18,8 +18,9 @@
       "levelOverrides": {}, "grants": [] },
     { "id": "glide_1", "tree": "flight", "tier": 1, "maxLevel": 2, "prereqs": [],
       "costs": [90, 200],
-      "effectsPerLevel": [ { "stat": "MAX_FALL_SPEED", "op": "PERCENT_ADD", "value": -0.10 } ],
-      "levelOverrides": {}, "grants": [] },
+      "effectsPerLevel": [ { "stat": "MAX_FALL_SPEED", "op": "PERCENT_ADD", "value": -0.30 } ],
+      "levelOverrides": { "2": [ { "stat": "MAX_FALL_SPEED", "op": "PERCENT_ADD", "value": -0.35 } ] },
+      "grants": [] },
     { "id": "slim_frame_1", "tree": "flight", "tier": 2, "maxLevel": 3, "prereqs": ["feather_1"],
       "costs": [150, 300, 600],
       "effectsPerLevel": [ { "stat": "HITBOX_SCALE", "op": "FLAT_ADD", "value": -0.03 } ],

@@ -1,4 +1,5 @@
 {
+  "_comment": "M9 tier balance (BALANCING.md section 12): hard and nightmare were softened from the D20 shape (hard x1.15/x0.9, nightmare x1.3/x0.8) because the expert bot's boss-gate reach on the tightest cells sat at 32-38 percent against the 30 percent bar — two to eight points of margin on a 50-seed binomial. Shipped: hard x1.10/x0.92, nightmare x1.20/x0.85 (flags and rewardMult unchanged); every world x tier cell then measures 46-96 percent. The classic curve, the standard curve, the normal tier and the reward multipliers are untouched.",
   "curves": {
     "classic": [
       { "stat": "MOVING_CHANCE", "op": "FLAT_ADD", "base": 0.05, "perGate": 0.05, "min": 0, "max": 1.0 }
@@ -15,8 +16,8 @@
       "unlock": { "type": "default" } },
     { "id": "hard",
       "effects": [
-        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.15 },
-        { "stat": "GAP_SIZE", "op": "MULTIPLY", "value": 0.9 }
+        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.10 },
+        { "stat": "GAP_SIZE", "op": "MULTIPLY", "value": 0.92 }
       ],
       "flags": [], "rewardMult": 1.5,
       "unlock": { "type": "any_of", "conditions": [
@@ -25,8 +26,8 @@
       ] } },
     { "id": "nightmare",
       "effects": [
-        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.3 },
-        { "stat": "GAP_SIZE", "op": "MULTIPLY", "value": 0.8 }
+        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.2 },
+        { "stat": "GAP_SIZE", "op": "MULTIPLY", "value": 0.85 }
       ],
       "flags": ["ALL_OBSTACLES_MOVE", "LETHAL_CEILING"], "rewardMult": 2.5,
       "unlock": { "type": "any_of", "conditions": [

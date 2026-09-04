@@ -1319,8 +1319,8 @@ class ContentValidatorTest {
         @Test
         void anInfeasiblePatternIsRejectedWithEveryRuleItBreaks() {
             List<String> errors = errorsOfFixture("patterns", "infeasible_pattern");
-            assertHasError(errors, "patterns.json#/patterns/2/steps/0/params/gapSize: 74 px"
-                    + " leaves 53.3 px on the tightest tier (× 0.80 × 0.9), less than the 54.5"
+            assertHasError(errors, "patterns.json#/patterns/2/steps/0/params/gapSize: 71 px"
+                    + " leaves 54.3 px on the tightest tier (× 0.85 × 0.9), less than the 54.5"
                     + " a bird fits through (§4 feasibility)");
             assertHasError(errors, "patterns.json#/patterns/2/steps/1/dx: 60 px between columns"
                     + " is less than the 100 a bird needs to change lanes (§4 feasibility)");

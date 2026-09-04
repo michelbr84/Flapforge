@@ -74,6 +74,7 @@
   "input.unbound": "sem tecla",
 
   "game.ready_hint": "Espaço ou clique para bater asas",
+
   "hud.seed": "semente {0}",
   "hud.streak": "Sequência {0}",
   "hud.coins": "{0}",
@@ -112,6 +113,7 @@
   "gameover.title": "Fim de jogo",
   "gameover.retry_hint": "Espaço: de novo   Enter: resumo   Esc: menu",
   "gameover.best_hint": "É a sua melhor partida: {0} pontos",
+
   "stat.gates": "Portões",
   "stat.points": "Pontos",
   "stat.time_alive": "Tempo de voo",
@@ -119,6 +121,7 @@
   "stat.coins": "Moedas",
   "stat.xp": "XP",
   "stat.streak_best": "Melhor sequência",
+
   "gameover.level_up": "Nível {0} alcançado",
 
   "summary.title": "Resumo da partida",
@@ -143,6 +146,8 @@
   "mode.daily": "Diária",
   "mode.challenge": "Desafio",
 
+  "daily.result": "melhor {0} portões, tentativa {1}",
+  "daily.unplayed": "ainda não jogada hoje",
   "reward.participation": "Participação",
   "reward.first_run": "Bônus de estreia",
   "reward.gates": "Portões",
@@ -228,6 +233,11 @@
   "birds.world": "Mundo",
   "birds.world.hazards": "Perigos: {0}",
   "birds.world.locked": "Bloqueado: {0}",
+  "birds.mode": "Modo",
+  "birds.mode.locked": "Bloqueado: {0}",
+  "birds.mode.standard_hint": "Uma semente nova a cada partida",
+  "birds.mode.seeded_hint": "Repete a semente {0}",
+  "birds.mode.daily_hint": "{0} - {1} - {2}",
   "birds.breakdown": "Detalhamento dos atributos",
   "birds.breakdown.base": "Base",
   "birds.breakdown.empty": "Nada muda a física ainda",
@@ -242,6 +252,7 @@
   "birds.ability.none_owned": "Nenhuma habilidade desbloqueada",
   "birds.ability.blocked": "Removida por {0}",
   "birds.ability.equipped": "Equipada",
+
   "ability.kind.active": "Ativa",
   "ability.kind.passive": "Passiva",
   "ability.tag.defensive": "Defensiva",
@@ -260,16 +271,19 @@
   "ability.param.flap_multiplier": "{0}x de força na batida",
   "ability.param.extra_radius": "+{0} px de raio do ímã",
   "ability.param.kick_multiplier": "{0}x no impulso de recuperação",
+
   "rule.no_defensive_abilities": "Sem habilidades defensivas",
   "rule.no_revive": "Sem reviver",
   "rule.all_obstacles_move": "Todos os obstáculos se movem",
   "rule.lethal_ceiling": "Teto letal",
   "rule.no_coins": "Sem moedas",
   "rule.speed_ramp": "Velocidade crescente",
+
   "rule_shift.title": "Mudança de regra",
   "rule_shift.countdown": "{0} em {1}s",
   "rule_shift.now": "{0} agora",
   "rule_shift.in_effect": "{0} em vigor",
+
   "obstacle.pipe_gate.name": "Canos",
   "obstacle.gear.name": "Engrenagens",
   "obstacle.piston.name": "Pistões",
@@ -459,7 +473,7 @@
   "upgrade.feather_1.name": "Peso Pena",
   "upgrade.feather_1.desc": "Gravidade −3% por nível.",
   "upgrade.glide_1.name": "Planeio",
-  "upgrade.glide_1.desc": "Velocidade máxima de queda −10% por nível.",
+  "upgrade.glide_1.desc": "Velocidade máxima de queda −25% por nível.",
   "upgrade.slim_frame_1.name": "Corpo Esguio",
   "upgrade.slim_frame_1.desc": "Hitbox −0,03 por nível.",
   "upgrade.quick_recharge_1.name": "Recarga Rápida",
@@ -496,7 +510,7 @@
   "feature.modifiers.name": "Modificadores de Partida",
   "feature.modifiers.desc": "Escolha de cartas nos canos 10, 25, 45, 70, 100 e 140.",
   "feature.seeded_runs.name": "Partidas com Semente",
-  "feature.seeded_runs.desc": "Repita um mundo exato digitando a semente dele.",
+  "feature.seeded_runs.desc": "Repita a semente exata da sua última partida e abra o desafio diário.",
 
   "modifier.tailwind.name": "Vento a Favor",
   "modifier.tailwind.desc": "+10% de pontos, e o mundo corre 2% mais rápido.",
@@ -660,6 +674,7 @@
 
   "menu.challenges": "Desafios",
   "menu.achievements": "Conquistas",
+
   "challenges.title": "Desafios",
   "challenges.world": "Mundo: {0}",
   "challenges.tier": "Dificuldade: {0}",
@@ -679,11 +694,13 @@
   "challenges.locked_title": "Bloqueado",
   "challenges.completed_entry": "{0} - concluído",
   "challenges.play": "Jogar",
+
   "objective.survive_gates": "Sobreviva a {0} portões",
   "objective.survive_ticks": "Fique vivo por {0} ticks",
   "objective.collect_coins": "Colete {0} moedas",
   "objective.reach_points": "Alcance {0} pontos",
   "objective.boss_cleared": "Vença o chefe",
+
   "achievements.title": "Conquistas",
   "achievements.tab.achievements": "Conquistas",
   "achievements.tab.milestones": "Marcos",
@@ -693,10 +710,12 @@
   "achievements.hidden.desc": "Uma conquista secreta",
   "achievements.unlocked_at": "Conquistada em {0}",
   "achievements.reward": "+{0} moedas",
+
   "milestones.next": "Próximos marcos",
   "milestones.level_reward": "Recompensa do nível {0}: {1} moedas",
   "milestones.progress": "{0} / {1}",
   "milestones.none": "Todos os marcos alcançados",
+
   "collections.birds": "Aves",
   "collections.abilities": "Habilidades",
   "collections.worlds": "Mundos",
@@ -706,10 +725,12 @@
   "collections.upgrades": "Melhorias",
   "collections.all": "Tudo",
   "collections.value": "{0} / {1} ({2}%)",
+
   "boss.title": "Chefe",
   "boss.warning": "{0} em {1}s",
   "boss.fight": "{0}: sobreviva {1}s",
   "boss.cleared": "{0} vencido!",
+
   "hud.boss.warning": "Chefe em {0}s",
   "hud.boss.fight": "CHEFE {0}s",
   "hud.objective.gates": "Objetivo: {0}/{1} portões",
@@ -718,19 +739,44 @@
   "hud.objective.points": "Objetivo: {0}/{1} pontos",
   "hud.objective.boss": "Objetivo: vença o chefe",
   "hud.objective.complete": "Objetivo concluído",
+
   "stat.objective": "Objetivo",
   "stat.objective.met": "Concluído",
   "stat.objective.missed": "Não cumprido",
   "stat.boss": "Chefe",
   "stat.boss.cleared": "Vencido",
   "stat.boss.phase": "Fase {0}",
+
   "gameover.challenge_completed": "Desafio concluído! +{0} moedas",
+
   "summary.challenge": "Desafio: {0}",
   "summary.first_completion": "Primeira conclusão: {0}",
   "summary.section.achievements": "Conquistas",
+
   "toast.achievement": "Conquista: {0}",
   "toast.achievement_coins": "Conquista: {0} (+{1} moedas)",
   "toast.unlock_granted": "Desbloqueado: {0}",
   "toast.challenge_completed": "Desafio concluído: {0}",
-  "toast.objective_met": "Objetivo concluído"
+  "toast.objective_met": "Objetivo concluído",
+
+  "prestige.group": "Prestígio",
+  "prestige.count": "Prestígios",
+  "prestige.bonus": "Bônus permanente",
+  "prestige.bonus.value": "+{0}% de moedas",
+  "prestige.requirement": "Requisito",
+  "prestige.keeps": "Mantém",
+  "prestige.resets": "Redefine",
+  "prestige.resets_list": "moedas, melhorias, níveis de habilidade, vagas de passivas, registros de desafio e o desafio diário",
+  "prestige.keep.birds": "pássaros",
+  "prestige.keep.achievements": "conquistas",
+  "prestige.keep.cosmetics": "cosméticos",
+  "prestige.keep.statistics": "estatísticas de todo o tempo",
+  "prestige.action": "Prestigiar",
+  "prestige.confirm": "Confirmar o prestígio?",
+  "prestige.needs_level": "O prestígio abre no nível {0}",
+  "prestige.maxed": "O limite de prestígios foi alcançado",
+
+  "menu.prestige_badge": "Prestígio ×{0}",
+
+  "toast.prestige": "Prestígio {0} feito — a escalada recomeça"
 }

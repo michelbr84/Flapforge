@@ -63,6 +63,7 @@ public final class RunLoadout {
                 .passiveSlotBonus(profile.passiveSlotBonus)
                 .abilityLevels(profile.abilityLevels)
                 .permanentEffects(upgradeEffects(profile, content))
+                .prestigeEffects(PrestigeSystem.effectsOf(profile, content))
                 .upgradeLevelsTotal(profile.upgradeLevelsTotal())
                 .availableModifiers(availableModifiers(profile, content))
                 .allowOffers(allowOffers(profile, content));

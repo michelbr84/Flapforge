@@ -234,16 +234,17 @@ class ShopScreenTest {
         assertFalse(screen.offerGrid().card("modifier:stormrider").subtitle()
                         .contains(strings.format(StringKey.COMMON_SOON, "M6")),
                 () -> screen.offerGrid().card("modifier:stormrider").subtitle());
-        // E19: a feature's card says which milestone starts using it rather than presenting a
-        // working switch. M6 shipped the draft overlay, so feature:modifiers is a working switch
-        // now and its card carries no note at all; Seeded mode still waits for M9.
+        // E19: a feature's card said which milestone starts using it rather than presenting a
+        // working switch. M6 shipped the draft overlay and M9 the mode picker, so both features
+        // are working switches now and neither card carries a note.
         assertTrue(content.playable(ContentKind.FEATURE, "modifiers"),
                 "M6 turned the modifier drafts on");
-        assertFalse(content.playable(ContentKind.FEATURE, "seeded_runs"));
+        assertTrue(content.playable(ContentKind.FEATURE, "seeded_runs"),
+                "M9 turned Seeded and Daily mode on");
         assertFalse(screen.offerGrid().card("feature:modifiers").subtitle()
                         .contains(strings.format(StringKey.COMMON_SOON, "M6")),
                 () -> screen.offerGrid().card("feature:modifiers").subtitle());
-        assertTrue(screen.offerGrid().card("feature:seeded_runs").subtitle()
+        assertFalse(screen.offerGrid().card("feature:seeded_runs").subtitle()
                         .contains(strings.format(StringKey.COMMON_SOON, "M9")),
                 () -> screen.offerGrid().card("feature:seeded_runs").subtitle());
         assertEquals(strings.get(StringKey.UPGRADES_TITLE),

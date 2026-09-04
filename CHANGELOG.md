@@ -4,12 +4,15 @@ All notable changes to Flapforge are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Flapforge's own history starts at `[Unreleased]`. The section
+Flapforge's own history starts at `0.1.0` (2026-09-03), the milestone M0–M9
+release. The section
 "Inherited upstream history" at the end preserves the release notes of the
 project Flapforge was forked from, [kingyuluk/FlappyBird](https://github.com/kingyuluk/FlappyBird),
 for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
+
+## 0.1.0 — 2026-09-03
 
 ### Added — M0: skeleton, window, loop, input, menu shell
 
@@ -1424,6 +1427,122 @@ is fixed here, with a test that fails without the fix.
   the 60/45 luma contract numerically and two-sided instead of a weaker
   literal; `SoftwareMixerTest` pins the music crossfade/fade ramp at exactly
   `MUSIC_RAMP_FRAMES`.
+
+### Added — M9: difficulty tiers, daily challenge, prestige, seeded runs, attract mode
+
+- Difficulty tiers balance pass (data-only): `hard` softened to
+  `SCROLL_SPEED ×1.10` / `GAP_SIZE ×0.92` and `nightmare` to `×1.20` / `×0.85`
+  (from ×1.15/×0.9 and ×1.3/×0.8) because the expert bot's boss-gate reach on
+  the tightest world × tier cells measured 32–38 % against the 30 % bar; the
+  shipped shape measures 46–96 % on every cell. The flags
+  (`ALL_OBSTACLES_MOVE`, `LETHAL_CEILING`), the reward multipliers (1.5/2.5),
+  the classic/standard curves and the `normal` tier are untouched
+  (`docs/BALANCING.md` §12.1).
+- `upgrades.json` `glide_1` retune: `-0.10` per level measured exactly zero
+  (the cap never cuts into the reachable dive distribution), so it ships
+  `-0.30` at level 1 with the format's first `levelOverrides` use carrying
+  level 2 at `-0.35`; costs stay 90/200 (`docs/BALANCING.md` §12.2).
+- The daily challenge (`progression.DailyChallenge`, `ui/screens.DailyRunSource`):
+  one deterministic configuration per UTC date — the seed is
+  `fnv1a("daily:" + yyyy-MM-dd)` from the injected `TimeSource`, and from the
+  named `daily` stream the game draws one world, one tier from
+  `economy.daily.tierPool` (`normal`, `hard`) and two compatible forced
+  modifiers, all from content the profile has unlocked. Daily runs pay the
+  `economy.daily.rewardMult` ×1.25, record `attempts` and the best gate count
+  per attempt, and retrying keeps the day's seed. The pick is written to
+  `profile.daily` the first time the day is viewed or played and then frozen
+  for that date, so unlocking content later cannot move it; a stored pick is
+  rebuilt at most once and only when the content can no longer play it.
+  Playing the daily requires `feature:seeded_runs`; the forced modifiers do
+  not require `feature:modifiers` — only mid-run drafting does.
+- Seeded mode: replays `profile.lastSeed` so a run can be retried on the exact
+  obstacles that ended it. Seeded and Daily open together with
+  `feature:seeded_runs` (level 5, or 100 coins in the shop); a locked mode is
+  marked with its condition in the bird screen's new run-mode row, and Play on
+  a locked mode falls back to a standard run.
+- Prestige (`progression.PrestigeSystem`): at level 25 (at most five per
+  profile) the statistics screen offers a two-step confirm that banks the
+  career — `profile.prestigeBaseline` snapshots the lifetime
+  runs/gates/coins/boss clears, then the wallet, XP, level, upgrades, ability
+  levels and caps, challenge records and the daily pick reset, and `unlocked`
+  is rebuilt as the defaults plus the kept `bird:*`/`cosmetic:*` ids.
+  Achievements and lifetime statistics survive, `prestigeCount` rises and
+  `cosmetic:<selectedBird>:prestige` (the golden palette) is granted, and
+  `bonusPerPrestige` (COIN_MULT +5 %) per stack rides into every later run's
+  `PRESTIGE` layer. Cumulative unlock conditions read "since prestige" against
+  the baseline, so nothing already earned is granted twice; the main menu
+  grows a prestige badge while the count is above zero.
+- Attract mode: after twenty seconds without input on the main menu a bot
+  plays a real, profile-less demo run behind it on the named `attract` stream,
+  dimmed under the menu; any input cancels it, and a focus loss freezes it.
+- `gameplay.harness.MetaSim` and `BalancingSim --meta`: whole-career
+  simulations of the `spender`/`saver` purchase policies through the real
+  progression stack, printing the runs-to-unlock table. `MetaSimTest` (`@sim`)
+  asserts the E25 gates: the spender-average owns every non-cosmetic
+  unlockable by run 25 (bound 200) with every node and ability level maxed by
+  run 15.3 (bound 600), the saver reaches world 2 in a mean of 2.2 runs
+  (bound 10; novice 7.0, bound 15), the novice journey cells of the plan hold,
+  and the synergy activation rate is 69.9 % (bound ≥ 20 %) — all recorded with
+  their tables in `docs/BALANCING.md` §13.
+- Tests: `DailyChallengeTest` (same date, same pick; unlocked-only draw;
+  compatibility; the stored pick surviving a new unlock; per-attempt records),
+  `PrestigeSystemTest` (the reset to the letter; nothing condition-derived
+  re-granted), `MetaSimTest` (`@sim`), `DailyModeUiTest`,
+  `PrestigeWiringTest`/`PrestigeUiTest`, `AttractModeTest` and
+  `IconExportTest`.
+
+### Added — M9 release packaging: icons, jpackage script, release workflow
+
+- `tools/IconExport` (`src/tools`, `./gradlew iconExport`) renders the
+  procedural icon from the vector form — never by upscaling a bitmap — and
+  writes `build/icon/flapforge.png` (256×256 master), `flapforge.ico` (16/32/48
+  /256 entries in a hand-written PNG-in-ICO container) and `flapforge.icns`
+  (ic07/ic08/ic09/ic10 chunks carrying the 128/256/512/1024 renders in a
+  PNG-in-ICNS container). `IconExportTest` parses all three containers back
+  byte by byte, independently of the writer (E9).
+- `scripts/package.sh` runs `./gradlew fatJar iconExport` and then `jpackage
+  --type app-image` with the per-OS icon (`.png` on Linux, `.ico` on Windows
+  from Git Bash, `.icns` on macOS) into `build/dist/`; it exits with a clear
+  message when `jpackage` is unavailable.
+- `.github/workflows/release.yml` runs on a `v*` tag: build + test + package on
+  ubuntu/windows/macos, per-OS app-image zips and the fat jar attached to the
+  GitHub release.
+
+### Fixed — M9 (review pass)
+
+- `forge_boss_p2` was unwinnable on `tier:hard`: the four presses' `length 300` left
+  `2 × 300 > 598 px` with no overlap between the top and bottom corridors, so survival hung on
+  which phase the columns had reached when they crossed the bird — at hard (the world's own
+  `×1.10` under the tier's `×1.10`) the expert cleared the encounter 0/30 (every death a
+  piston) while normal and nightmare sat at 100 %, which made the boss reward (400 coins) and
+  the `world:storm_sky` unlock unreachable on hard, and on the days the daily draws
+  iron_forge/hard. Shipped `length 260`, the shape `void_boss_p2` already plays: every tier now
+  clears the encounter at 90–100 % (expert) and in-run hard clears are 35–90 %
+  (`docs/BALANCING.md` §11.2.1). `ContentFeasibilityTest` now holds the boss encounter itself
+  to the same 30 % bar on every tier — before, it measured only the road to the boss per tier
+  and the boss on the default tier, so the gap was invisible.
+- `PrestigeSystem.check`'s `MAX_REACHED` guard carries a comment naming it the only real cap
+  enforcement (the clamp inside `prestige()` is unreachable defence-in-depth), so a future
+  editor does not remove the guard on the belief that the clamp enforces the cap.
+- Test-only pass; no other shipped code or data changed. `DailyChallengeTest`: the
+  forced-modifier sweep now re-derives the drawn world and tier's rule set from
+  the content and re-asks `ModifierPool` for every forced card (E12), and a new
+  test replays the sweep over content whose hard tier carries `NO_COINS` and
+  whose every card declares it in `requiresFlagsAbsent` — on a flagged day
+  nothing may be forced, so a draw that dropped the world/tier rules fails.
+  Before, a mutation swapping the daily pool's rule set for the empty one left
+  the suite green because the shipped flags happen to be empty.
+- `AttractModeTest`: the attract delay is pinned at the literal 1199/1200 ticks
+  (20 s × 60 Hz) in the test that owns the plan's number instead of reading
+  `MainMenuScreen.ATTRACT_DELAY_TICKS`, so retuning the constant fails there
+  (a 10 s mutation survived the suite before).
+
+### Changed — M9 release
+
+- The version is `0.1.0` (the `-SNAPSHOT` suffix is dropped), so the fat jar is
+  `build/libs/flapforge-0.1.0-all.jar`. The published determinism hash
+  (`hash=eaaa01685261a433` for `--headless-run 3000 --seed 42`) is unchanged
+  and re-verified with the new jar name on JDK 17 and JDK 21.
 
 ## Inherited upstream history (kingyuluk/FlappyBird)
 

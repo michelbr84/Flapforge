@@ -60,7 +60,7 @@ Optionally pin `distributionSha256Sum` in
 | `./gradlew perfTest` | tests tagged `perf`: local performance budgets (not run in CI) |
 | `./gradlew simTest` | tests tagged `sim`: long bot simulations (feasibility, new-player journey, meta-progression) — populated from M4 |
 | `./gradlew jar` | plain jar with `Main-Class` and `Implementation-Version` |
-| `./gradlew fatJar` | self-contained `build/libs/flapforge-<version>-all.jar` (Gson bundled) |
+| `./gradlew fatJar` | self-contained `build/libs/flapforge-<version>-all.jar` (Gson bundled; `0.1.0` ships `flapforge-0.1.0-all.jar`) |
 | `./gradlew balancing -PtoolArgs="..."` | `[M1]` balancing simulation (`src/tools`; the `tools` source set and the five `JavaExec` tasks exist from M0, the tools themselves arrive with their milestones) |
 | `./gradlew saveInspector -PtoolArgs="..."` | `[M3]` inspect/validate a save directory |
 | `./gradlew contentCheck` | `[M4]` run the content validator on the shipped JSON |
@@ -70,7 +70,10 @@ Optionally pin `distributionSha256Sum` in
 
 Wrapper scripts: `scripts/build.sh` / `scripts\build.ps1` run `build fatJar`;
 `scripts/run.sh` / `scripts\run.ps1` run `run` and forward every argument to
-the game. Gradle can take a few minutes on a cold cache; keep going.
+the game. `scripts/package.sh` (`[M9]`, bash) runs `fatJar iconExport` and then
+`jpackage --type app-image` with the per-OS icon (E9) to write a self-contained
+app image to `build/dist/`; it needs `jpackage`, which ships with JDK 14+.
+Gradle can take a few minutes on a cold cache; keep going.
 
 ### The asset validator `[M7]`
 
@@ -98,10 +101,33 @@ empty: the `font/ui` entry ships the bundled OFL font (`assets/fonts/`), which
 | `--boss ID` / `--boss all` `[M8]` | a world boss encounter on its own, started at the boss (`RunSetup.startingAtBoss`: the warning fires at the first gate and the curve is shifted so that gate plays under the difficulty of the authored `atGate`), so the cell measures the fight and not the road to it; how §11.2 is produced |
 | `--drafts` | enable modifier drafts (off by default, so a cell measures the base run) |
 | `--skill NAME` | `novice`, `average`, `expert`, `perfect` or `all` |
+| `--meta` `[M9]` | run the meta-progression simulation (`MetaSim`): a fresh profile plays run after run through the real progression stack under a purchase policy, and the tool prints the runs-to-unlock table that `docs/BALANCING.md` §13 records |
+| `--policy NAME` `[M9]` | the `--meta` purchase policy: `spender` (default; empties the wallet every run by priority class — features, worlds, birds/abilities, ability levels, nodes — cheapest within a class) or `saver` (one world or feature per run, cheapest first) |
+| `--runs N` `[M9]` | run budget per `--meta` seed line (default 250) |
+| `--meta-seeds N` `[M9]` | seed lines per `--meta` cell (default 20; seed line *l* plays run *i* on seed `1_000_000 × (firstSeed + l) + i`) |
 
 The deaths line groups obstacle deaths by kind (`PIPE_GATE`, `GEAR`, `PISTON`,
 `LIGHTNING`) plus the non-obstacle exits (`alive` = the tick budget reached),
 which is how `docs/BALANCING.md` §10 and §11 are produced.
+
+### The release flow `[M9]`
+
+1. **The version lives in `src/main/resources/version.properties`** (`version=0.1.0`); Gradle
+   reads it, so the plain jar's `Implementation-Version`, the fat jar's file name
+   (`build/libs/flapforge-0.1.0-all.jar`) and the `jpackage` app version all follow it. A
+   release candidate drops its `-SNAPSHOT` suffix here — as M9 did.
+2. **`./gradlew fatJar iconExport`** builds the self-contained jar and renders
+   `build/icon/flapforge.png` (256²), `flapforge.ico` (16/32/48/256) and `flapforge.icns`
+   (ic07–ic10) from the procedural icon (E9); `IconExportTest` parses all three containers back.
+3. **`scripts/package.sh`** runs those two Gradle tasks and then `jpackage --type app-image`
+   with the current OS's icon into `build/dist/` (Linux `.png`, macOS `.icns`, Windows `.ico`
+   under Git Bash).
+4. **Tagging `v*` runs `.github/workflows/release.yml`**: build + test + package on
+   ubuntu/windows/macos, the app image zipped per OS, and the zips plus the fat jar attached to
+   the GitHub release. `build.yml` additionally re-verifies the cross-platform determinism hash
+   of the classic headless run, which a release must not move.
+5. **The `v0.1.0` tag freezes save v1** (see `docs/SAVE_SYSTEM.md` §8): from it on, every change
+   to the persisted shape ships a migration.
 
 ## Launch flags
 

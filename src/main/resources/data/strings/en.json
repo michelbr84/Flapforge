@@ -74,6 +74,7 @@
   "input.unbound": "unbound",
 
   "game.ready_hint": "Press Space or click to flap",
+
   "hud.seed": "seed {0}",
   "hud.streak": "Streak {0}",
   "hud.coins": "{0}",
@@ -112,6 +113,7 @@
   "gameover.title": "Game over",
   "gameover.retry_hint": "Space: retry   Enter: summary   Esc: menu",
   "gameover.best_hint": "That's your best run yet: {0} points",
+
   "stat.gates": "Gates",
   "stat.points": "Points",
   "stat.time_alive": "Time alive",
@@ -119,6 +121,7 @@
   "stat.coins": "Coins",
   "stat.xp": "XP",
   "stat.streak_best": "Best streak",
+
   "gameover.level_up": "Level {0} reached",
 
   "summary.title": "Run summary",
@@ -143,6 +146,8 @@
   "mode.daily": "Daily",
   "mode.challenge": "Challenge",
 
+  "daily.result": "best {0} gates, attempt {1}",
+  "daily.unplayed": "not flown today yet",
   "reward.participation": "Participation",
   "reward.first_run": "First run bonus",
   "reward.gates": "Gates",
@@ -228,6 +233,11 @@
   "birds.world": "World",
   "birds.world.hazards": "Hazards: {0}",
   "birds.world.locked": "Locked: {0}",
+  "birds.mode": "Mode",
+  "birds.mode.locked": "Locked: {0}",
+  "birds.mode.standard_hint": "A fresh seed every run",
+  "birds.mode.seeded_hint": "Replays seed {0}",
+  "birds.mode.daily_hint": "{0} - {1} - {2}",
   "birds.breakdown": "Stat breakdown",
   "birds.breakdown.base": "Base",
   "birds.breakdown.empty": "Nothing changes the physics yet",
@@ -242,6 +252,7 @@
   "birds.ability.none_owned": "No ability unlocked yet",
   "birds.ability.blocked": "Stripped by {0}",
   "birds.ability.equipped": "Equipped",
+
   "ability.kind.active": "Active",
   "ability.kind.passive": "Passive",
   "ability.tag.defensive": "Defensive",
@@ -260,16 +271,19 @@
   "ability.param.flap_multiplier": "{0}x flap strength",
   "ability.param.extra_radius": "+{0} px magnet radius",
   "ability.param.kick_multiplier": "{0}x recovery kick",
+
   "rule.no_defensive_abilities": "No defensive abilities",
   "rule.no_revive": "No revives",
   "rule.all_obstacles_move": "Every obstacle moves",
   "rule.lethal_ceiling": "Lethal ceiling",
   "rule.no_coins": "No coins",
   "rule.speed_ramp": "Rising speed",
+
   "rule_shift.title": "Rule shift",
   "rule_shift.countdown": "{0} in {1}s",
   "rule_shift.now": "{0} now",
   "rule_shift.in_effect": "{0} in effect",
+
   "obstacle.pipe_gate.name": "Pipes",
   "obstacle.gear.name": "Gears",
   "obstacle.piston.name": "Pistons",
@@ -459,7 +473,7 @@
   "upgrade.feather_1.name": "Feather Weight",
   "upgrade.feather_1.desc": "Gravity −3% per level.",
   "upgrade.glide_1.name": "Glide",
-  "upgrade.glide_1.desc": "Terminal fall speed −10% per level.",
+  "upgrade.glide_1.desc": "Terminal fall speed −25% per level.",
   "upgrade.slim_frame_1.name": "Slim Frame",
   "upgrade.slim_frame_1.desc": "Hitbox −0.03 per level.",
   "upgrade.quick_recharge_1.name": "Quick Recharge",
@@ -496,7 +510,7 @@
   "feature.modifiers.name": "Run Modifiers",
   "feature.modifiers.desc": "Card drafts at gates 10, 25, 45, 70, 100 and 140.",
   "feature.seeded_runs.name": "Seeded Runs",
-  "feature.seeded_runs.desc": "Replay an exact world by typing its seed.",
+  "feature.seeded_runs.desc": "Replay the exact seed of your last run, and open the daily challenge.",
 
   "modifier.tailwind.name": "Tailwind",
   "modifier.tailwind.desc": "+10% score, and the world scrolls 2% faster.",
@@ -660,6 +674,7 @@
 
   "menu.challenges": "Challenges",
   "menu.achievements": "Achievements",
+
   "challenges.title": "Challenges",
   "challenges.world": "World: {0}",
   "challenges.tier": "Tier: {0}",
@@ -679,11 +694,13 @@
   "challenges.locked_title": "Locked",
   "challenges.completed_entry": "{0} - completed",
   "challenges.play": "Play",
+
   "objective.survive_gates": "Survive {0} gates",
   "objective.survive_ticks": "Stay alive for {0} ticks",
   "objective.collect_coins": "Collect {0} coins",
   "objective.reach_points": "Reach {0} points",
   "objective.boss_cleared": "Clear the boss",
+
   "achievements.title": "Achievements",
   "achievements.tab.achievements": "Achievements",
   "achievements.tab.milestones": "Milestones",
@@ -693,10 +710,12 @@
   "achievements.hidden.desc": "A hidden achievement",
   "achievements.unlocked_at": "Unlocked {0}",
   "achievements.reward": "+{0} coins",
+
   "milestones.next": "Next milestones",
   "milestones.level_reward": "Level {0} reward: {1} coins",
   "milestones.progress": "{0} / {1}",
   "milestones.none": "Every milestone reached",
+
   "collections.birds": "Birds",
   "collections.abilities": "Abilities",
   "collections.worlds": "Worlds",
@@ -706,10 +725,12 @@
   "collections.upgrades": "Upgrades",
   "collections.all": "Everything",
   "collections.value": "{0} / {1} ({2}%)",
+
   "boss.title": "Boss",
   "boss.warning": "{0} in {1}s",
   "boss.fight": "{0}: survive {1}s",
   "boss.cleared": "{0} cleared!",
+
   "hud.boss.warning": "Boss in {0}s",
   "hud.boss.fight": "BOSS {0}s",
   "hud.objective.gates": "Objective: {0}/{1} gates",
@@ -718,19 +739,44 @@
   "hud.objective.points": "Objective: {0}/{1} points",
   "hud.objective.boss": "Objective: clear the boss",
   "hud.objective.complete": "Objective complete",
+
   "stat.objective": "Objective",
   "stat.objective.met": "Complete",
   "stat.objective.missed": "Not met",
   "stat.boss": "Boss",
   "stat.boss.cleared": "Cleared",
   "stat.boss.phase": "Phase {0}",
+
   "gameover.challenge_completed": "Challenge completed! +{0} coins",
+
   "summary.challenge": "Challenge: {0}",
   "summary.first_completion": "First completion: {0}",
   "summary.section.achievements": "Achievements",
+
   "toast.achievement": "Achievement: {0}",
   "toast.achievement_coins": "Achievement: {0} (+{1} coins)",
   "toast.unlock_granted": "Unlocked: {0}",
   "toast.challenge_completed": "Challenge complete: {0}",
-  "toast.objective_met": "Objective complete"
+  "toast.objective_met": "Objective complete",
+
+  "prestige.group": "Prestige",
+  "prestige.count": "Prestiges",
+  "prestige.bonus": "Permanent bonus",
+  "prestige.bonus.value": "+{0}% coins",
+  "prestige.requirement": "Requirement",
+  "prestige.keeps": "Keeps",
+  "prestige.resets": "Resets",
+  "prestige.resets_list": "coins, upgrades, ability levels, passive slots, challenge records and the daily pick",
+  "prestige.keep.birds": "birds",
+  "prestige.keep.achievements": "achievements",
+  "prestige.keep.cosmetics": "cosmetics",
+  "prestige.keep.statistics": "lifetime statistics",
+  "prestige.action": "Prestige",
+  "prestige.confirm": "Confirm prestige?",
+  "prestige.needs_level": "Prestige opens at level {0}",
+  "prestige.maxed": "The prestige cap is reached",
+
+  "menu.prestige_badge": "Prestige ×{0}",
+
+  "toast.prestige": "Prestige {0} performed — the climb starts over"
 }

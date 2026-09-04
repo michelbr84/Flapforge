@@ -36,6 +36,8 @@ public final class RandomProvider {
     public static final String CYCLES = "cycles";
     /** Stream used by the daily challenge picker. */
     public static final String DAILY = "daily";
+    /** Stream the attract mode draws its cycling demo seeds from (M9). */
+    public static final String ATTRACT = "attract";
 
     private final long seed;
 

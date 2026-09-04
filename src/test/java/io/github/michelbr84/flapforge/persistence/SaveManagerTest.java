@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.gson.JsonObject;
 import io.github.michelbr84.flapforge.content.defs.AliasDef;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
+import io.github.michelbr84.flapforge.progression.PrestigeSystem;
 import io.github.michelbr84.flapforge.progression.ProfileSchema;
 import io.github.michelbr84.flapforge.progression.Statistics;
 import io.github.michelbr84.flapforge.progression.UpgradeManager;
@@ -279,6 +280,76 @@ class SaveManagerTest {
         assertTrue(reloaded.upgrades.isEmpty());
         assertEquals(0L, reloaded.wallet.get(PlayerProfile.CURRENCY_COINS));
         assertEquals(1, reloaded.prestigeCount);
+    }
+
+    @Test
+    void prestigeResetPersistsAfterReload() throws IOException {
+        manager.load();
+        PlayerProfile profile = manager.profile();
+        profile.level = 25;
+        profile.xp = 9200;
+        profile.wallet.put(PlayerProfile.CURRENCY_COINS, 500L);
+        profile.upgrades.put("glide_1", 2);
+        profile.abilityLevels.put("shield", 2);
+        profile.abilityLevelCap = 4;
+        profile.passiveSlotBonus = 1;
+        profile.unlock("world:wind_valley");
+        profile.unlock("ability:shield");
+        profile.unlock("tier:hard");
+        profile.unlock("bird:swift");
+        profile.unlock("cosmetic:swift:default");
+        profile.challenges.put("no_shield_1", new PlayerProfile.ChallengeRecord());
+        profile.challenges.get("no_shield_1").completed = true;
+        profile.daily.date = "2026-09-03";
+        profile.daily.seed = 7;
+        profile.daily.worldId = "wind_valley";
+        profile.daily.modifierIds.add("headwind");
+        profile.achievements.put("first_flight", new PlayerProfile.AchievementRecord(NOW));
+        profile.statistics.totalRuns = 40;
+        profile.statistics.totalGates = 900;
+        profile.statistics.coinsEarned = 3000;
+        profile.statistics.bossesCleared.add("green_fields");
+        profile.normalize();
+
+        PrestigeSystem.Result result = PrestigeSystem.prestige(profile, null);
+        assertTrue(result.ok(), "level 25 with a history may prestige");
+        manager.save();
+
+        SaveManager reader = new SaveManager(new DirectExecutor(), time);
+        PlayerProfile reloaded = reader.load().profile();
+
+        // The resets (E23) — a merged overlay would resurrect them on every load.
+        assertEquals(1, reloaded.level);
+        assertEquals(0L, reloaded.xp);
+        assertEquals(0L, reloaded.wallet.get(PlayerProfile.CURRENCY_COINS));
+        assertTrue(reloaded.upgrades.isEmpty());
+        assertTrue(reloaded.abilityLevels.isEmpty());
+        assertEquals(PlayerProfile.DEFAULT_ABILITY_LEVEL_CAP, reloaded.abilityLevelCap);
+        assertEquals(0, reloaded.passiveSlotBonus);
+        assertTrue(reloaded.challenges.isEmpty());
+        assertTrue(reloaded.daily.date.isEmpty(), "the daily record was reset");
+        assertEquals(1, reloaded.prestigeCount);
+
+        // The baseline (E23), persisted as the POJO node it is.
+        assertEquals(40, reloaded.prestigeBaseline.totalRuns);
+        assertEquals(900, reloaded.prestigeBaseline.totalGates);
+        assertEquals(3000, reloaded.prestigeBaseline.coinsEarned);
+        assertEquals(List.of("green_fields"), reloaded.prestigeBaseline.bossesCleared);
+
+        // The keeps.
+        assertTrue(reloaded.achievements.containsKey("first_flight"),
+                "achievements survive a prestige");
+        assertEquals(40, reloaded.statistics.totalRuns, "statistics survive a prestige");
+        assertTrue(reloaded.isUnlocked("bird:swift"), "birds are kept");
+        assertTrue(reloaded.isUnlocked("cosmetic:swift:default"), "cosmetics are kept");
+        assertTrue(reloaded.isUnlocked("cosmetic:classic:prestige"),
+                "the badge cosmetic the prestige granted");
+
+        // And the dropped ids stay dropped: E15's implied-unlock repair re-grants whatever
+        // selected points at, so the reset only sticks because the selection fell back too.
+        assertFalse(reloaded.isUnlocked("world:wind_valley"));
+        assertFalse(reloaded.isUnlocked("ability:shield"));
+        assertFalse(reloaded.isUnlocked("tier:hard"));
     }
 
     @Test

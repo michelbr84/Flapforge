@@ -339,8 +339,8 @@ class PatternStreamerTest {
             PipeGate gate = (PipeGate) run.simulation().obstacles().last();
             double multiplier = run.simulation().stats().resolve(
                     io.github.michelbr84.flapforge.gameplay.stats.StatId.GAP_SIZE) / 128;
-            double expectedMultiplier = "nightmare".equals(tier) ? 0.8
-                    : "hard".equals(tier) ? 0.9 : 1.0;
+            double expectedMultiplier = "nightmare".equals(tier) ? 0.85
+                    : "hard".equals(tier) ? 0.92 : 1.0;
             assertEquals(expectedMultiplier, multiplier, EPS, tier);
             assertEquals(128 * expectedMultiplier, gate.gap(), EPS, tier + ": gapSize × tier");
             assertEquals(0.5 * Playfield.GROUND_Y, gate.gapCenterY(), 1.0,
