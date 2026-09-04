@@ -117,6 +117,13 @@ tasks.register('smokeTest', Test) {
     outputs.upToDateWhen { false }
     outputs.cacheIf { false }
     shouldRunAfter test
+    // The [smoke] retry lines are the flake diagnosis when a Robot click is swallowed in CI:
+    // they show attempt counts and click coordinates, and the terminal failure message carries
+    // the pointer position. The events are listed explicitly (not via showStandardStreams) so
+    // the logged set does not depend on Gradle's add-vs-replace semantics for `events`.
+    testLogging {
+        events = ['started', 'failed', 'standardOut', 'standardError']
+    }
 }
 
 tasks.register('perfTest', Test) {

@@ -87,9 +87,12 @@ import java.awt.Canvas;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
 import java.awt.HeadlessException;
+import java.awt.MouseInfo;
 import java.awt.Point;
+import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.awt.Robot;
+import java.awt.Toolkit;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
@@ -152,9 +155,20 @@ class SmokeWindowTest {
     /**
      * How long a Robot event may take to come back through the toolkit. The rig drives the loop
      * as fast as it can, so a frame budget is not a time budget: 90 uncapped frames can elapse in
-     * well under a millisecond while X still has the event in flight on a loaded machine.
+     * well under a millisecond while X still has the event in flight on a loaded machine. The
+     * 4 s here was 2 s until the first-click flake showed that a burst of parallel CI Test runs
+     * can keep X slow for seconds at a time (M10-pre).
      */
-    private static final long DELIVERY_TIMEOUT_MS = 2_000L;
+    private static final long DELIVERY_TIMEOUT_MS = 4_000L;
+    /**
+     * How long the pointer warp issued by {@code Robot.mouseMove} may take to actually arrive at
+     * the target, read back from the X server via {@link java.awt.MouseInfo}. Robot synthesises
+     * press/release immediately after the move, but the warp itself is asynchronous: under a
+     * loaded Xvfb the press can land at the <em>old</em> pointer position, i.e. in whatever
+     * window is topmost there, and the click silently goes nowhere. Every attempt of the click
+     * helpers waits for the arrival before pressing, which is what closes the race.
+     */
+    private static final long POINTER_ARRIVAL_TIMEOUT_MS = 750L;
     /** How long the window manager may take to grant the canvas keyboard focus. */
     private static final long FOCUS_TIMEOUT_MS = 1_000L;
     /**
@@ -464,16 +478,49 @@ class SmokeWindowTest {
                 if (expected.getAsBoolean()) {
                     return;
                 }
-                System.out.println("[smoke] key " + text + " was not delivered, retrying");
+                if (attempt < DELIVERY_ATTEMPTS - 1) {
+                    System.out.println("[smoke] key " + text + " was not delivered, retrying (attempt "
+                            + (attempt + 2) + "/" + DELIVERY_ATTEMPTS + ")");
+                }
             }
-            assertTrue(expected.getAsBoolean(),
-                    "Robot key " + text + " was not delivered through the toolkit");
+            assertTrue(expected.getAsBoolean(), "Robot key " + text
+                    + " was not delivered through the toolkit after " + DELIVERY_ATTEMPTS
+                    + " attempts");
+        }
+
+        /**
+         * Waits until the X pointer is truly at {@code target} (screen coordinates) before the
+         * caller presses a button. {@code Robot.mouseMove} only <em>requests</em> a warp; under a
+         * loaded X server the press synthesised right after it can still be delivered to the
+         * window under the pointer's previous position. Reading the position back through
+         * {@link MouseInfo} queries the server itself, so this is a real arrival gate, not a
+         * sleep. A timeout is only logged: the click attempt below is retried by
+         * {@link #DELIVERY_ATTEMPTS} anyway, and {@code waitForIdle} still lets whatever motion
+         * is in flight settle before the press.
+         */
+        private void awaitPointerAt(Point target) {
+            boolean arrived = rig.untilDeadline(() -> {
+                // getPointerInfo() can throw HeadlessException without a display or return null
+                // on some X servers; both keep the wait bounded instead of failing the click
+                // with an unrelated error (pointerNow() guards the same call the same way).
+                try {
+                    PointerInfo info = MouseInfo.getPointerInfo();
+                    return info != null && target.equals(info.getLocation());
+                } catch (RuntimeException e) {
+                    return false;
+                }
+            }, POINTER_ARRIVAL_TIMEOUT_MS);
+            if (!arrived) {
+                System.out.println("[smoke] pointer did not reach " + target + " within "
+                        + POINTER_ARRIVAL_TIMEOUT_MS + " ms, clicking anyway");
+            }
+            robot.waitForIdle();
         }
 
         void click(UiNode node, BooleanSupplier expected) {
             int wx = 0;
             int wy = 0;
-            for (int attempt = 0; attempt < DELIVERY_ATTEMPTS; attempt++) {
+            for (int attempt = 1; attempt <= DELIVERY_ATTEMPTS; attempt++) {
                 // Raise the window first: on a busy desktop another window can sit over the point
                 // we are about to click, and X delivers the press to whatever is topmost there.
                 focusCanvasOrAbort(rig);
@@ -484,17 +531,44 @@ class SmokeWindowTest {
                 assertTrue(canvas.isShowing(), "canvas showing");
                 Point origin = canvas.getLocationOnScreen();
                 robot.mouseMove(origin.x + wx, origin.y + wy);
+                awaitPointerAt(new Point(origin.x + wx, origin.y + wy));
                 robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
                 robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
                 rig.untilDeadline(expected, DELIVERY_TIMEOUT_MS);
                 if (expected.getAsBoolean()) {
                     return;
                 }
-                System.out.println("[smoke] click at " + wx + "," + wy
-                        + " was not delivered, retrying");
+                // The expectation may simply have been slow: flush what is in flight and run a
+                // couple of frames before re-sending, so a late delivery is counted by the
+                // recheck instead of surfacing AFTER the re-sent press in the FIFO input queue
+                // (a duplicate press would toggle a switch back off and leave the retry loop
+                // chasing an unsatisfiable state). waitForIdle deterministically dispatches an
+                // EDT-stalled press; Toolkit.sync() flushes the native side.
+                rig.frames(2);
+                robot.waitForIdle();
+                Toolkit.getDefaultToolkit().sync();
+                if (expected.getAsBoolean()) {
+                    return;
+                }
+                if (attempt < DELIVERY_ATTEMPTS) {
+                    System.out.println("[smoke] click at " + wx + "," + wy
+                            + " was not delivered, retrying (attempt " + attempt + "/"
+                            + DELIVERY_ATTEMPTS + ")");
+                }
             }
             assertTrue(expected.getAsBoolean(), "Robot click at " + wx + "," + wy
-                    + " was not delivered through the toolkit");
+                    + " was not delivered through the toolkit after " + DELIVERY_ATTEMPTS
+                    + " attempts" + pointerNow());
+        }
+
+        /** Current X pointer position, for failure diagnostics (never throws). */
+        private static String pointerNow() {
+            try {
+                PointerInfo info = MouseInfo.getPointerInfo();
+                return info == null ? " (pointer unknown)" : " (pointer now at " + info.getLocation() + ")";
+            } catch (RuntimeException e) {
+                return " (pointer unknown)";
+            }
         }
 
         /**
@@ -506,7 +580,11 @@ class SmokeWindowTest {
             Point origin = rig.window.canvas().getLocationOnScreen();
             robot.mouseMove(origin.x + (int) Math.round(w.x()),
                     origin.y + (int) Math.round(w.y()));
-            rig.frames(4);
+            // Same arrival gate the click helpers use: the park exists so a following keyboard
+            // step cannot have its focus stolen, which only holds once the pointer is there.
+            awaitPointerAt(new Point(origin.x + (int) Math.round(w.x()),
+                    origin.y + (int) Math.round(w.y())));
+            rig.frames(2);
         }
 
         /**
@@ -516,7 +594,7 @@ class SmokeWindowTest {
         void clickAt(double logicalX, double logicalY, BooleanSupplier expected) {
             int wx = 0;
             int wy = 0;
-            for (int attempt = 0; attempt < DELIVERY_ATTEMPTS; attempt++) {
+            for (int attempt = 1; attempt <= DELIVERY_ATTEMPTS; attempt++) {
                 focusCanvasOrAbort(rig);
                 Vec2 w = rig.viewport.toWindow(logicalX, logicalY);
                 wx = (int) Math.round(w.x());
@@ -525,17 +603,30 @@ class SmokeWindowTest {
                 assertTrue(canvas.isShowing(), "canvas showing");
                 Point origin = canvas.getLocationOnScreen();
                 robot.mouseMove(origin.x + wx, origin.y + wy);
+                awaitPointerAt(new Point(origin.x + wx, origin.y + wy));
                 robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
                 robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
                 rig.untilDeadline(expected, DELIVERY_TIMEOUT_MS);
                 if (expected.getAsBoolean()) {
                     return;
                 }
-                System.out.println("[smoke] click at " + wx + "," + wy
-                        + " was not delivered, retrying");
+                // Late-delivery recheck before a re-send: see click(). A duplicate click here
+                // would toggle a switch back and make the expectation unsatisfiable for ever.
+                rig.frames(2);
+                robot.waitForIdle();
+                Toolkit.getDefaultToolkit().sync();
+                if (expected.getAsBoolean()) {
+                    return;
+                }
+                if (attempt < DELIVERY_ATTEMPTS) {
+                    System.out.println("[smoke] click at " + wx + "," + wy
+                            + " was not delivered, retrying (attempt " + attempt + "/"
+                            + DELIVERY_ATTEMPTS + ")");
+                }
             }
             assertTrue(expected.getAsBoolean(), "Robot click at " + wx + "," + wy
-                    + " was not delivered through the toolkit");
+                    + " was not delivered through the toolkit after " + DELIVERY_ATTEMPTS
+                    + " attempts" + pointerNow());
         }
 
         /**
