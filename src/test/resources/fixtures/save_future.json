@@ -1,0 +1,22 @@
+{
+  "version": 99,
+  "appVersion": "9.9.9",
+  "contentVersion": 42,
+  "savedAtEpochMs": 1893456000000,
+  "profile": {
+    "createdAtEpochMs": 1756598400000,
+    "wallet": {
+      "coins": 999999,
+      "starshards": 12
+    },
+    "xp": 999999,
+    "level": 50,
+    "unlocked": [
+      "bird:classic",
+      "bird:from_a_future_build"
+    ],
+    "somethingThisBuildHasNeverHeardOf": {
+      "nested": true
+    }
+  }
+}

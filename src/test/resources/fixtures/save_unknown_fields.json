@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "appVersion": "0.1.0",
+  "contentVersion": 1,
+  "savedAtEpochMs": 1756684800000,
+  "futureEnvelopeField": "written by a newer build",
+  "profile": {
+    "createdAtEpochMs": 1756598400000,
+    "prestigeCount": 0,
+    "passiveSlotBonus": 0,
+    "wallet": {
+      "coins": 120
+    },
+    "xp": 0,
+    "level": 1,
+    "abilityLevelCap": 2,
+    "unlocked": [
+      "bird:classic",
+      "ability:double_flap",
+      "world:green_fields",
+      "tree:flight",
+      "tier:normal",
+      "cosmetic:classic:default"
+    ],
+    "upgrades": {},
+    "abilityLevels": {},
+    "reconciled": [],
+    "achievements": {},
+    "challenges": {},
+    "prestigeBaseline": {
+      "futureBaselineField": 3
+    },
+    "futureProfileField": {
+      "deep": {
+        "value": 7
+      }
+    },
+    "daily": {
+      "date": "",
+      "seed": 0,
+      "worldId": "",
+      "tierId": "",
+      "modifierIds": [],
+      "attempts": 0,
+      "bestGates": 0,
+      "futureDailyField": "kept"
+    },
+    "statistics": {
+      "totalRuns": 1,
+      "totalGates": 4,
+      "bestGates": 4,
+      "futureStatistic": 1234,
+      "runHistory": []
+    },
+    "selected": {
+      "birdId": "classic",
+      "paletteId": "default",
+      "worldId": "green_fields",
+      "tierId": "normal",
+      "activeAbilityId": "double_flap",
+      "passiveAbilityIds": [],
+      "futureSelection": "cosmetic_pet"
+    },
+    "lastSeed": 7
+  }
+}

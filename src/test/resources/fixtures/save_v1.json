@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "appVersion": "0.1.0",
+  "contentVersion": 1,
+  "savedAtEpochMs": 1756684800000,
+  "profile": {
+    "createdAtEpochMs": 1756598400000,
+    "prestigeCount": 0,
+    "prestigeBaseline": {
+      "totalRuns": 0,
+      "totalGates": 0,
+      "coinsEarned": 0,
+      "bossesCleared": []
+    },
+    "passiveSlotBonus": 0,
+    "wallet": {
+      "coins": 320
+    },
+    "xp": 210,
+    "level": 3,
+    "abilityLevelCap": 2,
+    "unlocked": [
+      "bird:classic",
+      "ability:double_flap",
+      "ability:shield",
+      "world:green_fields",
+      "tree:flight",
+      "tier:normal",
+      "cosmetic:classic:default",
+      "challenge:no_shield_1",
+      "cosmetic:classic:ember",
+      "modifier:tailwind",
+      "modifier:score_plus",
+      "modifier:coin_drops",
+      "modifier:slower_obstacles",
+      "modifier:quick_hands",
+      "modifier:light_frame",
+      "modifier:streak_bounty",
+      "modifier:temp_shield",
+      "modifier:magnet_burst",
+      "modifier:wide_gaps",
+      "modifier:heavy_wallet",
+      "modifier:glass_wings",
+      "modifier:second_wind",
+      "modifier:long_fuse"
+    ],
+    "upgrades": {
+      "feather_1": 2
+    },
+    "abilityLevels": {
+      "double_flap": 1,
+      "shield": 1
+    },
+    "reconciled": [],
+    "achievements": {
+      "first_flight": {
+        "unlockedAtEpochMs": 1756598500000
+      }
+    },
+    "challenges": {
+      "no_shield_1": {
+        "completed": true,
+        "bestGates": 34,
+        "attempts": 3
+      }
+    },
+    "daily": {
+      "date": "2026-09-01",
+      "seed": 20260901,
+      "worldId": "green_fields",
+      "tierId": "normal",
+      "modifierIds": [],
+      "attempts": 0,
+      "bestGates": 0
+    },
+    "statistics": {
+      "totalRuns": 3,
+      "totalGates": 61,
+      "bestGates": 34,
+      "bestGatesByWorld": {
+        "green_fields": 34
+      },
+      "bestGatesByTier": {
+        "normal": 34
+      },
+      "totalPoints": 61,
+      "bestPoints": 34,
+      "coinsEarned": 320,
+      "coinsSpent": 0,
+      "coinsCollected": 12,
+      "xpEarned": 210,
+      "deathsByCause": {
+        "OBSTACLE": 2,
+        "GROUND": 1
+      },
+      "abilitiesUsed": {
+        "double_flap": 4
+      },
+      "abilitiesUsedTotal": 4,
+      "shieldAbsorbs": 1,
+      "revives": 0,
+      "streakBest": 9,
+      "bossesCleared": [],
+      "bossClears": {},
+      "challengesCompleted": 1,
+      "dailiesPlayed": 0,
+      "modifiersTaken": {},
+      "synergiesActivated": {},
+      "playtimeSeconds": 154,
+      "runHistory": [
+        {
+          "finishedAtEpochMs": 1756684800000,
+          "seed": 42,
+          "mode": "STANDARD",
+          "birdId": "classic",
+          "worldId": "green_fields",
+          "tierId": "normal",
+          "challengeId": "",
+          "gates": 34,
+          "points": 34,
+          "coins": 128,
+          "xp": 100,
+          "streakBest": 9,
+          "coinsCollected": 7,
+          "ticksAlive": 4210,
+          "deathCause": "OBSTACLE",
+          "objectiveMet": false
+        }
+      ]
+    },
+    "selected": {
+      "birdId": "classic",
+      "paletteId": "default",
+      "worldId": "green_fields",
+      "tierId": "normal",
+      "activeAbilityId": "double_flap",
+      "passiveAbilityIds": []
+    },
+    "lastSeed": 42
+  }
+}

@@ -1,0 +1,119 @@
+name: Build
+
+on:
+  push:
+    branches: ['**'] # tag pushes are not matched; releases get their own release.yml (milestone M9)
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / JDK ${{ matrix.jdk }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        jdk: [17]
+        include:
+          # Second Ubuntu job: compile with the pinned 17 toolchain, run on 21.
+          - os: ubuntu-latest
+            jdk: 21
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (build toolchain)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up JDK 21 (runtime for the cross-JDK determinism check)
+        if: matrix.jdk == 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build, test and package
+        shell: bash
+        # The Gradle toolchain is pinned to Java 17. When JAVA_HOME points at
+        # 21 (second Ubuntu job) Gradle finds 17 through the env var exported
+        # by setup-java; on the plain JDK 17 jobs no extra property is needed.
+        run: >-
+          ./gradlew build fatJar --stacktrace
+          ${{ matrix.jdk == 21 && '-Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64' || '' }}
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: flapforge-jar-${{ matrix.os }}-jdk${{ matrix.jdk }}
+          path: build/libs/*.jar
+          if-no-files-found: error
+
+      - name: Headless determinism run
+        # `--headless-run N` prints the summary line
+        # (`headless-run frames=N ticks=N presents=N seed=S`) followed by the
+        # state hash line `hash=<16 hex> ticks=<n> gates=<g> points=<p>` (M1).
+        # Only the hash token is compared across platforms; a failure here is a
+        # real failure since M1.
+        shell: bash
+        run: |
+          jar=$(ls build/libs/flapforge-*-all.jar | head -n 1)
+          mkdir -p build/determinism
+          java -jar "$jar" --headless-run 600 --seed 42 --no-audio | tee build/determinism/hash.txt
+
+      - name: Upload determinism output
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-${{ matrix.os }}-jdk${{ matrix.jdk }}
+          path: build/determinism/hash.txt
+          if-no-files-found: ignore
+
+  determinism:
+    name: Cross-platform determinism
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download determinism outputs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: determinism-*
+          path: hashes
+
+      - name: Assert every OS/JDK produced the same hash
+        # The simulation is seeded and integer/double exact, so every OS and JDK
+        # must produce the same `hash=` token for the same seed (D12, E12).
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(hashes/*/hash.txt)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::No determinism outputs found"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "== $f"
+            cat "$f"
+            if ! grep -qE '^hash=[0-9a-f]{16} ' "$f"; then
+              echo "::error::$f has no 'hash=<16 hex>' line (printed by --headless-run)"
+              exit 1
+            fi
+          done
+          # Only the hash token is compared, never the summary line or the counters.
+          distinct=$(for f in "${files[@]}"; do grep -oE '^hash=[0-9a-f]{16}' "$f" | tail -n 1; done | sort -u | wc -l)
+          if [ "$distinct" -ne 1 ]; then
+            echo "::error::Determinism hashes differ across platforms/JDKs"
+            exit 1
+          fi
+          echo "All ${#files[@]} runs agree."

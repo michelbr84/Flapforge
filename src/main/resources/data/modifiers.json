@@ -1,0 +1,128 @@
+{
+  "_comment": "M6 (plan §4, D27). Drafts open at the gates in offerSchedule; each shows choicesPerOffer cards drawn without replacement from the 'offers' random stream, weighted by rarityWeights. tags[] are the only input of the synergies block: a set bonus activates when its requiresTags multiset is covered using at least two distinct taken modifiers (E16), so no single card ever completes one by itself. requiresFlagsAbsent is the authored half of eligibility; the pool derives the other half from the effects (E12), which is why coin_drops and magnet_burst need no NO_COINS line while phoenix — which also pays coins and is therefore not derivably inert — carries NO_REVIVE explicitly. Every card is unlock: default except the three legendaries, which need level 8 or 300 coins. The numbers are measured rather than guessed: the SCROLL_SPEED terms, temp_shield's rarity and stack cap, magnet_burst's coin term and phoenix's revive count come from the per-card sweep in docs/BALANCING.md section 8.2 (./gradlew balancing -PtoolArgs=\"--modifier all --skill all\"), which is what a balance edit here has to be re-run against.",
+
+  "offerSchedule": [10, 25, 45, 70, 100, 140],
+  "choicesPerOffer": 3,
+  "rarityWeights": { "COMMON": 60, "RARE": 28, "EPIC": 10, "LEGENDARY": 2 },
+
+  "modifiers": [
+    { "id": "tailwind", "rarity": "COMMON", "tags": ["SPEED", "GREED"], "maxStacks": 2,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [
+        { "stat": "SCORE_MULT", "op": "PERCENT_ADD", "value": 0.10 },
+        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.02 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "score_plus", "rarity": "COMMON", "tags": ["GREED"], "maxStacks": 3,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [ { "stat": "SCORE_MULT", "op": "PERCENT_ADD", "value": 0.10 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "coin_drops", "rarity": "COMMON", "tags": ["ECONOMY"], "maxStacks": 3,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [ { "stat": "COIN_SPAWN_RATE", "op": "FLAT_ADD", "value": 0.15 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "slower_obstacles", "rarity": "COMMON", "tags": ["TEMPO"], "maxStacks": 2,
+      "excludes": ["stormrider"], "requiresFlagsAbsent": [],
+      "effects": [ { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 0.92 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "quick_hands", "rarity": "COMMON", "tags": ["TEMPO"], "maxStacks": 2,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [ { "stat": "ABILITY_COOLDOWN_MULT", "op": "MULTIPLY", "value": 0.85 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "light_frame", "rarity": "RARE", "tags": ["PRECISION"], "maxStacks": 2,
+      "excludes": ["glass_wings"], "requiresFlagsAbsent": [],
+      "effects": [ { "stat": "HITBOX_SCALE", "op": "FLAT_ADD", "value": -0.08 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "streak_bounty", "rarity": "RARE", "tags": ["ECONOMY", "PRECISION"], "maxStacks": 1,
+      "excludes": [], "requiresFlagsAbsent": ["NO_COINS"],
+      "effects": [],
+      "flags": [], "streakBonus": { "coins": 10 }, "unlock": { "type": "default" } },
+
+    { "id": "temp_shield", "rarity": "EPIC", "tags": ["DEFENSE"], "maxStacks": 1,
+      "excludes": [], "requiresFlagsAbsent": ["NO_DEFENSIVE_ABILITIES"],
+      "effects": [ { "stat": "SHIELD_CHARGES", "op": "FLAT_ADD", "value": 1 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "magnet_burst", "rarity": "RARE", "tags": ["ECONOMY"], "maxStacks": 2,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [
+        { "stat": "MAGNET_RADIUS", "op": "FLAT_ADD", "value": 60 },
+        { "stat": "COIN_MULT", "op": "PERCENT_ADD", "value": 0.15 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "wide_gaps", "rarity": "RARE", "tags": ["PRECISION"], "maxStacks": 2,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [ { "stat": "GAP_SIZE", "op": "MULTIPLY", "value": 1.08 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "heavy_wallet", "rarity": "EPIC", "tags": ["ECONOMY", "GREED"], "maxStacks": 1,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [
+        { "stat": "COIN_MULT", "op": "MULTIPLY", "value": 1.3 },
+        { "stat": "GRAVITY", "op": "MULTIPLY", "value": 1.08 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "glass_wings", "rarity": "EPIC", "tags": ["RISK", "GREED"], "maxStacks": 1,
+      "excludes": ["light_frame"], "requiresFlagsAbsent": [],
+      "effects": [
+        { "stat": "SCORE_MULT", "op": "MULTIPLY", "value": 1.5 },
+        { "stat": "HITBOX_SCALE", "op": "FLAT_ADD", "value": 0.15 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "second_wind", "rarity": "EPIC", "tags": ["DEFENSE"], "maxStacks": 1,
+      "excludes": [], "requiresFlagsAbsent": ["NO_REVIVE"],
+      "effects": [ { "stat": "REVIVES", "op": "FLAT_ADD", "value": 1 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "long_fuse", "rarity": "EPIC", "tags": ["TEMPO"], "maxStacks": 1,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [ { "stat": "ABILITY_DURATION_MULT", "op": "MULTIPLY", "value": 1.3 } ],
+      "flags": [], "streakBonus": null, "unlock": { "type": "default" } },
+
+    { "id": "gold_rush", "rarity": "LEGENDARY", "tags": ["ECONOMY", "RISK"], "maxStacks": 1,
+      "excludes": [], "requiresFlagsAbsent": [],
+      "effects": [
+        { "stat": "COIN_MULT", "op": "MULTIPLY", "value": 2.0 },
+        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.05 } ],
+      "flags": [], "streakBonus": null,
+      "unlock": { "type": "any_of", "conditions": [
+        { "type": "level", "value": 8 },
+        { "type": "purchase", "amount": 300 } ] } },
+
+    { "id": "phoenix", "rarity": "LEGENDARY", "tags": ["DEFENSE", "RISK"], "maxStacks": 1,
+      "excludes": [], "requiresFlagsAbsent": ["NO_REVIVE"],
+      "effects": [
+        { "stat": "REVIVES", "op": "FLAT_ADD", "value": 2 },
+        { "stat": "COIN_MULT", "op": "MULTIPLY", "value": 0.7 } ],
+      "flags": [], "streakBonus": null,
+      "unlock": { "type": "any_of", "conditions": [
+        { "type": "level", "value": 8 },
+        { "type": "purchase", "amount": 300 } ] } },
+
+    { "id": "stormrider", "rarity": "LEGENDARY", "tags": ["SPEED", "RISK"], "maxStacks": 1,
+      "excludes": ["slower_obstacles"], "requiresFlagsAbsent": [],
+      "effects": [
+        { "stat": "SCROLL_SPEED", "op": "MULTIPLY", "value": 1.05 },
+        { "stat": "SCORE_MULT", "op": "MULTIPLY", "value": 1.6 } ],
+      "flags": [], "streakBonus": null,
+      "unlock": { "type": "any_of", "conditions": [
+        { "type": "level", "value": 8 },
+        { "type": "purchase", "amount": 300 } ] } }
+  ],
+
+  "synergies": [
+    { "id": "coin_engine", "requiresTags": ["ECONOMY", "ECONOMY"],
+      "effects": [ { "stat": "COIN_MULT", "op": "PERCENT_ADD", "value": 0.25 } ], "flags": [] },
+    { "id": "bulwark", "requiresTags": ["DEFENSE", "DEFENSE"],
+      "effects": [ { "stat": "SHIELD_CHARGES", "op": "FLAT_ADD", "value": 1 } ], "flags": [] },
+    { "id": "needle_threader", "requiresTags": ["PRECISION", "PRECISION"],
+      "effects": [ { "stat": "HITBOX_SCALE", "op": "FLAT_ADD", "value": -0.10 } ], "flags": [] },
+    { "id": "daredevil", "requiresTags": ["SPEED", "RISK"],
+      "effects": [ { "stat": "SCORE_MULT", "op": "PERCENT_ADD", "value": 0.35 } ], "flags": [] }
+  ]
+}

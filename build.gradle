@@ -1,0 +1,177 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'io.github.michelbr84'
+
+def versionProps = new Properties()
+file('src/main/resources/version.properties').withInputStream { versionProps.load(it) }
+version = versionProps.getProperty('version', '0.0.0-SNAPSHOT')
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.11.0'
+    testImplementation platform('org.junit:junit-bom:6.1.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all,-serial', '-Werror', '-parameters']
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// Developer tools (src/tools/java): compiled with `build`, run through the JavaExec tasks
+// below with `-PtoolArgs="..."`. The first tool (BalancingSim) lands in milestone M1.
+sourceSets {
+    tools {
+        java.srcDirs = ['src/tools/java']
+    }
+}
+
+configurations {
+    toolsImplementation.extendsFrom implementation
+    toolsRuntimeOnly.extendsFrom runtimeOnly
+}
+
+dependencies {
+    toolsImplementation sourceSets.main.output
+    // Lets the test suite verify the tools' own byte output directly (IconExportTest, M9).
+    testImplementation sourceSets.tools.output
+}
+
+def toolArgs = providers.gradleProperty('toolArgs')
+[
+    balancing: 'io.github.michelbr84.flapforge.tools.BalancingSim',
+    saveInspector: 'io.github.michelbr84.flapforge.tools.SaveInspector',
+    contentCheck: 'io.github.michelbr84.flapforge.tools.ContentCheck',
+    assetValidator: 'io.github.michelbr84.flapforge.tools.AssetValidator',
+    iconExport: 'io.github.michelbr84.flapforge.tools.IconExport',
+].each { taskName, toolMain ->
+    tasks.register(taskName, JavaExec) {
+        description = "Runs ${toolMain} (arguments via -PtoolArgs=\"...\")."
+        group = 'tools'
+        classpath = sourceSets.tools.runtimeClasspath
+        mainClass = toolMain
+        systemProperty 'java.awt.headless', 'true'
+        if (toolArgs.isPresent()) {
+            args(toolArgs.get().trim().split('\\s+').toList())
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('toolsClasses')
+}
+
+application {
+    mainClass = 'io.github.michelbr84.flapforge.Flapforge'
+    applicationDefaultJvmArgs = ['-Dsun.java2d.uiScale.enabled=true']
+}
+
+// -Pflapforge.updateGolden=true regenerates golden fixtures (GoldenRunTest, M1+).
+def updateGolden = providers.gradleProperty('flapforge.updateGolden')
+
+tasks.withType(Test).configureEach {
+    if (updateGolden.isPresent()) {
+        systemProperty 'flapforge.updateGolden', updateGolden.get()
+    }
+    testLogging {
+        events = ['failed']
+        exceptionFormat = 'full'
+    }
+}
+
+test {
+    useJUnitPlatform {
+        excludeTags 'gui', 'perf', 'sim'
+    }
+    systemProperty 'java.awt.headless', 'true'
+}
+
+tasks.register('smokeTest', Test) {
+    description = 'Runs the @Tag("gui") suite against a real window (needs a display).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'gui'
+    }
+    // Headless mode is auto-detected (no DISPLAY on Linux => the gui tests are skipped, not
+    // failed). The window must open on every invocation: never up-to-date, never cached.
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+    shouldRunAfter test
+}
+
+tasks.register('perfTest', Test) {
+    description = 'Runs the @Tag("perf") suite (local only).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'perf'
+    }
+    systemProperty 'java.awt.headless', 'true'
+    // Budgets are measured, not cached.
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+    shouldRunAfter test
+}
+
+tasks.register('simTest', Test) {
+    description = 'Runs the @Tag("sim") long simulations.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'sim'
+    }
+    systemProperty 'java.awt.headless', 'true'
+    shouldRunAfter test
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': application.mainClass.get(),
+            'Implementation-Title': 'Flapforge',
+            'Implementation-Version': project.version
+        )
+    }
+}
+
+tasks.register('fatJar', Jar) {
+    description = 'Builds a self-contained runnable jar (flapforge-<version>-all.jar).'
+    group = 'build'
+    archiveClassifier = 'all'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes(
+            'Main-Class': application.mainClass.get(),
+            'Implementation-Title': 'Flapforge',
+            'Implementation-Version': project.version
+        )
+    }
+    from sourceSets.main.output
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/*.EC', '**/module-info.class'
+}
