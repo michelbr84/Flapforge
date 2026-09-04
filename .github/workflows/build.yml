@@ -55,7 +55,7 @@ jobs:
           ${{ matrix.jdk == 21 && '-Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64' || '' }}
 
       - name: Upload jar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flapforge-jar-${{ matrix.os }}-jdk${{ matrix.jdk }}
           path: build/libs/*.jar
@@ -74,7 +74,7 @@ jobs:
           java -jar "$jar" --headless-run 600 --seed 42 --no-audio | tee build/determinism/hash.txt
 
       - name: Upload determinism output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: determinism-${{ matrix.os }}-jdk${{ matrix.jdk }}
           path: build/determinism/hash.txt

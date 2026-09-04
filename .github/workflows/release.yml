@@ -62,7 +62,7 @@ jobs:
         run: Compress-Archive -Path build/dist/Flapforge -DestinationPath build/Flapforge-${{ steps.version.outputs.version }}-windows.zip
 
       - name: Upload the app image bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flapforge-${{ matrix.os }}
           path: build/Flapforge-*.zip
@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload the fat jar (once, from Linux)
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flapforge-jar
           path: build/libs/flapforge-*-all.jar
