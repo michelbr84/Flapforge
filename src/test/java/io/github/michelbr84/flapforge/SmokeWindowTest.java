@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.abort;
 
+import io.github.michelbr84.flapforge.app.AwtHost;
 import io.github.michelbr84.flapforge.app.AwtInputBridge;
 import io.github.michelbr84.flapforge.audio.AudioManager;
 import io.github.michelbr84.flapforge.audio.MusicSequencer;
@@ -1695,7 +1696,7 @@ class SmokeWindowTest {
         assertTrue(seed.flush(4_000L), "and reached the disk");
 
         GameApplication app = GameApplication.start(LaunchOptions.parse(
-                new String[] {"--scale", "1", "--home", appHome.toString()}));
+                new String[] {"--scale", "1", "--home", appHome.toString()}), new AwtHost());
         try {
             assertNotNull(app.context(), "windowed launch wired a context");
             PlayerProfile loaded = app.context().profile();
@@ -1744,7 +1745,7 @@ class SmokeWindowTest {
         // depend on whoever ran it.
         Path appHome = OUT_DIR.resolve("app-home");
         GameApplication app = GameApplication.start(LaunchOptions.parse(
-                new String[] {"--scale", "1", "--home", appHome.toString()}));
+                new String[] {"--scale", "1", "--home", appHome.toString()}), new AwtHost());
         long started = System.nanoTime();
         try {
             assertNotNull(app.context(), "windowed launch wired a context");
@@ -1762,7 +1763,8 @@ class SmokeWindowTest {
             long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
             assertTrue(elapsedMs < GameApplication.WATCHDOG_MS, "shutdown took " + elapsedMs + " ms");
             GameWindow.onEdt(() -> { }); // flush the deferred frame.dispose()
-            assertFalse(app.context().window().frame().isDisplayable(), "frame disposed");
+            assertFalse(((GameWindow) app.context().window()).frame().isDisplayable(),
+                    "frame disposed");
             assertFalse(app.loopThread().isAlive());
             assertFalse(app.context().loop().isRunning());
             for (Thread t : Thread.getAllStackTraces().keySet()) {

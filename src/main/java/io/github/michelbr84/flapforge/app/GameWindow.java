@@ -17,12 +17,14 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
 import java.awt.image.BufferStrategy;
+import java.awt.image.BufferedImage;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * The game window: a plain {@link Frame} with a single {@link Canvas} child (D4, E30.i).
+ * The game window: a plain {@link Frame} with a single {@link Canvas} child (D4, E30.i), and
+ * the desktop {@link AppWindow} that {@link AwtHost} hands to the application (M10).
  *
  * <p>Both components ignore repaints; the canvas is focusable with focus traversal keys disabled
  * and is sized to the logical playfield times an integer scale. Everything that touches the
@@ -31,7 +33,7 @@ import java.util.Objects;
  * decorations, re-shows the frame and recreates the buffer strategy; leaving fullscreen restores
  * the saved state with {@code setUndecorated(false)} and {@code pack()}.
  */
-public final class GameWindow {
+public final class GameWindow implements AppWindow {
 
     /**
      * Vertical room reserved for the title bar and borders when choosing the default scale.
@@ -180,6 +182,7 @@ public final class GameWindow {
      *
      * @return pixels
      */
+    @Override
     public int canvasWidth() {
         return canvas.getWidth();
     }
@@ -189,6 +192,7 @@ public final class GameWindow {
      *
      * @return pixels
      */
+    @Override
     public int canvasHeight() {
         return canvas.getHeight();
     }
@@ -199,7 +203,8 @@ public final class GameWindow {
      *
      * @param icons the icon images, largest last or in any order
      */
-    public void setIcons(List<? extends Image> icons) {
+    @Override
+    public void setIcons(List<? extends BufferedImage> icons) {
         List<Image> copy = List.copyOf(icons);
         onEdt(() -> frame.setIconImages(copy));
     }
@@ -291,6 +296,7 @@ public final class GameWindow {
     }
 
     /** Disposes the frame asynchronously on the event-dispatch thread. */
+    @Override
     public void dispose() {
         EventQueue.invokeLater(frame::dispose);
     }
