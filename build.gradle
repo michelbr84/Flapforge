@@ -5,7 +5,7 @@ plugins {
     // dropped by the CI Xvfb under load (the same commit passes on a re-run, observed on the
     // identical merge refs during M10-pre), so a failed smoke method is retried on a fresh
     // instance instead of failing the whole run.
-    id 'org.gradle.test-retry' version '1.6.4'
+    id 'org.gradle.test-retry' version '1.6.5'
 }
 
 group = 'io.github.michelbr84'
