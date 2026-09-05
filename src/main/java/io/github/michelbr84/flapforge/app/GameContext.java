@@ -162,6 +162,7 @@ public record GameContext(LaunchOptions options, Clock clock, TimeSource timeSou
         applyLanguage(settings);
         if (viewport != null) {
             viewport.setIntegerScaling(settings.integerScaling);
+            viewport.setExtendVertical(settings.fillScreen);
         }
         if (limiter != null) {
             limiter.setTargetFps(resolveFps(settings.maxFps));

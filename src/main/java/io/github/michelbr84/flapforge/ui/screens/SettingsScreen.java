@@ -15,6 +15,7 @@ import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import io.github.michelbr84.flapforge.render.Accessibility;
 import io.github.michelbr84.flapforge.render.Fonts;
+import io.github.michelbr84.flapforge.render.Overscan;
 import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
@@ -215,6 +216,8 @@ public final class SettingsScreen implements Screen {
                 v -> working.fullscreen = v), y);
         y = addRow(toggle("integerScaling", StringKey.SETTINGS_INTEGER_SCALING,
                 working.integerScaling, v -> working.integerScaling = v), y);
+        y = addRow(toggle("fillScreen", StringKey.SETTINGS_FILL_SCREEN, working.fillScreen,
+                v -> working.fillScreen = v), y);
         y = addRow(fpsRow(), y);
         y = addRow(toggle("smoothing", StringKey.SETTINGS_SMOOTHING, working.smoothing,
                 v -> working.smoothing = v), y);
@@ -469,8 +472,8 @@ public final class SettingsScreen implements Screen {
 
     /**
      * A toggle by the settings field it edits ({@code muted}, {@code fullscreen},
-     * {@code integerScaling}, {@code smoothing}, {@code showFps}, {@code reduceFlashing},
-     * {@code holdToFlap}).
+     * {@code integerScaling}, {@code fillScreen}, {@code smoothing}, {@code showFps},
+     * {@code reduceFlashing}, {@code holdToFlap}).
      *
      * @param id the id
      * @return the toggle, or {@code null} when the id is unknown
@@ -683,6 +686,7 @@ public final class SettingsScreen implements Screen {
         toggles.get("muted").setValueQuietly(working.muted);
         toggles.get("fullscreen").setValueQuietly(working.fullscreen);
         toggles.get("integerScaling").setValueQuietly(working.integerScaling);
+        toggles.get("fillScreen").setValueQuietly(working.fillScreen);
         toggles.get("smoothing").setValueQuietly(working.smoothing);
         toggles.get("showFps").setValueQuietly(working.showFps);
         toggles.get("reduceFlashing").setValueQuietly(working.reduceFlashing);
@@ -707,6 +711,7 @@ public final class SettingsScreen implements Screen {
         label(toggles.get("muted"), StringKey.SETTINGS_MUTED);
         label(toggles.get("fullscreen"), StringKey.SETTINGS_FULLSCREEN);
         label(toggles.get("integerScaling"), StringKey.SETTINGS_INTEGER_SCALING);
+        label(toggles.get("fillScreen"), StringKey.SETTINGS_FILL_SCREEN);
         label(toggles.get("smoothing"), StringKey.SETTINGS_SMOOTHING);
         label(toggles.get("showFps"), StringKey.SETTINGS_SHOW_FPS);
         label(toggles.get("reduceFlashing"), StringKey.SETTINGS_REDUCE_FLASHING);
@@ -1020,8 +1025,7 @@ public final class SettingsScreen implements Screen {
     }
 
     private void renderCapture(Graphics2D g) {
-        g.setColor(CAPTURE_DIM);
-        g.fillRect(0, 0, Playfield.WIDTH, Playfield.HEIGHT);
+        Overscan.fillVisible(g, CAPTURE_DIM);
         int px = 40;
         int py = (Playfield.HEIGHT - CAPTURE_PANEL_H) / 2;
         int pw = Playfield.WIDTH - 2 * px;

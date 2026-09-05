@@ -104,6 +104,7 @@ public final class SurfacePresenter implements FramePresenter, GameSurfaceView.F
     public void paint(Graphics2D g, int width, int height, double alpha) {
         g.setColor(letterbox());
         g.fillRect(0, 0, width, height);
+        viewport.publishOverscan();
         viewport.apply(g);
         renderer.render(g, alpha);
     }

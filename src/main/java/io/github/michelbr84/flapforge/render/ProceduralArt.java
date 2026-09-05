@@ -321,7 +321,11 @@ public final class ProceduralArt {
         Resolved r = resolve(palette);
         Paint oldPaint = g.getPaint();
         g.setPaint(r.sky);
-        g.fillRect(0, 0, Playfield.WIDTH, Playfield.GROUND_Y);
+        // Sky and ground run to the visible edges rather than rows 0/640, so on tall windows
+        // (portrait phones) every screen fills the frame — the acyclic gradient clamps to its
+        // top colour above row 0.
+        g.fillRect(0, Overscan.topInt(), Playfield.WIDTH,
+                Playfield.GROUND_Y - Overscan.topInt());
         g.setPaint(oldPaint);
 
         g.setColor(r.cloud);
@@ -338,7 +342,8 @@ public final class ProceduralArt {
         g.fillOval(180, 512, 320, 170);
 
         g.setColor(r.ground);
-        g.fillRect(0, Playfield.GROUND_Y, Playfield.WIDTH, Playfield.GROUND_HEIGHT);
+        g.fillRect(0, Playfield.GROUND_Y, Playfield.WIDTH,
+                Overscan.bottomInt() - Playfield.GROUND_Y);
         g.setColor(r.groundEdge);
         g.fillRect(0, Playfield.GROUND_Y, Playfield.WIDTH, 4);
     }

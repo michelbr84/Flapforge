@@ -11,7 +11,9 @@ import awt.Graphics2D;
 import awt.image.BufferedImage;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.render.FrameRenderer;
+import io.github.michelbr84.flapforge.render.Overscan;
 import io.github.michelbr84.flapforge.render.Viewport;
+import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -64,6 +66,13 @@ public class SurfacePresenterTest {
         return new GameSurfaceView(RuntimeEnvironment.getApplication());
     }
 
+    @After
+    public void resetOverscan() {
+        // paint() publishes the visible range into the static Overscan holder; put the default
+        // back so no other test inherits this surface's geometry.
+        Overscan.reset();
+    }
+
     @Test
     public void paintFillsTheLetterboxAndRendersInsideTheViewport() {
         Viewport viewport = new Viewport(WIDTH, HEIGHT, false);
@@ -89,6 +98,39 @@ public class SurfacePresenterTest {
         assertEquals(OPAQUE | INSIDE, image.getRGB(WIDTH / 2, HEIGHT / 2));
         assertEquals(OPAQUE | INSIDE, image.getRGB(0, BAR));
         assertEquals(OPAQUE | INSIDE, image.getRGB(WIDTH - 1, HEIGHT - BAR - 1));
+    }
+
+    @Test
+    public void paintLetsTheRendererCoverTheFormerBars() {
+        Viewport viewport = new Viewport(WIDTH, HEIGHT, false);
+        FrameRenderer renderer = new FrameRenderer() {
+            @Override
+            public void render(Graphics2D g, double alpha) {
+                // What the world renderers do since the D3 revision: paint the whole visible
+                // range paint() published, not just rows 0..640.
+                g.setColor(new Color(INSIDE));
+                g.fillRect(0, Overscan.topInt(), Playfield.WIDTH,
+                        Overscan.bottomInt() - Overscan.topInt());
+            }
+
+            @Override
+            public int letterboxRgb() {
+                return LETTERBOX;
+            }
+        };
+        SurfacePresenter presenter = new SurfacePresenter(new AndroidWindow(view()), viewport,
+                renderer, () -> { });
+        BufferedImage image = new BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            presenter.paint(g, WIDTH, HEIGHT, 0.0);
+        } finally {
+            g.dispose();
+        }
+
+        assertEquals(OPAQUE | INSIDE, image.getRGB(WIDTH / 2, BAR / 2));
+        assertEquals(OPAQUE | INSIDE, image.getRGB(WIDTH / 2, HEIGHT - BAR / 2));
+        assertEquals(OPAQUE | INSIDE, image.getRGB(WIDTH / 2, HEIGHT / 2));
     }
 
     @Test

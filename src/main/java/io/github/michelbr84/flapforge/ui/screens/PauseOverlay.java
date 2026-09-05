@@ -7,6 +7,7 @@ import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.render.Fonts;
+import io.github.michelbr84.flapforge.render.Overscan;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.ui.FocusRing;
@@ -170,8 +171,7 @@ public final class PauseOverlay implements Screen {
     @Override
     public void render(Graphics2D g, double alpha) {
         ProceduralArt.prepare(g);
-        g.setColor(DIM);
-        g.fillRect(0, 0, Playfield.WIDTH, Playfield.HEIGHT);
+        Overscan.fillVisible(g, DIM);
         ProceduralArt.panel(g, PANEL_X, PANEL_Y, PANEL_W, PANEL_H);
 
         g.setFont(Fonts.bold(30));

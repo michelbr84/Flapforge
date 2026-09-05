@@ -509,7 +509,8 @@ public final class GameRenderer {
             double peak = reduceFlashing ? FLASH_ALPHA_REDUCED : FLASH_ALPHA;
             int step = (int) Math.round(16 * peak * flashTicks / FLASH_TICKS);
             g.setColor(FLASH_RAMP[Math.max(0, Math.min(16, step))]);
-            g.fillRect(0, 0, Playfield.WIDTH, Playfield.GROUND_Y);
+            g.fillRect(0, Overscan.topInt(), Playfield.WIDTH,
+                    Playfield.GROUND_Y - Overscan.topInt());
         }
         hud.render(g, run, palette, seedText);
     }

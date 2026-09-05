@@ -258,7 +258,10 @@ public final class BackgroundRenderer {
 
         Paint oldPaint = g.getPaint();
         g.setPaint(ProceduralArt.skyPaint(palette));
-        rect.setFrame(0, 0, Playfield.WIDTH, Playfield.GROUND_Y);
+        // From the visible top rather than row 0: on tall windows (portrait phones) the rows
+        // above the playfield show more sky — the acyclic gradient clamps to its top colour.
+        rect.setFrame(0, Overscan.top(), Playfield.WIDTH,
+                Playfield.GROUND_Y - Overscan.top());
         g.fill(rect);
         g.setPaint(oldPaint);
 
@@ -312,7 +315,10 @@ public final class BackgroundRenderer {
         Color grass = ProceduralArt.color(palette, ProceduralArt.Tone.HILL_NEAR);
 
         g.setColor(base);
-        rect.setFrame(0, Playfield.GROUND_Y, Playfield.WIDTH, Playfield.GROUND_HEIGHT);
+        // Down to the visible bottom rather than row 640: the rows below the playfield read as
+        // plain earth (the tufts, dashes and edge band keep their fixed rows).
+        rect.setFrame(0, Playfield.GROUND_Y, Playfield.WIDTH,
+                Overscan.bottom() - Playfield.GROUND_Y);
         g.fill(rect);
         g.setColor(edge);
         rect.setFrame(0, Playfield.GROUND_Y, Playfield.WIDTH, GROUND_EDGE_H);
@@ -620,7 +626,10 @@ public final class BackgroundRenderer {
 
     private void groundBase(Graphics2D g, WorldPalette palette) {
         g.setColor(ProceduralArt.color(palette, ProceduralArt.Tone.GROUND));
-        rect.setFrame(0, Playfield.GROUND_Y, Playfield.WIDTH, Playfield.GROUND_HEIGHT);
+        // Down to the visible bottom rather than row 640, as in ground(): the extension below
+        // the playfield reads as plain earth in every style.
+        rect.setFrame(0, Playfield.GROUND_Y, Playfield.WIDTH,
+                Overscan.bottom() - Playfield.GROUND_Y);
         g.fill(rect);
         g.setColor(ProceduralArt.color(palette, ProceduralArt.Tone.GROUND_EDGE));
         rect.setFrame(0, Playfield.GROUND_Y, Playfield.WIDTH, GROUND_EDGE_H);

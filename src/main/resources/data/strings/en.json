@@ -37,6 +37,7 @@
   "settings.section.display": "Display",
   "settings.section.game": "Game",
   "settings.integer_scaling": "Integer scaling",
+  "settings.fill_screen": "Fill screen",
   "settings.fullscreen": "Fullscreen",
   "settings.max_fps": "Frame rate cap",
   "settings.max_fps.value": "{0} fps",

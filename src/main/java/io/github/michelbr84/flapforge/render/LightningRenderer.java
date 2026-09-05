@@ -104,6 +104,14 @@ public final class LightningRenderer {
             g.draw(rect);
             g.setStroke(old);
             double plateY = fromTop ? top : top + h - ANCHOR_H;
+            // A TOP plate hangs from row 0, which on tall windows sits below the visible top:
+            // a mount column up to the visible edge keeps it attached instead of floating in
+            // extended sky. The warning/strike band itself is never extended — it communicates
+            // the exact lethal extent.
+            if (fromTop && Overscan.top() < 0) {
+                rect.setFrame(x - 4, Overscan.top(), w + 8, -Overscan.top() + 2);
+                g.fill(rect);
+            }
             rect.setFrame(x - 4, plateY, w + 8, ANCHOR_H);
             g.fill(rect);
             return;

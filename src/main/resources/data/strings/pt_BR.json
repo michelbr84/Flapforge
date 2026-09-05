@@ -37,6 +37,7 @@
   "settings.section.display": "Vídeo",
   "settings.section.game": "Jogo",
   "settings.integer_scaling": "Escala inteira",
+  "settings.fill_screen": "Preencher a tela",
   "settings.fullscreen": "Tela cheia",
   "settings.max_fps": "Limite de quadros",
   "settings.max_fps.value": "{0} fps",

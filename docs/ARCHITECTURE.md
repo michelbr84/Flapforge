@@ -169,7 +169,15 @@ gate interval 160, and so on). `render.Viewport` computes
 `s = min(w/420, h/640)` (integer-snapped when the setting is on), letterboxes
 with the world palette's tone, and maps mouse coordinates back. Drawing goes
 straight into the presenter surface with `translate/scale/clip`, so the JDK's
-HiDPI transform composes underneath and vector art and text stay crisp. The
+HiDPI transform composes underneath and vector art and text stay crisp.
+On windows taller than the playfield aspect (portrait phones foremost) the
+scale and offsets stay exactly the letterboxed ones, but — while
+`settings.fillScreen` is on, the default — the clip of `Viewport.apply`
+extends vertically and the presenters publish the visible logical range
+through `render.Overscan`, so the sky, the ground, the pipes and the
+full-frame fills paint the rows that used to be top/bottom bars. Cosmetic
+only: the simulation never reads `Overscan`, all interactive UI stays inside
+420×640, and horizontal bars (wide windows) keep the palette letterbox. The
 default window is the largest integer scale whose decorated window (playfield
 plus a 48 px allowance for the title bar) fits the usable screen height
 (2× on a 1440-class display); minimum size 420×640 plus insets; fullscreen is
@@ -245,7 +253,7 @@ on the save thread re-enters the loop thread as an event and a toast.
 ### Settings and how a change reaches the engine
 
 `GameContext.applySettings(Settings)` is the **single** place that knows which
-engine object owns which behaviour: it pushes `integerScaling` to the viewport,
+engine object owns which behaviour: it pushes `integerScaling` and `fillScreen` to the viewport,
 `maxFps` to the frame limiter, the key bindings to the input queue, `textScale`
 to `Fonts`, `smoothing` to `ProceduralArt`, `reduceFlashing` to
 `ParticleSystem`, `showFps` and `fullscreen` to the screen manager, reloads the
