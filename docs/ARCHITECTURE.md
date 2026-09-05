@@ -172,7 +172,7 @@ straight into the presenter surface with `translate/scale/clip`, so the JDK's
 HiDPI transform composes underneath and vector art and text stay crisp.
 On windows taller than the playfield aspect (portrait phones foremost) the
 scale and offsets stay exactly the letterboxed ones, but — while
-`settings.fillScreen` is on, the default — the clip of `Viewport.apply`
+`settings.fillScreen` is on (off by default until validated on a phone) — the clip of `Viewport.apply`
 extends vertically and the presenters publish the visible logical range
 through `render.Overscan`, so the sky, the ground, the pipes and the
 full-frame fills paint the rows that used to be top/bottom bars. Cosmetic

@@ -45,7 +45,8 @@ a sideloadable APK built by CI.
   the viewport's widened clip). Scale, offsets, input mapping and gameplay
   are untouched: the extension is purely cosmetic and everything interactive
   stays inside the 420×640 playfield. A new `settings.fillScreen` toggle
-  ("Fill screen", default on) restores the full letterbox, and the Android
+  ("Fill screen", off by default until the phone build is validated) enables
+  it, and the Android
   activity opts into `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES` so notched
   screens show extended sky instead of a black strip.
 
