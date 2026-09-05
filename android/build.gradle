@@ -1,8 +1,250 @@
 // The Android port builds separately from the desktop build (`./gradlew -p android ...`).
 // It never shares the root project's plugins or classpath: the desktop build stays pure Java
 // (M0–M9 invariant), and this project exists only to turn the transformed sources into an APK.
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.regex.Pattern
+import java.util.stream.Collectors
+import java.util.stream.Stream
+import javax.inject.Inject
+
 plugins {
     id 'com.android.application' version '9.4.0'
+}
+
+/**
+ * The M10 build-time source transform (spec: {@code android/p0/transform_prototype.py}, D8).
+ *
+ * <p>Copies {@code ../src/main/java} into {@code build/transformed/java}, rewriting the three
+ * package prefixes the shim packages replace — in this order:
+ * <ol>
+ *   <li>T1 {@code javax.sound.sampled.} → {@code jssound.}</li>
+ *   <li>T2 {@code javax.imageio.} → {@code jimageio.}</li>
+ *   <li>T3 {@code java.awt.} → {@code awt.}, only when the tail is a class name (uppercase
+ *       letter) or one of the {@code geom.} / {@code image.} / {@code event.} subpackages, so a
+ *       string such as {@code "java.awt.headless"} survives untouched.</li>
+ * </ol>
+ * The six desktop-only files (window, presenter, input bridge, key-repeat filter, AWT host and
+ * the desktop entry point) are skipped: the Android host provides their replacements. The
+ * desktop tree is never edited — the rewritten copies are a build output, so the game logic
+ * stays byte-identical upstream (transform-purity lens of the M10 review).
+ *
+ * <p>Double integrity gate, both halves mandatory:
+ * <ul>
+ *   <li>(a) round trip — reversing the rules on every output file must reproduce the source
+ *       byte for byte (a rule that eats or corrupts anything is caught here);</li>
+ *   <li>(b) purity — no {@code java.awt.} / {@code javax.sound.sampled.} / {@code javax.imageio.}
+ *       reference may survive in the output (a rule that misses something is caught here).</li>
+ * </ul>
+ * Either failure throws a {@link GradleException} naming the offending files.
+ *
+ * <p>{@code -PtransformSelfTest=<mode>} proves the gate bites (the default build never sets it):
+ * {@code breakReverse} mutates one output after the rewrite so gate (a) must fail;
+ * {@code breakForward} drops rule T2 from the rewrite so gate (b) must fail. Any other value is
+ * rejected. Both modes leave a poisoned output tree behind on purpose — the failed task is not
+ * up to date, so the next plain build regenerates it from scratch.
+ */
+abstract class TransformSourcesTask extends DefaultTask {
+
+    /** T1: desktop audio backend package → shim package. */
+    static final String T1_FROM = 'javax.sound.sampled.'
+    static final String T1_TO = 'jssound.'
+    /** T2: desktop image decoding package → shim package. */
+    static final String T2_FROM = 'javax.imageio.'
+    static final String T2_TO = 'jimageio.'
+    /** T3 guard: a class name or one of the shimmed subpackages must follow the prefix. */
+    static final String AWT_TAIL = /(?=[A-Z]|geom\.|image\.|event\.)/
+    static final Pattern T3_FORWARD = Pattern.compile(/java\.awt\./ + AWT_TAIL)
+    static final Pattern T3_REVERSE = Pattern.compile(/awt\./ + AWT_TAIL)
+    /** Gate (b): any of the three desktop prefixes left in an output file is a defect. */
+    static final Pattern SURVIVOR = Pattern.compile(
+            /javax\.sound\.sampled\.|javax\.imageio\.|java\.awt\./ + AWT_TAIL)
+
+    static final String SELF_TEST_OFF = ''
+    static final String SELF_TEST_BREAK_REVERSE = 'breakReverse'
+    static final String SELF_TEST_BREAK_FORWARD = 'breakForward'
+
+    /** The desktop source tree ({@code ../src/main/java}). */
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getSourceRoot()
+
+    /** Source-root-relative POSIX paths of the desktop-only files that are not transformed. */
+    @Input
+    abstract SetProperty<String> getExcluded()
+
+    /** Self-test mode ({@code ""} = off); see the class javadoc. */
+    @Input
+    abstract Property<String> getSelfTest()
+
+    /** The rewrite rules, as an input so a rule change is a task-input change. */
+    @Input
+    List<String> getRules() {
+        return [T1_FROM + ' -> ' + T1_TO,
+                T2_FROM + ' -> ' + T2_TO,
+                T3_FORWARD.pattern() + ' -> awt.']
+    }
+
+    /** {@code build/transformed/java}, an extra {@code java} srcDir of the main source set. */
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @Inject
+    abstract FileSystemOperations getFs()
+
+    /** Forward rules T1, T2, T3 in that order (the prototype's {@code forward}). */
+    static String forward(String text) {
+        return rewrite(text, false)
+    }
+
+    /** The forward pass; {@code dropT2} is the self-test's deliberately broken rule set. */
+    private static String rewrite(String text, boolean dropT2) {
+        String out = text.replace(T1_FROM, T1_TO)
+        if (!dropT2) {
+            out = out.replace(T2_FROM, T2_TO)
+        }
+        return T3_FORWARD.matcher(out).replaceAll('awt.')
+    }
+
+    /** Reverse rules in the same order (the prototype's {@code reverse}), used by gate (a). */
+    static String reverse(String text) {
+        String out = text.replace(T1_TO, T1_FROM)
+        out = out.replace(T2_TO, T2_FROM)
+        return T3_REVERSE.matcher(out).replaceAll('java.awt.')
+    }
+
+    @TaskAction
+    void transform() {
+        String mode = selfTest.get()
+        if (!(mode in [SELF_TEST_OFF, SELF_TEST_BREAK_REVERSE, SELF_TEST_BREAK_FORWARD])) {
+            throw new GradleException("transformSources: unknown -PtransformSelfTest mode '"
+                    + mode + "' (expected " + SELF_TEST_BREAK_REVERSE + " or "
+                    + SELF_TEST_BREAK_FORWARD + ")")
+        }
+        Path srcRoot = sourceRoot.get().asFile.toPath()
+        Path outRoot = outputDir.get().asFile.toPath()
+        Set<String> excludedPaths = excluded.get()
+
+        // Like the prototype's rmtree: the output tree is rebuilt from scratch every run.
+        fs.delete { delete(outRoot) }
+        Files.createDirectories(outRoot)
+
+        List<String> all
+        try (Stream<Path> walk = Files.walk(srcRoot)) {
+            all = walk.filter { Files.isRegularFile(it) }
+                    .filter { it.fileName.toString().endsWith('.java') }
+                    .map { srcRoot.relativize(it).toString() }
+                    .map { it.replace(File.separatorChar, '/' as char) }
+                    .sorted()
+                    .collect(Collectors.toList())
+        }
+        Set<String> missingExclusions = new TreeSet<>(excludedPaths)
+        missingExclusions.removeAll(all)
+        if (!missingExclusions.isEmpty()) {
+            // Stricter than the prototype: a renamed desktop-only file must not silently start
+            // being transformed (its awt.event references would only fail much later in javac).
+            throw new GradleException('transformSources: excluded files missing under ' + srcRoot
+                    + ': ' + missingExclusions)
+        }
+        List<String> files = all.findAll { !(it in excludedPaths) }
+        int skipped = all.size() - files.size()
+
+        // Forward pass.
+        Map<String, byte[]> sources = new LinkedHashMap<>()
+        for (String rel : files) {
+            Path src = srcRoot.resolve(rel)
+            Path dst = outRoot.resolve(rel)
+            byte[] srcBytes = Files.readAllBytes(src)
+            sources.put(rel, srcBytes)
+            String text = rewrite(decodeUtf8(srcBytes, rel), mode == SELF_TEST_BREAK_FORWARD)
+            Files.createDirectories(dst.parent)
+            Files.write(dst, text.getBytes(StandardCharsets.UTF_8))
+        }
+        if (mode == SELF_TEST_BREAK_REVERSE) {
+            String victim = files.first()
+            Path dst = outRoot.resolve(victim)
+            Files.write(dst, (decodeUtf8(Files.readAllBytes(dst), victim)
+                    + '// transformSelfTest=breakReverse\n').getBytes(StandardCharsets.UTF_8))
+            logger.warn('transformSources: self-test mutated ' + victim + ' (gate (a) must fail)')
+        }
+
+        // Gate (a): the reverse rules must reproduce every source byte for byte.
+        List<String> roundTripFailures = []
+        // Gate (b): no desktop prefix may survive.
+        List<String> survivors = []
+        for (String rel : files) {
+            byte[] outBytes = Files.readAllBytes(outRoot.resolve(rel))
+            String outText = decodeUtf8(outBytes, rel)
+            byte[] restored = reverse(outText).getBytes(StandardCharsets.UTF_8)
+            if (!Arrays.equals(restored, sources.get(rel))) {
+                roundTripFailures.add(rel)
+            }
+            String[] lines = outText.split('\n', -1)
+            for (int i = 0; i < lines.length; i++) {
+                if (SURVIVOR.matcher(lines[i]).find()) {
+                    String shown = lines[i].trim()
+                    shown = shown.length() > 90 ? shown.substring(0, 90) : shown
+                    survivors.add(rel + ':' + (i + 1) + ': ' + shown)
+                }
+            }
+        }
+
+        if (!roundTripFailures.isEmpty() || !survivors.isEmpty()) {
+            StringBuilder msg = new StringBuilder('transformSources: INTEGRITY GATE FAILED\n')
+            msg.append('  gate (a) round-trip: ').append(roundTripFailures.size())
+                    .append(' file(s) do not reproduce the source when the rules are reversed\n')
+            roundTripFailures.each { msg.append('    ').append(it).append('\n') }
+            msg.append('  gate (b) surviving refs: ').append(survivors.size()).append('\n')
+            survivors.take(15).each { msg.append('    ').append(it).append('\n') }
+            if (survivors.size() > 15) {
+                msg.append('    ... ').append(survivors.size() - 15).append(' more\n')
+            }
+            throw new GradleException(msg.toString())
+        }
+        logger.lifecycle('transformSources: ' + files.size() + ' files transformed, ' + skipped
+                + ' excluded (desktop-only), round-trip OK, 0 surviving refs -> ' + outRoot)
+    }
+
+    /** Strict UTF-8 like the prototype's {@code decode("utf-8")}: malformed input is an error. */
+    private static String decodeUtf8(byte[] bytes, String rel) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString()
+        } catch (CharacterCodingException e) {
+            throw new GradleException('transformSources: ' + rel + ' is not valid UTF-8', e)
+        }
+    }
+}
+
+/**
+ * Desktop-only files with Android replacements (the transform prototype's EXCLUDED set; the
+ * Android host supplies its own window, presenter, input bridge and entry point).
+ */
+def transformExcluded = [
+        'io/github/michelbr84/flapforge/app/GameWindow.java',
+        'io/github/michelbr84/flapforge/app/BufferStrategyPresenter.java',
+        'io/github/michelbr84/flapforge/app/AwtInputBridge.java',
+        'io/github/michelbr84/flapforge/app/KeyRepeatFilter.java',
+        'io/github/michelbr84/flapforge/app/AwtHost.java',
+        'io/github/michelbr84/flapforge/Flapforge.java',
+]
+
+def transformSources = tasks.register('transformSources', TransformSourcesTask) {
+    group = 'build'
+    description = 'Rewrites the desktop game sources against the awt/jssound/jimageio shims ' +
+            '(double integrity gate; -PtransformSelfTest=breakReverse|breakForward proves it).'
+    sourceRoot = layout.projectDirectory.dir('../src/main/java')
+    excluded = transformExcluded
+    selfTest = providers.gradleProperty('transformSelfTest')
+            .orElse(TransformSourcesTask.SELF_TEST_OFF)
+    outputDir = layout.buildDirectory.dir('transformed/java')
 }
 
 android {
@@ -31,6 +273,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    sourceSets {
+        main {
+            // The transformed copies of the desktop game sources (transformSources above) compile
+            // together with the shim packages under src/main/java. (A plain path: AGP 9 rejects a
+            // Provider here and points at the Variant API instead; the task ordering is wired below.)
+            java.srcDir('build/transformed/java')
+            // The game reads its data with Class.getResourceAsStream("/data/...", "/assets/...",
+            // "/version.properties"); a Java resources dir lands those files at the APK root
+            // (P0 probe), where the Android class loader serves them like the fat jar does.
+            resources.srcDir('../src/main/resources')
+        }
+    }
+
     testOptions {
         unitTests {
             // The shim unit tests (P1+) run as JVM unit tests against Robolectric's
@@ -40,7 +295,20 @@ android {
     }
 }
 
+// Every consumer of the main java srcDirs runs after the transform: preBuild is the anchor of
+// the whole variant task chain, javac (main and unit test) and the built-in Kotlin compile task
+// (AGP 9 feeds it the java srcDirs too) are wired explicitly so the order never depends on it.
+tasks.named('preBuild') { dependsOn(transformSources) }
+tasks.withType(JavaCompile).configureEach { dependsOn(transformSources) }
+tasks.configureEach { task ->
+    if (task.name ==~ /compile\w*Kotlin/) {
+        task.dependsOn(transformSources)
+    }
+}
+
 dependencies {
+    // The game's JSON layer (data/*.json, save files); same version as the desktop build.
+    implementation 'com.google.code.gson:gson:2.14.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.16'
 }

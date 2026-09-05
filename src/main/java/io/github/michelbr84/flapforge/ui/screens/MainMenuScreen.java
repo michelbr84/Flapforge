@@ -1,6 +1,6 @@
 package io.github.michelbr84.flapforge.ui.screens;
 
-import io.github.michelbr84.flapforge.Flapforge;
+import io.github.michelbr84.flapforge.app.AppVersion;
 import io.github.michelbr84.flapforge.app.GameContext;
 import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
@@ -498,7 +498,7 @@ public final class MainMenuScreen implements Screen {
         settings.setText(strings.get(StringKey.MENU_SETTINGS));
         wallet.setFormat(strings.get(StringKey.HUD_COINS));
         quit.setText(strings.get(StringKey.MENU_QUIT));
-        versionLine = strings.format(StringKey.FOOTER_VERSION, Flapforge.version());
+        versionLine = strings.format(StringKey.FOOTER_VERSION, AppVersion.version());
         buildLine = strings.format(StringKey.FOOTER_BUILD, System.getProperty("java.version",
                 "17"));
         refreshWorldLine();

@@ -1,6 +1,5 @@
 package io.github.michelbr84.flapforge.app;
 
-import io.github.michelbr84.flapforge.Flapforge;
 import io.github.michelbr84.flapforge.audio.AudioBackend;
 import io.github.michelbr84.flapforge.audio.AudioManager;
 import io.github.michelbr84.flapforge.audio.MusicSequencer;
@@ -52,10 +51,6 @@ import io.github.michelbr84.flapforge.ui.screens.BootScreen;
 import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.SeedSequence;
-import java.awt.AWTError;
-import java.awt.DisplayMode;
-import java.awt.GraphicsEnvironment;
-import java.awt.HeadlessException;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -81,14 +76,20 @@ import java.util.Objects;
  * says so on stdout. A headless run has none of this: it must depend on the seed and the shipped
  * data alone.
  *
- * <p>Windowed launch: the window is built on the event-dispatch thread, the loop runs on the
- * non-daemon {@code flapforge-loop} thread and the main thread returns. Without a display the
- * launch prints a hint and returns (no {@code System.exit}). Quit path: {@code CloseRequested}
- * (window button, Quit in the menu) stops the loop after the current frame; the loop thread
- * then disposes the presenter, detaches the bridge, disposes the frame on the event-dispatch
- * thread and stops the executors, after which the JVM exits naturally. A daemon watchdog calls
- * {@code System.exit} only if the JVM is still alive five seconds later; a test harness that
- * hosts the application in a long-lived JVM cancels it with {@link #awaitShutdown(long)}.
+ * <p>Windowed launch: the window, the presenter and the input bridge come from the
+ * {@link GameHost} the launch was started with (M10, D8) — on the desktop {@code AwtHost} builds
+ * the window on the event-dispatch thread — the loop runs on the non-daemon
+ * {@code flapforge-loop} thread and the main thread returns. Without a display the host answers
+ * no window, and the launch prints a hint and returns (no {@code System.exit}). Quit path:
+ * {@code CloseRequested} (window button, Quit in the menu) stops the loop after the current
+ * frame; the loop thread then disposes the presenter, detaches the bridge, disposes the window
+ * (on the desktop: the frame, on the event-dispatch thread) and stops the executors, after which
+ * the JVM exits naturally. A daemon watchdog calls {@code System.exit} only if the JVM is still
+ * alive five seconds later; a test harness that hosts the application in a long-lived JVM
+ * cancels it with {@link #awaitShutdown(long)}.
+ *
+ * <p>Nothing in this class names a toolkit type: the file is part of the Android source
+ * transform, and every AWT class it would otherwise need sits behind the host.
  *
  * <p>Audio (D19, E30.j): {@link AudioBackend#create(boolean, java.util.concurrent.ThreadFactory)}
  * is the only place a device is opened, and it never throws — {@code --no-audio} and a machine
@@ -127,7 +128,15 @@ public final class GameApplication {
     /** Cached display refresh rate in Hz; {@code 0} means "not resolved yet". */
     private static volatile int refreshRateHz;
 
+    /**
+     * The host of the last {@link #start(LaunchOptions, GameHost)}: the one the static
+     * {@link #detectRefreshRate()} asks, since {@link GameContext#resolveFps(int)} has no
+     * instance to reach it through. {@code null} until an application was started.
+     */
+    private static volatile GameHost host;
+
     private final LaunchOptions options;
+    private final GameHost gameHost;
     private GameContext context;
     private int ticksSinceAutosave;
     private volatile Thread loopThread;
@@ -137,19 +146,30 @@ public final class GameApplication {
      * Creates the application.
      *
      * @param options the launch options
+     * @param host the platform behind the window, the presenter and the input bridge
      */
-    public GameApplication(LaunchOptions options) {
+    public GameApplication(LaunchOptions options, GameHost host) {
         this.options = options;
+        this.gameHost = Objects.requireNonNull(host, "host");
     }
 
     /**
-     * Builds and starts the application.
+     * Builds and starts the application on the given host.
+     *
+     * <p>The host is also installed as the one {@link #detectRefreshRate()} reads from; a host
+     * that differs from the previous launch's drops the cached rate, since the display it
+     * describes may be another one.
      *
      * @param options the launch options
+     * @param host the platform seam ({@code AwtHost} on the desktop)
      * @return the application
      */
-    public static GameApplication start(LaunchOptions options) {
-        GameApplication app = new GameApplication(options);
+    public static GameApplication start(LaunchOptions options, GameHost host) {
+        GameApplication app = new GameApplication(options, host);
+        if (GameApplication.host != host) {
+            GameApplication.host = host;
+            forgetRefreshRate();
+        }
         app.launch();
         return app;
     }
@@ -533,7 +553,7 @@ public final class GameApplication {
                             : loaded.archived().getFileName()), Toast.Kind.WARNING);
         }
         SaveManager save = new SaveManager(threads.saveExecutor(), timeSource)
-                .stamp(Flapforge.version(), SaveFile.CONTENT_VERSION)
+                .stamp(AppVersion.version(), SaveFile.CONTENT_VERSION)
                 // From M4 the registries exist, so a saved id the content no longer knows is
                 // repaired instead of kept (E15, E21).
                 .schema(ContentAdapters.toProfileSchema(content))
@@ -556,14 +576,12 @@ public final class GameApplication {
         ProgressionRules progressionRules = ProgressionRules.fromContent(content);
         InputQueue input = new InputQueue(settings.bindings());
 
-        GameWindow window;
-        try {
-            int scale = options.scale() != null ? options.scale() : GameWindow.defaultScale();
-            // The merged value, not options.fullscreen(): a stored `fullscreen: true` must open a
-            // fullscreen window rather than a windowed one that jumps on the first loop tick.
-            window = GameWindow.create("Flapforge " + Flapforge.version(), scale,
-                    settings.fullscreen);
-        } catch (HeadlessException | AWTError e) {
+        // The merged value, not options.fullscreen(): a stored `fullscreen: true` must open a
+        // fullscreen window rather than a windowed one that jumps on the first loop tick. A null
+        // scale leaves the choice to the host (the desktop fits the screen height, D3).
+        AppWindow window = gameHost.createWindow("Flapforge " + AppVersion.version(),
+                options.scale(), settings.fullscreen);
+        if (window == null) {
             System.err.println(Strings.active().get(StringKey.APP_NO_DISPLAY));
             return;
         }
@@ -572,9 +590,9 @@ public final class GameApplication {
         Viewport viewport = new Viewport(window.canvasWidth(), window.canvasHeight(), false);
         ScreenManager screens = new ScreenManager(viewport);
         DebugOverlay overlay = new DebugOverlay(screens, clock::nanos);
-        BufferStrategyPresenter presenter = new BufferStrategyPresenter(window, viewport, overlay);
+        FramePresenter presenter = gameHost.createPresenter(window, viewport, overlay);
         screens.setPresenter(presenter);
-        AwtInputBridge bridge = new AwtInputBridge(input);
+        InputBridge bridge = gameHost.createInputBridge(input);
         bridge.attach(window);
 
         // One manifest, read once: the sound bank resolves ids through it and so does every
@@ -782,7 +800,7 @@ public final class GameApplication {
         }
     }
 
-    private void shutdown(FramePresenter presenter, AwtInputBridge bridge, GameWindow window,
+    private void shutdown(FramePresenter presenter, InputBridge bridge, AppWindow window,
             Threads threads) {
         presenter.dispose();
         try {
@@ -813,7 +831,9 @@ public final class GameApplication {
      * 6.5 ms on the development machine, 39 % of a 16.7 ms frame — and every
      * {@link GameContext#applySettings(Settings)} resolves the frame-rate cap, which the settings
      * screen does on every slider step and every hotkey. {@link #forgetRefreshRate()} drops the
-     * cached value when the display may have changed.
+     * cached value when the display may have changed. The device is asked through the
+     * {@link GameHost} of the last {@link #start(LaunchOptions, GameHost)}; before any launch
+     * there is no display to ask and the default applies.
      *
      * @return the rate in Hz, or {@link FrameLimiter#DEFAULT_FPS} when unknown or headless
      */
@@ -833,16 +853,9 @@ public final class GameApplication {
     }
 
     private static int readRefreshRate() {
-        if (GraphicsEnvironment.isHeadless()) {
-            return FrameLimiter.DEFAULT_FPS;
-        }
-        try {
-            DisplayMode mode = GraphicsEnvironment.getLocalGraphicsEnvironment()
-                    .getDefaultScreenDevice().getDisplayMode();
-            return FrameLimiter.refreshRateOrDefault(mode.getRefreshRate());
-        } catch (HeadlessException e) {
-            return FrameLimiter.DEFAULT_FPS;
-        }
+        GameHost current = host;
+        return current == null ? FrameLimiter.DEFAULT_FPS
+                : FrameLimiter.refreshRateOrDefault(current.displayRefreshRateHz());
     }
 
     /**

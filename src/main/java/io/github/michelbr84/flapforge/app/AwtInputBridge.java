@@ -24,18 +24,19 @@ import java.util.Objects;
 
 /**
  * Translates toolkit events into {@link RawInput} records on the event-dispatch thread and
- * pushes them into the {@link InputQueue} (D2, E30.a, E30.e).
+ * pushes them into the {@link InputQueue} (D2, E30.a, E30.e): the desktop {@link InputBridge},
+ * built by {@link AwtHost} (M10).
  *
  * <p>Keys are captured with a {@link KeyEventDispatcher} on the keyboard focus manager so no
  * component-level focus quirk can swallow them, and pass through a {@link KeyRepeatFilter};
  * mouse, component and focus listeners sit on the canvas and the window listener on the frame.
- * Coordinates are canvas pixels. {@link #attach(GameWindow)} ends by queueing a synthetic
+ * Coordinates are canvas pixels. {@link #attach(AppWindow)} ends by queueing a synthetic
  * {@code Resized} with the current canvas size, so the first tick reconciles the loop-owned
  * viewport with whatever the window manager did between window creation and attachment.
  * {@code FocusLost} carries a wall-clock stamp comparable with {@link KeyEvent#getWhen()} so
  * the queue can recognise the resumed auto-repeat of a key still held when focus returns.
  */
-public final class AwtInputBridge implements KeyEventDispatcher {
+public final class AwtInputBridge implements KeyEventDispatcher, InputBridge {
 
     private final InputQueue queue;
     private final KeyRepeatFilter keys;
@@ -125,17 +126,24 @@ public final class AwtInputBridge implements KeyEventDispatcher {
      * Registers every listener on the window (on the event-dispatch thread) and queues a
      * {@code Resized} with the current canvas size.
      *
-     * @param window the window
+     * @param window the window; it must be the {@link GameWindow} the desktop host created,
+     *     because the listeners go on its canvas and its frame
+     * @throws IllegalArgumentException when the window is not a {@link GameWindow}
      */
-    public void attach(GameWindow window) {
+    @Override
+    public void attach(AppWindow window) {
         Objects.requireNonNull(window, "window");
+        if (!(window instanceof GameWindow gameWindow)) {
+            throw new IllegalArgumentException("AwtInputBridge listens to a GameWindow, not "
+                    + window.getClass().getName());
+        }
         GameWindow.onEdt(() -> {
             if (attached) {
                 return;
             }
-            this.window = window;
-            Canvas canvas = window.canvas();
-            Frame frame = window.frame();
+            this.window = gameWindow;
+            Canvas canvas = gameWindow.canvas();
+            Frame frame = gameWindow.frame();
             KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(this);
             canvas.addMouseListener(mouseHandler);
             canvas.addMouseMotionListener(mouseHandler);
@@ -149,6 +157,7 @@ public final class AwtInputBridge implements KeyEventDispatcher {
     }
 
     /** Removes every listener (on the event-dispatch thread). */
+    @Override
     public void detach() {
         GameWindow.onEdt(() -> {
             if (!attached) {
@@ -170,10 +179,11 @@ public final class AwtInputBridge implements KeyEventDispatcher {
     }
 
     /**
-     * Whether {@link #attach(GameWindow)} succeeded and {@link #detach()} was not called.
+     * Whether {@link #attach(AppWindow)} succeeded and {@link #detach()} was not called.
      *
      * @return {@code true} when attached
      */
+    @Override
     public boolean isAttached() {
         return attached;
     }

@@ -55,7 +55,8 @@ import java.util.Objects;
  * @param viewport the loop-owned viewport
  * @param screens the screen stack
  * @param presenter the frame presenter
- * @param window the window, or {@code null} when headless
+ * @param window the host's window ({@code GameWindow} on the desktop), or {@code null} when
+ *     headless
  * @param loop the game loop
  * @param limiter the frame pacer, or {@code null} when the launch does not pace
  * @param settingsStore the settings file, or {@code null} in a context without persistence
@@ -70,7 +71,7 @@ import java.util.Objects;
  */
 public record GameContext(LaunchOptions options, Clock clock, TimeSource timeSource,
         Threads threads, InputQueue input, Viewport viewport, ScreenManager screens,
-        FramePresenter presenter, GameWindow window, GameLoop loop, FrameLimiter limiter,
+        FramePresenter presenter, AppWindow window, GameLoop loop, FrameLimiter limiter,
         SettingsStore settingsStore, EventBus events, AudioManager audio, Strings strings,
         ToastLayer toasts, GameContent content, SaveManager save, ProgressionManager progression,
         ProgressionRules progressionRules) {

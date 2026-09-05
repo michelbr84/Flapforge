@@ -13,9 +13,9 @@ The integrity gate reverses the same rules on the transformed output and require
 byte-identical results, then asserts no java.awt/javax.sound/javax.imageio
 references survive in the transformed tree.
 
-The five desktop-only files are excluded entirely (they get Android replacements):
+The six desktop-only files are excluded entirely (they get Android replacements):
   app/GameWindow, app/BufferStrategyPresenter, app/AwtInputBridge,
-  app/KeyRepeatFilter, Flapforge
+  app/KeyRepeatFilter, app/AwtHost, Flapforge
 """
 import re
 import shutil
@@ -31,6 +31,7 @@ EXCLUDED = {
     "io/github/michelbr84/flapforge/app/BufferStrategyPresenter.java",
     "io/github/michelbr84/flapforge/app/AwtInputBridge.java",
     "io/github/michelbr84/flapforge/app/KeyRepeatFilter.java",
+    "io/github/michelbr84/flapforge/app/AwtHost.java",
     "io/github/michelbr84/flapforge/Flapforge.java",
 }
 

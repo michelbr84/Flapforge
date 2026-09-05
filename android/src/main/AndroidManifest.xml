@@ -4,7 +4,8 @@
     <application
         android:label="Flapforge"
         android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
-        android:hardwareAccelerated="false">
+        android:hardwareAccelerated="false"
+        android:enableOnBackInvokedCallback="true">
 
         <activity
             android:name=".android.MainActivity"
