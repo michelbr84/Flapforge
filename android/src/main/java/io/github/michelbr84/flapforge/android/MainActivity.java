@@ -1,7 +1,9 @@
 package io.github.michelbr84.flapforge.android;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
+import android.os.Looper;
 import android.util.Log;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -18,6 +20,11 @@ import io.github.michelbr84.flapforge.persistence.SavePaths;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
@@ -102,6 +109,10 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
     static final long SHUTDOWN_WAIT_MS = 3_000L;
     /** Poll interval of the boot thread's wait for the loop thread. */
     private static final long WATCH_POLL_MS = 1_000L;
+    /** Upper bound of the captured {@code System.err} text kept for the failure report. */
+    private static final int STDERR_CAPTURE_CAP = 64 * 1024;
+    /** File under the app's files dir the last failure report is also written to. */
+    static final String CRASH_REPORT_FILE = "last-crash.txt";
 
     private GameSurfaceView surface;
     private AndroidHost host;
@@ -112,19 +123,33 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
     /** Set by {@code onDestroy}; a boot that finishes after it quits the game it just started. */
     private volatile boolean destroyed;
     private volatile GameApplication application;
+    /**
+     * Everything the game printed to {@code System.err} this session. The game reports a
+     * failed start and a failed loop there (and to logcat) and then ends, which on a phone
+     * looks like the app closing by itself; the text is what {@link #reportOrFinish} shows.
+     */
+    private final StringBuffer stderrCapture = new StringBuffer();
+    /** The exception {@link GameApplication#start} threw, if any, for the same report. */
+    private volatile Throwable bootFailure;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        captureFailures();
         Shims.init(getApplicationContext());
         SavePaths.override(getFilesDir().toPath());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         // Let the surface run under a display cutout: only cosmetic extended sky ever reaches
         // that strip — the interactive 420x640 playfield sits centred, well clear of any notch.
-        WindowManager.LayoutParams attributes = getWindow().getAttributes();
-        attributes.layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-        getWindow().setAttributes(attributes);
+        // Best effort: a launcher that rejects the attribute must not keep the game from opening.
+        try {
+            WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attributes);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Could not opt into the display cutout; the surface stays clear of it", e);
+        }
         surface = new GameSurfaceView(this);
         host = new AndroidHost(this, surface);
         surface.addSurfaceListener(this);
@@ -254,6 +279,7 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
             application = started;
         } catch (RuntimeException | Error e) {
             Log.e(TAG, "Flapforge failed to start", e);
+            bootFailure = e;
         } finally {
             bootFinished.countDown();
         }
@@ -261,7 +287,7 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
             if (started != null) {
                 Log.w(TAG, "The launch aborted before the game loop started (see System.err)");
             }
-            runOnUiThread(this::finishIfAlive);
+            runOnUiThread(this::reportOrFinish);
             return;
         }
         host.observeScreens(started.context().screens());
@@ -280,7 +306,106 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
             Thread.currentThread().interrupt();
             return;
         }
-        runOnUiThread(this::finishIfAlive);
+        runOnUiThread(this::reportOrFinish);
+    }
+
+    /**
+     * Routes every failure signal into a report the player can see. {@code System.err} is teed
+     * into {@link #stderrCapture} (logcat still gets every byte): the game prints a failed start
+     * and a failed loop there before it ends. An exception no thread caught goes the same way;
+     * one on the UI thread cannot show a dialog, so it is written to the report file and handed
+     * to the platform handler, which crashes the process as usual.
+     */
+    private void captureFailures() {
+        PrintStream original = System.err;
+        OutputStream tee = new OutputStream() {
+            @Override
+            public void write(int b) {
+                original.write(b);
+                append(String.valueOf((char) b));
+            }
+
+            @Override
+            public void write(byte[] b, int off, int len) {
+                original.write(b, off, len);
+                append(new String(b, off, len, StandardCharsets.UTF_8));
+            }
+
+            private void append(String s) {
+                if (stderrCapture.length() < STDERR_CAPTURE_CAP) {
+                    stderrCapture.append(s);
+                }
+            }
+        };
+        System.setErr(new PrintStream(tee, true));
+
+        Thread.UncaughtExceptionHandler platform = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, e) -> {
+            String report = "Uncaught on thread " + thread.getName() + ":\n" + stackTrace(e);
+            writeCrashReport(report);
+            if (thread == Looper.getMainLooper().getThread()) {
+                if (platform != null) {
+                    platform.uncaughtException(thread, e);
+                }
+                return;
+            }
+            Log.e(TAG, "Uncaught exception on " + thread.getName(), e);
+            runOnUiThread(() -> showFailure(report));
+        });
+    }
+
+    /**
+     * After the game ended: when it ended because of a failure, show what it printed instead of
+     * closing silently; otherwise finish as before (the menu's Quit, or a destroy).
+     */
+    private void reportOrFinish() {
+        StringBuilder report = new StringBuilder();
+        if (bootFailure != null) {
+            report.append("Flapforge failed to start:\n").append(stackTrace(bootFailure))
+                    .append('\n');
+        }
+        String captured = stderrCapture.toString();
+        if (looksLikeFailure(captured)) {
+            report.append(captured);
+        }
+        if (report.length() == 0) {
+            finishIfAlive();
+            return;
+        }
+        String text = report.toString();
+        writeCrashReport(text);
+        showFailure(text);
+    }
+
+    private static boolean looksLikeFailure(String text) {
+        return text.contains("Exception") || text.contains("Error") || text.contains("failed");
+    }
+
+    private void showFailure(String report) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Flapforge fechou por um erro")
+                .setMessage(report)
+                .setCancelable(false)
+                .setPositiveButton("Fechar", (dialog, which) -> finishIfAlive())
+                .show();
+    }
+
+    private void writeCrashReport(String report) {
+        try {
+            Files.write(getFilesDir().toPath().resolve(CRASH_REPORT_FILE),
+                    report.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "Could not write " + CRASH_REPORT_FILE, e);
+        }
+    }
+
+    private static String stackTrace(Throwable e) {
+        StringWriter out = new StringWriter();
+        e.printStackTrace(new PrintWriter(out));
+        return out.toString();
     }
 
     /**
