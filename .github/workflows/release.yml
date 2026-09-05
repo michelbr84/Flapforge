@@ -1,11 +1,16 @@
 name: Release
 
 # Runs on a v* tag only (M9): builds and tests once per OS, packages each OS
-# with jpackage through scripts/package.sh (per-OS icon, E9), zips the app
-# images and attaches them — with the fat jar — to the GitHub release.
+# with jpackage through scripts/package.sh (per-OS icon, E9), builds the
+# sideloadable Android APK on the hosted runner's SDK, zips the app images
+# and attaches them — with the fat jar and the APK — to the GitHub release.
 on:
   push:
     tags: ['v*']
+  # A manual run cuts the tag and the release itself from the chosen ref: the
+  # release step derives the tag from version.properties, so dispatching on a
+  # ref whose version is not yet released creates v<version> at that commit.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -76,11 +81,66 @@ jobs:
           path: build/libs/flapforge-*-all.jar
           if-no-files-found: error
 
-  release:
-    name: Attach the bundles to the release
-    needs: package
+  android:
+    name: Package the Android APK
     runs-on: ubuntu-latest
     steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      # 17 for the module's source/target level, 21 as the default JVM the
+      # Gradle daemon and the Android Gradle Plugin run on.
+      - name: Set up JDK 17 and 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Read the version
+        id: version
+        shell: bash
+        run: echo "version=$(sed -n 's/^version=//p' src/main/resources/version.properties)" >> "$GITHUB_OUTPUT"
+
+      # The Android port builds separately from the desktop build (`-p android`):
+      # the transform task rewrites the shared sources against the awt shims and
+      # its integrity gate fails the job on any drift. The release APK is
+      # debug-signed for sideloading (android/build.gradle).
+      - name: Test and build the APK
+        shell: bash
+        run: ./gradlew -p android testDebugUnitTest assembleRelease --stacktrace
+
+      - name: Name the APK after the version
+        shell: bash
+        run: |
+          apk=$(ls android/build/outputs/apk/release/*.apk | head -n 1)
+          mkdir -p build
+          cp "$apk" "build/Flapforge-${{ steps.version.outputs.version }}-android.apk"
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: flapforge-android
+          path: build/Flapforge-*-android.apk
+          if-no-files-found: error
+
+  release:
+    name: Attach the bundles to the release
+    needs: [package, android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Read the version
+        id: version
+        shell: bash
+        run: echo "version=$(sed -n 's/^version=//p' src/main/resources/version.properties)" >> "$GITHUB_OUTPUT"
+
       - name: Download all bundles
         uses: actions/download-artifact@v8
         with:
@@ -88,8 +148,13 @@ jobs:
           path: bundles
           merge-multiple: true
 
+      # On a tag push the computed name matches the pushed tag and the existing
+      # tag is used as-is; on a manual dispatch the action creates the tag at
+      # this run's commit and publishes the release around it.
       - name: Attach to the GitHub release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
           files: bundles/*
           fail_on_unmatched_files: true

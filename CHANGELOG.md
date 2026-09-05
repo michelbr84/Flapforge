@@ -12,6 +12,12 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+## 0.1.1 — 2026-09-05
+
+The Android touch-and-screen release: the game-over and pause overlays gained
+real buttons, tall screens are filled edge to edge, and the release now ships
+a sideloadable APK built by CI.
+
 ### Added
 
 - Buttons on the game-over strip (Retry / Summary / Menu) and on the pause
