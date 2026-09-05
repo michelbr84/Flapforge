@@ -1683,6 +1683,36 @@ release rather than as a new version: desktop behaviour did not change
   translucent colour, zero-extent outlines, `FontMetrics` rounding
   (`FontDesignMetrics`' `0.95f` rule) and the nearest-neighbour interpolation
   default.
+- **Fixed — the APK died at boot on every device** (2026-09-05): `GameApplication.start`
+  threw `NoSuchMethodError: No virtual method isRecord()Z in class Ljava/lang/Class;`
+  out of `content.StrictBinder`, and `MainActivity` logged it and finished, so the game
+  "loaded and closed". With `minSdk 33` D8 desugars every record: `Class.isRecord` does
+  not exist on Android 13, answers `false` for a desugared record on 14+, and
+  `getDeclaredFields()` comes back in alphabetical dex order, so the binder's reflection
+  over record components — which needs the declaration order the canonical constructor
+  takes — cannot work on ART, while Robolectric (a JVM, real records) never saw it. The
+  fix leaves `src/` byte-identical: a new `recordMetadata` task compiles the whole desktop
+  tree with the JDK's compiler and writes the record table
+  `META-INF/flapforge-records.properties` (215 records, `<binary name>=<component names in
+  declaration order>`) into the APK as a Java resource; rules T4a–c of the transform point
+  the binder's three reflection tokens (`import java.lang.reflect.RecordComponent;`,
+  `raw.isRecord()`, `raw.getRecordComponents()`) at a new `jrecord` shim (`Records`,
+  `RecordComponent`), which answers from the table on every runtime and backs each
+  component with the record's declared field — same type, generic type and `@JsonName` —
+  falling back to the platform's methods, looked up reflectively, for a class the table
+  does not list; gate (b) now also rejects a surviving `java.lang.reflect.RecordComponent`,
+  and `breakForward` drops T4a as well as T2 (two survivors). `MainActivity` no longer
+  swallows a start failure: the report (exception, first 40 frames, device) is shown on a
+  scrollable screen and written to `startup-failure.txt` under the files dir, and back
+  closes it. Tests: `RecordsTest` (every table entry loads, names real fields and resolves
+  the canonical constructor in table order; the table covers every `record` of the
+  transformed tree; the fallback binds a test-only record) and
+  `MainActivityStartupFailureTest`, and `SuiteInventoryTest`, which holds the suite size the
+  docs quote to the `@Test` methods in the sources; the suite is 234 tests in 26 classes,
+  the APK 41 entries (about 1.6 MiB). CI's self-test step now also requires the gate's
+  report to name both survivors. Verified on Android 13 and Android 14 emulators: the game
+  boots to the menu (and starts a run) with nothing under the `Flapforge` or
+  `AndroidRuntime` tags in logcat.
 
 ## Inherited upstream history (kingyuluk/FlappyBird)
 

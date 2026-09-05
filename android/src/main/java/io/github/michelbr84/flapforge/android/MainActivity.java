@@ -1,15 +1,23 @@
 package io.github.michelbr84.flapforge.android;
 
 import android.app.Activity;
+import android.graphics.Typeface;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.util.TypedValue;
+import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.widget.ScrollView;
+import android.widget.TextView;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 import awt.Shims;
+import io.github.michelbr84.flapforge.app.AppVersion;
 import io.github.michelbr84.flapforge.app.GameApplication;
+import io.github.michelbr84.flapforge.app.GameHost;
 import io.github.michelbr84.flapforge.app.LaunchOptions;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
@@ -18,11 +26,13 @@ import io.github.michelbr84.flapforge.persistence.SavePaths;
 import io.github.michelbr84.flapforge.persistence.Settings;
 import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiFunction;
 import jssound.AudioSystem;
 
 /**
@@ -47,8 +57,20 @@ import jssound.AudioSystem;
  * touch zone follows it), waits for the loop thread and, when it ends — the game's own quit
  * path: {@code CloseRequested} from the menu's Quit stops the loop, the loop thread disposes
  * the presenter, detaches the bridge and drains the saves — finishes the activity from the UI
- * thread. A launch that aborts before the loop starts (content that fails to load) finishes the
- * activity too, after the game printed why.
+ * thread.
+ *
+ * <p><b>A start that fails is shown, never swallowed.</b> When {@code start} throws — the M10
+ * hotfix's own case was a {@code NoSuchMethodError} out of the content binder on every device,
+ * which the activity used to log and then finish, so the player saw the game "load and close"
+ * — or when the launch aborts before the loop starts (content that fails to load; the game
+ * printed why to {@code System.err}), the boot thread writes a report ({@value #FAILURE_TITLE},
+ * the exception with its first {@value #FAILURE_FRAMES} stack frames and the cause chain, the
+ * device) to {@value #STARTUP_FAILURE_FILE} under {@code getFilesDir()} and replaces the surface
+ * with a full-screen scrollable monospace {@link TextView} carrying the same text, still logged
+ * under the {@value #TAG} tag. The activity finishes only when the player presses back
+ * ({@link #onBackInvoked}), so the text can be read and copied ({@code adb pull} the file, or
+ * select it). {@link #gameStarter} is the package-private seam a test injects the failure
+ * through.
  *
  * <p><b>First run: hold-to-flap on.</b> When no {@code settings.json} exists yet, the boot
  * thread writes the defaults with {@code holdToFlap = true} before the game reads them (the
@@ -78,7 +100,8 @@ import jssound.AudioSystem;
  *       the menus, {@code PAUSE} in a run, "quit to menu" on the pause overlay). The activity
  *       never finishes itself here: the game decides what back means, and quitting goes through
  *       its own path above. Before the game is up there is no queue to tap, and the gesture is
- *       ignored.</li>
+ *       ignored — except on the startup-failure screen, where back is the only way out and
+ *       finishes the activity.</li>
  *   <li>{@code onDestroy}: when the game is running, a {@code CloseRequested} on the queue and
  *       a bounded wait ({@value #SHUTDOWN_WAIT_MS} ms) for the loop thread, so the exit save
  *       drains before the process may go. A destroy that races the boot waits (bounded) for the
@@ -102,6 +125,16 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
     static final long SHUTDOWN_WAIT_MS = 3_000L;
     /** Poll interval of the boot thread's wait for the loop thread. */
     private static final long WATCH_POLL_MS = 1_000L;
+    /** File under {@code getFilesDir()} that receives the startup-failure report. */
+    static final String STARTUP_FAILURE_FILE = "startup-failure.txt";
+    /** First line of the startup-failure report and screen. */
+    static final String FAILURE_TITLE = "Flapforge could not start";
+    /** How many stack frames of each throwable in the chain the report keeps. */
+    static final int FAILURE_FRAMES = 40;
+    private static final int FAILURE_BACKGROUND = 0xFF101010;
+    private static final int FAILURE_TEXT = 0xFFE0E0E0;
+    private static final float FAILURE_TEXT_SP = 11f;
+    private static final int FAILURE_PADDING_PX = 24;
 
     private GameSurfaceView surface;
     private AndroidHost host;
@@ -112,6 +145,13 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
     /** Set by {@code onDestroy}; a boot that finishes after it quits the game it just started. */
     private volatile boolean destroyed;
     private volatile GameApplication application;
+    /** The failure screen's text, once shown; back finishes the activity from then on. */
+    private volatile TextView startupFailureView;
+    /**
+     * The call that starts the game, {@link GameApplication#start} unless a test replaces it
+     * (before the surface gets a size) with one that fails, to exercise the failure screen.
+     */
+    BiFunction<LaunchOptions, GameHost, GameApplication> gameStarter = GameApplication::start;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -195,6 +235,10 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
      * Package-private so a test can trigger it without the dispatcher.
      */
     void onBackInvoked() {
+        if (startupFailureView != null) {
+            finishIfAlive();
+            return;
+        }
         AndroidInputBridge bridge = host.inputBridge();
         if (bridge != null && bridge.isAttached()) {
             bridge.key(Keys.ESCAPE);
@@ -228,6 +272,15 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
         return surface;
     }
 
+    /**
+     * The startup-failure screen's text view.
+     *
+     * @return the view, or {@code null} while no start failure has been shown
+     */
+    TextView startupFailureView() {
+        return startupFailureView;
+    }
+
     private void enterImmersiveMode() {
         WindowInsetsController controller = getWindow().getInsetsController();
         if (controller == null) {
@@ -239,23 +292,30 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
                 WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
     }
 
-    /** Body of the boot thread: start once, then watch the loop and finish when it ends. */
+    /**
+     * Body of the boot thread: start once, then watch the loop and finish when it ends — or, when
+     * the start failed, report it (see the class javadoc).
+     */
     private void bootGame() {
         GameApplication started = null;
+        Throwable failure = null;
         try {
             seedFirstRunSettings();
-            started = GameApplication.start(LaunchOptions.DEFAULTS, host);
+            started = gameStarter.apply(LaunchOptions.DEFAULTS, host);
             application = started;
         } catch (RuntimeException | Error e) {
             Log.e(TAG, "Flapforge failed to start", e);
+            failure = e;
         } finally {
             bootFinished.countDown();
         }
+        if (failure != null) {
+            reportStartupFailure(failureReport(failure));
+            return;
+        }
         if (started == null || started.loopThread() == null) {
-            if (started != null) {
-                Log.w(TAG, "The launch aborted before the game loop started (see System.err)");
-            }
-            runOnUiThread(this::finishIfAlive);
+            Log.w(TAG, "The launch aborted before the game loop started (see System.err)");
+            reportStartupFailure(failureReport(null));
             return;
         }
         host.observeScreens(started.context().screens());
@@ -336,6 +396,98 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
     /** Queues the game's own quit event; the loop stops after the current frame (D4). */
     private static void requestClose(GameApplication app) {
         app.context().input().offer(new RawInput.CloseRequested());
+    }
+
+    /**
+     * The startup-failure report: the title, the device and build, then the throwable chain
+     * with at most {@value #FAILURE_FRAMES} frames each — or, for an aborted launch, where the
+     * game put the reason.
+     */
+    private static String failureReport(Throwable failure) {
+        StringBuilder report = new StringBuilder(4096);
+        report.append(FAILURE_TITLE).append("\n\n");
+        report.append("Flapforge ").append(version()).append(" on Android ")
+                .append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT)
+                .append("), ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+                .append("\n\n");
+        if (failure == null) {
+            report.append("The launch aborted before the game loop started. The game printed "
+                    + "the reason to System.err, which Android logs under the tag "
+                    + "\"System.err\" (adb logcat).\n");
+        } else {
+            Throwable t = failure;
+            String prefix = "";
+            while (t != null) {
+                report.append(prefix).append(t.getClass().getName());
+                if (t.getMessage() != null) {
+                    report.append(": ").append(t.getMessage());
+                }
+                report.append('\n');
+                StackTraceElement[] frames = t.getStackTrace();
+                int shown = Math.min(frames.length, FAILURE_FRAMES);
+                for (int i = 0; i < shown; i++) {
+                    report.append("    at ").append(frames[i]).append('\n');
+                }
+                if (frames.length > shown) {
+                    report.append("    ... ").append(frames.length - shown)
+                            .append(" more frames\n");
+                }
+                prefix = "Caused by: ";
+                t = t.getCause() == t ? null : t.getCause();
+            }
+        }
+        report.append("\nPress back to close.\n");
+        return report.toString();
+    }
+
+    private static String version() {
+        try {
+            return AppVersion.version();
+        } catch (RuntimeException | Error e) {
+            return "(unknown version)";
+        }
+    }
+
+    /**
+     * Writes the report to {@value #STARTUP_FAILURE_FILE} under the files dir, tells the report
+     * where, and shows it (boot thread; the screen is built on the UI thread).
+     */
+    private void reportStartupFailure(String report) {
+        Path file = getFilesDir().toPath().resolve(STARTUP_FAILURE_FILE);
+        String shown;
+        try {
+            Files.createDirectories(file.getParent());
+            Files.write(file, report.getBytes(StandardCharsets.UTF_8));
+            shown = report + "\nThis text was also written to " + file + "\n";
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "Cannot write the startup-failure report to " + file, e);
+            shown = report + "\nThis text could not be written to " + file + ": " + e + "\n";
+        }
+        String text = shown;
+        runOnUiThread(() -> showStartupFailure(text));
+    }
+
+    /** Replaces the surface with the report: a full-screen, scrollable, selectable text. */
+    private void showStartupFailure(String report) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        TextView text = new TextView(this);
+        text.setTypeface(Typeface.MONOSPACE);
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, FAILURE_TEXT_SP);
+        text.setTextColor(FAILURE_TEXT);
+        text.setBackgroundColor(FAILURE_BACKGROUND);
+        text.setPadding(FAILURE_PADDING_PX, FAILURE_PADDING_PX, FAILURE_PADDING_PX,
+                FAILURE_PADDING_PX);
+        text.setTextIsSelectable(true);
+        text.setText(report);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(FAILURE_BACKGROUND);
+        scroll.setFillViewport(true);
+        scroll.addView(text, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        startupFailureView = text;
+        setContentView(scroll);
     }
 
     private void finishIfAlive() {

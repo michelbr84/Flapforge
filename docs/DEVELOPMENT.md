@@ -277,24 +277,30 @@ never edits the desktop tree.
 
 ```bash
 ./gradlew -p android transformSources   # rewrite src/main/java -> android/build/transformed/java, gated
-./gradlew -p android assembleRelease    # transform (if stale) + compile + dex + sign -> the APK
-./gradlew -p android test               # transform + Robolectric unit tests; no device, no emulator
+./gradlew -p android recordMetadata     # compile src/main/java with the JDK -> the record table (see "Records on Android")
+./gradlew -p android assembleRelease    # transform + table (if stale) + compile + dex + sign -> the APK
+./gradlew -p android test               # transform + table + Robolectric unit tests; no device, no emulator
 ```
 
 They compose: `./gradlew -p android transformSources assembleRelease test` is
 the gate CI runs (`.github/workflows/android.yml`) and the one every M10
-change must pass. `assembleRelease` and `test` depend on the transform, so the
-first command on its own only matters when you want to inspect the rewritten
-tree.
+change must pass. `assembleRelease` and `test` depend on the transform and on
+the record table, so the first two commands on their own only matter when you
+want to inspect the rewritten tree or the table.
 
 `transformSources` prints its tally —
 `318 files transformed, 6 excluded (desktop-only), round-trip OK, 0 surviving refs`
 — and fails the build with `INTEGRITY GATE FAILED`, listing the offending
 files, when either half of the gate trips: (a) reversing the rules must
 reproduce every source byte for byte, (b) no `java.awt.` /
-`javax.sound.sampled.` / `javax.imageio.` reference may survive. A renamed
+`javax.sound.sampled.` / `javax.imageio.` /
+`java.lang.reflect.RecordComponent` reference may survive. A renamed
 desktop-only file fails the task too (`excluded files missing under ...`), so
 the exclusion list in `android/build.gradle` must follow a rename.
+`recordMetadata` prints its own —
+`215 records among 568 classes (324 sources) -> .../META-INF/flapforge-records.properties`
+— and fails the build when the JDK compile of the desktop tree fails or no
+record was found.
 
 ### Proving the gate bites
 
@@ -303,43 +309,100 @@ failure (the default build never sets it):
 
 ```bash
 ./gradlew -p android transformSources -PtransformSelfTest=breakReverse   # gate (a): 1 file does not round-trip
-./gradlew -p android transformSources -PtransformSelfTest=breakForward   # gate (b): 1 surviving ref, AssetManager.java:27
+./gradlew -p android transformSources -PtransformSelfTest=breakForward   # gate (b): 2 surviving refs, StrictBinder.java:10 and AssetManager.java:27
 ```
 
 `breakReverse` appends a comment to the first output file after the rewrite;
-`breakForward` drops rule T2, so `import javax.imageio.ImageIO;` survives.
+`breakForward` drops rules T2 and T4a, so `import javax.imageio.ImageIO;` and
+`import java.lang.reflect.RecordComponent;` survive.
 Both must end in `BUILD FAILED` with `INTEGRITY GATE FAILED` — a green run
 here is a bug. Any other mode value is rejected. Both modes leave a poisoned
 output tree behind on purpose: the failed task is not up to date, so the next
 plain build regenerates `build/transformed/java` from scratch. CI runs
-`breakForward` on every Android build and fails when it passes.
+`breakForward` on every Android build and fails when it passes, and also
+when the gate's report does not name both survivors — a self-test that
+quietly stopped dropping one rule would otherwise still look like proof.
+
+### Records on Android
+
+The content binder (`content.StrictBinder`, a pure desktop file) reads the
+game's records by reflection — `Class.isRecord()`, `getRecordComponents()`,
+then the canonical constructor in component order. With `minSdk 33` D8
+desugars every record in the APK, and that reflection is gone on a device:
+`Class.isRecord` does not exist on Android 13 (`NoSuchMethodError` inside
+`GameApplication.start`, the boot failure every device showed), on 14+ it
+answers `false` for a desugared record, and `getDeclaredFields()` comes back in
+dex (alphabetical) order, not declaration order. Robolectric runs on the JVM,
+where records are real, so 223 green tests never saw it. The fix has three
+parts, none of which touches `src/`:
+
+- **`recordMetadata`** (`android/build.gradle`) compiles *all* of
+  `src/main/java` — the six desktop-only files included; the Gradle JVM is a
+  full JDK 17 — with `javax.tools` into `android/build/records/classes`, loads
+  every class through a `URLClassLoader` over that directory and the Gson jar
+  without initialising it, and writes one line per `Class.isRecord()` class to
+  `android/build/transformed/resources/META-INF/flapforge-records.properties`:
+  `<binary name, $ for nested>=<component names in declaration order>` (an
+  empty value for a zero-component record, keys sorted, one leading comment
+  line). The directory is a Java resources srcDir, so the file ships at the
+  same path in the APK (AGP's default packaging keeps it: `unzip -l` lists
+  it). Inputs are the source tree and the jar, so the task is up to date when
+  neither changed; a failed compile or an empty table fails the build.
+- **Rules T4a–c** of `transformSources` rewrite the binder's three tokens —
+  `import java.lang.reflect.RecordComponent;` → `import jrecord.RecordComponent;`,
+  `raw.isRecord()` → `jrecord.Records.isRecord(raw)`,
+  `raw.getRecordComponents()` → `jrecord.Records.components(raw)` — literal,
+  global and reversible (each occurs only in `StrictBinder.java`, and no
+  forward image pre-exists in the tree). Gate (b) rejects a surviving
+  `java.lang.reflect.RecordComponent`. The rules are mirrored in
+  `android/p0/transform_prototype.py` and in `GoldenRenderTest.forward()`.
+- **The `jrecord` shim** (`android/src/main/java/jrecord`): `Records.isRecord`
+  and `Records.components` answer from the table on every runtime (JVM, ART 13,
+  ART 14+), a component being the record's declared field of that name — same
+  type, generic type and `@JsonName` as the platform's component; a class the
+  table does not list falls back to the platform's methods, looked up
+  reflectively so the shim loads on Android 13; a listed class missing a field
+  is an `IllegalStateException` naming both. `RecordsTest` proves on the JVM
+  that every table entry names real fields in canonical-constructor order and
+  that the table covers every `record` of the transformed tree.
+
+A start that still fails on a device is no longer silent: `MainActivity` shows
+the exception and its first 40 frames on a scrollable, selectable screen and
+writes the same text to `startup-failure.txt` under the app's private files
+dir (the `Flapforge` tag in `adb logcat` carries the exception too; `run-as`
+can read the file only from a debuggable build); back closes it. Every
+Android change must still be smoke-tested on an emulator (`adb install -r`,
+launch, `adb logcat -d | grep -E 'Flapforge|AndroidRuntime'`, a screenshot):
+the JVM cannot see an ART-only failure.
 
 ### Where things land
 
 | Output | Path |
 | --- | --- |
 | transformed sources | `android/build/transformed/java/` (mirrors `src/main/java` minus the six excluded files) |
-| release APK | `android/build/outputs/apk/release/Flapforge-android-release.apk` (about 1.5 MiB; `output-metadata.json` beside it carries `versionName`/`versionCode`). The release asset is this file renamed `Flapforge-<version>-android.apk` |
+| record table | `android/build/transformed/resources/META-INF/flapforge-records.properties` (215 records, about 19 KB; shipped at the same path in the APK — see "Records on Android") |
+| release APK | `android/build/outputs/apk/release/Flapforge-android-release.apk` (about 1.6 MiB; `output-metadata.json` beside it carries `versionName`/`versionCode`). The release asset is this file renamed `Flapforge-<version>-android.apk` |
 | JUnit XML | `android/build/test-results/testDebugUnitTest/TEST-*.xml`, one per class (what CI publishes) |
 | HTML report | `android/build/reports/tests/testDebugUnitTest/index.html` |
 
 Check what went into the APK with
 `unzip -l android/build/outputs/apk/release/Flapforge-android-release.apk`
-(40 entries): two dex files (`classes.dex` — the transformed game, the shims,
-the host and Gson, 1059 classes; `classes2.dex` — one class),
+(41 entries): two dex files (`classes.dex` — the transformed game, the shims
+(`jrecord` included), the host and Gson, 1063 classes; `classes2.dex` — one class),
 `AndroidManifest.xml`, the desktop resources at the root (`data/*.json`,
 `data/strings/*.json`, `assets/manifest.json`, `assets/fonts/*`,
 `version.properties`), the launcher icon under `res/` (fifteen PNGs and two
 adaptive-icon XMLs, under the short names AAPT2 assigns) with
-`resources.arsc`, and two `META-INF/` build-metadata files. Nothing from the
+`resources.arsc`, the record table `META-INF/flapforge-records.properties`
+and two `META-INF/` build-metadata files. Nothing from the
 Kotlin standard library: AGP 9's built-in Kotlin support adds `kotlin-stdlib`
 to the runtime classpath of a project without Kotlin sources, and
 `android/gradle.properties` (`kotlin.stdlib.default.dependency=false`) keeps
 it out — no `kotlin/*` entry, no `Lkotlin/` descriptor in either dex. No
 `java.awt`, `javax.sound` or `javax.imageio` descriptor exists in the dex
 either (`build-tools/36.0.0/dexdump -d classes.dex | grep -cE
-'Ljava/awt|Ljavax/sound|Ljavax/imageio'` prints 0) — what gate (b) guarantees
-at the source level. `aapt2 dump badging` on the APK prints the package,
+'Ljava/awt|Ljavax/sound|Ljavax/imageio|Ljava/lang/reflect/RecordComponent'`
+prints 0) — what gate (b) guarantees at the source level. `aapt2 dump badging` on the APK prints the package,
 `versionCode`/`versionName`, the `Flapforge` label and the icon resource for
 every density.
 
@@ -364,8 +427,11 @@ the pure-JVM shim tests need no runner. Two things to know:
   tested through a `BufferedImage`-backed `awt.Graphics2D`. A test that
   expects `presentCount` to grow will never pass under Robolectric.
 
-The results are counted per class in the XML: the M10 suite is 223 tests in
-23 classes, 0 failures, and the count is part of every M10 change's gate.
+The results are counted per class in the XML: the M10 suite is 234 tests in
+26 classes, 0 failures, and the count is part of every M10 change's gate.
+`SuiteInventoryTest` counts the `@Test` methods in the sources and fails when
+this sentence or the M10 summary in `docs/ROADMAP.md` stops matching them, so
+a change that adds a test updates both figures in the same commit.
 
 Three closure tests pin the port against the desktop. `AndroidDeterminismTest`
 runs the transformed `GameApplication` headless (`--headless-run 3000 --seed 42`)
@@ -378,7 +444,11 @@ with desktop Java2D references — regenerate them with
 `android/src/test/resources/golden/README.md` whenever the drawing code or the
 bundled font changes. `ManifestContractTest` pins the merged manifest
 (portrait, `minSdk 33`, the back-callback opt-in and the Android 16
-large-screen resizability opt-out).
+large-screen resizability opt-out). Two hotfix tests join them: `RecordsTest`
+checks the record table against the JVM's own record reflection and the
+`jrecord` shim's contract, and `MainActivityStartupFailureTest` injects a
+failing start and expects the report screen and `startup-failure.txt`;
+`SuiteInventoryTest` keeps the documented suite size honest (above).
 
 ### Launcher icon
 

@@ -485,11 +485,20 @@ public class GoldenRenderTest {
     private static final Pattern T3_FORWARD =
             Pattern.compile("java\\.awt\\.(?=[A-Z]|geom\\.|image\\.|event\\.)");
 
-    /** The forward rules T1, T2, T3 of android/build.gradle, in that order. */
+    /**
+     * The forward rules T1, T2, T3, T4a-c of android/build.gradle, in that order (a test copy,
+     * mirrored by hand with the task and android/p0/transform_prototype.py: change all three
+     * together). T4 rewrites StrictBinder's record reflection onto the jrecord shim; none of
+     * its tokens occurs in the scene code, so the copy stays honest either way.
+     */
     private static String forward(String text) {
         String out = text.replace("javax.sound.sampled.", "jssound.");
         out = out.replace("javax.imageio.", "jimageio.");
-        return T3_FORWARD.matcher(out).replaceAll("awt.");
+        out = T3_FORWARD.matcher(out).replaceAll("awt.");
+        out = out.replace("import java.lang.reflect.RecordComponent;",
+                "import jrecord.RecordComponent;");
+        out = out.replace("raw.isRecord()", "jrecord.Records.isRecord(raw)");
+        return out.replace("raw.getRecordComponents()", "jrecord.Records.components(raw)");
     }
 
     /** MD5 of each guarded file under {@code ~/.flapforge}, or "absent"; empty when no dir. */

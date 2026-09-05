@@ -68,11 +68,14 @@ jobs:
         run: ./gradlew -p android transformSources assembleRelease test --stacktrace
 
       - name: Transform self-test (the integrity gate must bite)
-        # `-PtransformSelfTest=breakForward` drops rule T2 from the rewrite, so gate (b)
-        # (no surviving javax.imageio reference) must fail the task. A build that passes here
-        # would mean the gate no longer guards the transform; a failure for any other reason
-        # (SDK, Gradle) is not accepted as proof either. The poisoned output tree it leaves
-        # behind is rebuilt from scratch by the next plain transformSources run.
+        # `-PtransformSelfTest=breakForward` drops rules T2 and T4a from the rewrite, so gate (b)
+        # must fail the task on two survivors: render/AssetManager.java's javax.imageio import
+        # and content/StrictBinder.java's java.lang.reflect.RecordComponent import (the M10
+        # hotfix's record shim). A build that passes here would mean the gate no longer guards
+        # the transform; a failure for any other reason (SDK, Gradle) is not accepted as proof
+        # either, nor is a gate failure that does not name both survivors (a self-test that
+        # quietly stopped dropping one rule). The poisoned output tree it leaves behind is
+        # rebuilt from scratch by the next plain transformSources run.
         shell: bash
         run: |
           set +e
@@ -87,7 +90,14 @@ jobs:
             echo "::error::transformSources failed, but not on the integrity gate (see the log above)"
             exit 1
           }
-          echo 'gate bites'
+          for survivor in 'render/AssetManager\.java:[0-9]+: import javax\.imageio\.' \
+                          'content/StrictBinder\.java:[0-9]+: import java\.lang\.reflect\.RecordComponent;'; do
+            grep -q -E "$survivor" android/build/transform-selftest.log || {
+              echo "::error::the integrity gate failed without reporting the survivor '$survivor' (breakForward no longer drops that rule)"
+              exit 1
+            }
+          done
+          echo 'gate bites on both survivors'
 
       - name: Upload the release APK
         uses: actions/upload-artifact@v7

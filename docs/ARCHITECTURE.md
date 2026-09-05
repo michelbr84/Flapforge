@@ -621,7 +621,7 @@ build never configures.
 
 ```text
 android/
-├── build.gradle            the transformSources task, the gate, the APK configuration
+├── build.gradle            the transformSources task, the gate, the recordMetadata task, the APK configuration
 ├── gradle.properties       kotlin.stdlib.default.dependency=false: no Kotlin stdlib in the APK
 ├── p0/transform_prototype.py   the executable spec of the transform (P0)
 ├── tools/IconGen.java      launcher-icon generator, run by hand against the desktop classes
@@ -629,6 +629,7 @@ android/
     ├── main/AndroidManifest.xml
     ├── main/res/           launcher icon: mipmap-*/ PNGs, adaptive-icon XMLs, values/colors.xml — all from ProceduralArt.icon
     ├── main/java/awt/, jssound/, jimageio/      the shim packages (P1)
+    ├── main/java/jrecord/  the record reflection shim over the build-time record table (hotfix)
     ├── main/java/io/github/michelbr84/flapforge/android/   the Android host (P2/P3)
     └── test/java/...       Robolectric and pure-JVM tests, a test-only copy of the OFL font
 ```
@@ -661,6 +662,9 @@ compiles the copies against shim packages of the same shape. Consequences:
 | T1 | `javax.sound.sampled.` | `jssound.` | — |
 | T2 | `javax.imageio.` | `jimageio.` | — |
 | T3 | `java.awt.` | `awt.` | only when followed by an uppercase letter (a class) or by `geom.` / `image.` / `event.`, so the `"java.awt.headless"` property string survives |
+| T4a | `import java.lang.reflect.RecordComponent;` | `import jrecord.RecordComponent;` | literal; occurs only in `content/StrictBinder.java` |
+| T4b | `raw.isRecord()` | `jrecord.Records.isRecord(raw)` | literal; same file |
+| T4c | `raw.getRecordComponents()` | `jrecord.Records.components(raw)` | literal; same file (see "Records on Android") |
 
 Six desktop-only files are excluded and replaced by the Android host:
 `app/GameWindow`, `app/BufferStrategyPresenter`, `app/AwtInputBridge`,
@@ -669,18 +673,67 @@ disappears from the tree fails the task rather than silently being
 transformed. After the forward pass a **double integrity gate** runs, both
 halves mandatory: (a) reversing the rules on every output must reproduce the
 source byte for byte — a rule that eats or corrupts anything fails here — and
-(b) no `java.awt.` / `javax.sound.sampled.` / `javax.imageio.` reference may
-survive in the output — a rule that misses something fails here. Either
-failure is a `GradleException` naming the files.
-`-PtransformSelfTest=breakReverse` mutates one output after the rewrite so (a)
-must fail; `breakForward` drops T2 so (b) must fail; CI runs the latter on
-every Android build, so a gate that stopped biting is itself a failure. The
-output directory is an extra `java` srcDir of the main source set, and every
-`JavaCompile` (and AGP 9's built-in Kotlin compile, which is fed the java
-srcDirs too) depends on the task. `../src/main/resources` is a second srcDir,
-so `data/*.json`, `assets/fonts` and `version.properties` land at the APK
-root, where `Class.getResourceAsStream("/data/...")` finds them exactly as in
-the fat jar.
+(b) no `java.awt.` / `javax.sound.sampled.` / `javax.imageio.` /
+`java.lang.reflect.RecordComponent` reference may survive in the output — a
+rule that misses something fails here. Either failure is a `GradleException`
+naming the files. `-PtransformSelfTest=breakReverse` mutates one output after
+the rewrite so (a) must fail; `breakForward` drops T2 and T4a so (b) must fail
+on two files; CI runs the latter on every Android build and requires the
+report to name both survivors, so a gate that stopped biting is itself a
+failure. The output directory is an extra `java` srcDir of the main source
+set, and every `JavaCompile` (and AGP 9's built-in Kotlin compile, which is
+fed the java srcDirs too) depends on the task.
+`../src/main/resources` is a second srcDir, so `data/*.json`, `assets/fonts`
+and `version.properties` land at the APK root, where
+`Class.getResourceAsStream("/data/...")` finds them exactly as in the fat jar;
+`build/transformed/resources` is a third, for the record table below.
+
+### Records on Android
+
+`content.StrictBinder` (D10) binds JSON onto the game's 215 records by
+reflection over their record components — `Class.isRecord()`,
+`getRecordComponents()`, then the canonical constructor with the components'
+values in declaration order. That reflection does not survive the APK: with
+`minSdk 33` D8 desugars every record (the fields, the canonical constructor
+and the compact-constructor checks stay; the `Record` attribute goes), so on
+Android 13 `Class.isRecord` does not exist — the `NoSuchMethodError` in
+`GameApplication.start` that closed the game on every device at boot — on
+14+ it answers `false`, and `getDeclaredFields()` comes back in dex order
+(alphabetical), which is not the constructor's order. Robolectric runs on the
+JVM, where records are real, which is why the suite was green. The port keeps
+the binder byte-identical and moves the knowledge to build time:
+
+- **The table.** `recordMetadata` (`android/build.gradle`) compiles the whole
+  desktop tree with the JDK's `javax.tools` compiler — where records are still
+  records — loads every class without initialising it and writes
+  `META-INF/flapforge-records.properties`: `<binary class name>=<component
+  names in declaration order>`, one line per record, keys sorted. It is a Java
+  resource of the main source set, so it ships in the APK and is on the unit
+  tests' classpath alike.
+- **Rules T4a–c** point the binder at the shim: three literal tokens that
+  occur only in `StrictBinder.java`, reversed by the gate like the others.
+- **The `jrecord` shim.** `Records.isRecord(Class)` and
+  `Records.components(Class)` answer from the table on *every* runtime — JVM,
+  ART 13, ART 14+ — so the binder behaves identically wherever it runs; a
+  `jrecord.RecordComponent` is backed by the record's declared field of the
+  component's name, whose type, generic signature and `@JsonName` (its target
+  includes `FIELD`) are the platform component's. A class the table does not
+  list is asked of the platform through `Method` lookups by name, so the shim
+  itself loads on Android 13 and a record the table missed still binds where
+  records are real (the JVM); a listed class whose field is missing is an
+  `IllegalStateException` naming the class and the field, because it means the
+  table and the classes come from different builds. The table is read once,
+  lazily, under a lock; components are cached per class and handed out as a
+  fresh array. Unlike the `java.*` shims this one is not census-bound to a
+  platform API: its surface is exactly what the binder calls.
+
+`RecordsTest` proves the contract on the JVM: every entry loads, its fields
+exist, its canonical constructor resolves in table order and the table's
+order equals `Class.getRecordComponents()`'s; the table covers every `record`
+of the transformed tree; and a test-only record binds through the fallback.
+What the JVM cannot prove — that ART reads the table and binds the content —
+is a device run, which is also why a start that fails is now shown on screen
+(below) instead of closing the activity.
 
 ### The shim surface policy
 
@@ -764,7 +817,7 @@ else on the desktop changed.
 
 | Class | Role |
 | --- | --- |
-| `MainActivity` | the entry point: `Shims.init` and `SavePaths.override(getFilesDir())` before anything else, immersive sticky fullscreen, keep-screen-on, the `GameSurfaceView` as content view, the back gesture on the `OnBackInvokedDispatcher`; boots the game once the surface has a size and finishes when the loop ends. The manifest keeps it portrait on Android 16 large screens through `PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY` (pinned by `ManifestContractTest`) |
+| `MainActivity` | the entry point: `Shims.init` and `SavePaths.override(getFilesDir())` before anything else, immersive sticky fullscreen, keep-screen-on, the `GameSurfaceView` as content view, the back gesture on the `OnBackInvokedDispatcher`; boots the game once the surface has a size and finishes when the loop ends. A start that throws, or a launch that aborts before the loop, is shown instead of swallowed: the boot thread writes the report (title, device, the exception with its first 40 frames and cause chain) to `startup-failure.txt` under the files dir and replaces the surface with the same text on a scrollable monospace screen; back is then the only way out. The manifest keeps it portrait on Android 16 large screens through `PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY` (pinned by `ManifestContractTest`) |
 | `GameSurfaceView` | a `SurfaceView` with a software `RGBA_8888` canvas; owns the surface lifecycle state under one lock that `draw` holds for a whole frame, so `surfaceDestroyed` blocks until the frame in flight is posted |
 | `SurfacePresenter` | the `FramePresenter`: locks the canvas, wraps it in `awt.Graphics2D`, paints letterbox + viewport + renderer exactly like `BufferStrategyPresenter`, posts; skips (and counts) when there is nothing to draw on; always reports fullscreen |
 | `AndroidWindow` | the `AppWindow` over the view: the surface size; icons and dispose are no-ops |
@@ -860,9 +913,17 @@ tests plain unit tests instead of emulator runs. They do prove:
   by `android/tools/GoldenRender.java`, so a shim drift in transforms, paths,
   arcs, gradients, strokes, clips, text or images fails a scene;
 - **the manifest** — `ManifestContractTest` pins the merged manifest's
-  portrait lock, `minSdk`, back-callback opt-in and large-screen opt-out.
+  portrait lock, `minSdk`, back-callback opt-in and large-screen opt-out;
+- **the record table and the failure screen** — `RecordsTest` checks every
+  table entry against the JVM's record reflection and the `jrecord` contract
+  ("Records on Android"); `MainActivityStartupFailureTest` injects a failing
+  start through the activity's package-private seam and expects the report on
+  screen and on disk, with back finishing the activity.
 
-They cannot prove: drawing on a real `Surface` — `ShadowSurfaceView`'s holder
+They cannot prove: anything D8 changes — records are real on the JVM and
+desugared in the APK, which is how 223 green tests shipped an APK that died at
+boot on every device; the table is the JVM-side proof, the device run is the
+ART-side one; drawing on a real `Surface` — `ShadowSurfaceView`'s holder
 never hands out a canvas, so every present in the tests is a counted skip and
 the frame body is exercised through a `BufferedImage`-backed `Graphics2D`
 instead; audio timing — the shadow takes every write in full at once and

@@ -8,10 +8,17 @@ Rules (forward, applied in this order):
        - an uppercase letter (a class: java.awt.Graphics2D -> awt.Graphics2D), or
        - one of the guarded subpackages: geom. / image. / event.
       (this leaves strings like the "java.awt.headless" property name untouched)
+  T4  StrictBinder's record reflection -> the jrecord shim (literal tokens that
+      occur only in content/StrictBinder.java; no forward image pre-exists):
+  T4a "import java.lang.reflect.RecordComponent;" -> "import jrecord.RecordComponent;"
+  T4b "raw.isRecord()"                            -> "jrecord.Records.isRecord(raw)"
+  T4c "raw.getRecordComponents()"                 -> "jrecord.Records.components(raw)"
+      (D8 desugars every record below API 34, which strips the platform's record
+      reflection; the shim answers from the build-time table instead)
 
 The integrity gate reverses the same rules on the transformed output and requires
-byte-identical results, then asserts no java.awt/javax.sound/javax.imageio
-references survive in the transformed tree.
+byte-identical results, then asserts no java.awt/javax.sound/javax.imageio/
+java.lang.reflect.RecordComponent references survive in the transformed tree.
 
 The six desktop-only files are excluded entirely (they get Android replacements):
   app/GameWindow, app/BufferStrategyPresenter, app/AwtInputBridge,
@@ -37,17 +44,31 @@ EXCLUDED = {
 
 AWT_TAIL = re.compile(r"(?=[A-Z]|geom\.|image\.|event\.)")
 
+# T4a-c, mirrored from TransformSourcesTask in android/build.gradle (and
+# GoldenRenderTest.forward()): change all three together.
+T4 = (
+    ("import java.lang.reflect.RecordComponent;", "import jrecord.RecordComponent;"),
+    ("raw.isRecord()", "jrecord.Records.isRecord(raw)"),
+    ("raw.getRecordComponents()", "jrecord.Records.components(raw)"),
+)
+
 def forward(text: str) -> str:
     text = text.replace("javax.sound.sampled.", "jssound.")
     text = text.replace("javax.imageio.", "jimageio.")
     # regex split keeps the guard simple: replace "java.awt." only where the
     # look-ahead sees a class or a guarded subpackage
-    return re.sub(r"java\.awt\." + AWT_TAIL.pattern, "awt.", text)
+    text = re.sub(r"java\.awt\." + AWT_TAIL.pattern, "awt.", text)
+    for src, dst in T4:
+        text = text.replace(src, dst)
+    return text
 
 def reverse(text: str) -> str:
     text = re.sub(r"jssound\.", "javax.sound.sampled.", text)
     text = re.sub(r"jimageio\.", "javax.imageio.", text)
-    return re.sub(r"awt\." + AWT_TAIL.pattern, "java.awt.", text)
+    text = re.sub(r"awt\." + AWT_TAIL.pattern, "java.awt.", text)
+    for src, dst in T4:
+        text = text.replace(dst, src)
+    return text
 
 def main() -> int:
     if OUT.exists():
@@ -73,8 +94,9 @@ def main() -> int:
             print(f"INTEGRITY FAIL (round-trip): {rel}")
             bad += 1
 
-    # gate 2: no AWT/javax refs may survive the transform
-    survivor = re.compile(r"javax\.sound\.sampled\.|javax\.imageio\.|java\.awt\.(?=[A-Z]|geom\.|image\.|event\.)")
+    # gate 2: no AWT/javax/platform-record refs may survive the transform
+    survivor = re.compile(r"javax\.sound\.sampled\.|javax\.imageio\.|java\.lang\.reflect\.RecordComponent|"
+                          r"java\.awt\.(?=[A-Z]|geom\.|image\.|event\.)")
     survivors = []
     for rel, p, dst in out_files:
         text = dst.read_bytes().decode("utf-8")

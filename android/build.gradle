@@ -1,6 +1,7 @@
 // The Android port builds separately from the desktop build (`./gradlew -p android ...`).
 // It never shares the root project's plugins or classpath: the desktop build stays pure Java
 // (M0–M9 invariant), and this project exists only to turn the transformed sources into an APK.
+import java.net.URLClassLoader
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
@@ -11,6 +12,12 @@ import java.util.regex.Pattern
 import java.util.stream.Collectors
 import java.util.stream.Stream
 import javax.inject.Inject
+import javax.tools.Diagnostic
+import javax.tools.DiagnosticCollector
+import javax.tools.JavaCompiler
+import javax.tools.JavaFileObject
+import javax.tools.StandardJavaFileManager
+import javax.tools.ToolProvider
 
 plugins {
     id 'com.android.application' version '9.4.0'
@@ -27,6 +34,15 @@ plugins {
  *   <li>T3 {@code java.awt.} → {@code awt.}, only when the tail is a class name (uppercase
  *       letter) or one of the {@code geom.} / {@code image.} / {@code event.} subpackages, so a
  *       string such as {@code "java.awt.headless"} survives untouched.</li>
+ *   <li>T4 the record reflection of {@code content.StrictBinder} (D10) → the {@code jrecord}
+ *       shim, three literal tokens that occur nowhere else in the tree:
+ *       T4a {@code import java.lang.reflect.RecordComponent;} →
+ *       {@code import jrecord.RecordComponent;}, T4b {@code raw.isRecord()} →
+ *       {@code jrecord.Records.isRecord(raw)}, T4c {@code raw.getRecordComponents()} →
+ *       {@code jrecord.Records.components(raw)}. D8 desugars every record below API 34, which
+ *       strips the platform's record reflection (no {@code Class.isRecord} on Android 13,
+ *       {@code false} and no components on 14+); the shim answers from the build-time table
+ *       {@code recordMetadata} writes instead (see {@link RecordMetadataTask}).</li>
  * </ol>
  * The six desktop-only files (window, presenter, input bridge, key-repeat filter, AWT host and
  * the desktop entry point) are skipped: the Android host provides their replacements. The
@@ -38,13 +54,16 @@ plugins {
  *   <li>(a) round trip — reversing the rules on every output file must reproduce the source
  *       byte for byte (a rule that eats or corrupts anything is caught here);</li>
  *   <li>(b) purity — no {@code java.awt.} / {@code javax.sound.sampled.} / {@code javax.imageio.}
- *       reference may survive in the output (a rule that misses something is caught here).</li>
+ *       / {@code java.lang.reflect.RecordComponent} reference may survive in the output (a rule
+ *       that misses something is caught here).</li>
  * </ul>
  * Either failure throws a {@link GradleException} naming the offending files.
  *
  * <p>{@code -PtransformSelfTest=<mode>} proves the gate bites (the default build never sets it):
  * {@code breakReverse} mutates one output after the rewrite so gate (a) must fail;
- * {@code breakForward} drops rule T2 from the rewrite so gate (b) must fail. Any other value is
+ * {@code breakForward} drops rules T2 and T4a from the rewrite so gate (b) must fail on two
+ * files ({@code render/AssetManager.java}'s {@code javax.imageio} import and
+ * {@code content/StrictBinder.java}'s {@code RecordComponent} import). Any other value is
  * rejected. Both modes leave a poisoned output tree behind on purpose — the failed task is not
  * up to date, so the next plain build regenerates it from scratch.
  */
@@ -63,9 +82,24 @@ abstract class TransformSourcesTask extends DefaultTask {
     static final String AWT_TAIL = /(?=[A-Z]|geom\.|image\.|event\.)/
     static final Pattern T3_FORWARD = Pattern.compile(/java\.awt\./ + AWT_TAIL)
     static final Pattern T3_REVERSE = Pattern.compile(/awt\./ + AWT_TAIL)
-    /** Gate (b): any of the three desktop prefixes left in an output file is a defect. */
+    /**
+     * T4a–c: StrictBinder's record reflection → the jrecord shim (literal tokens; grep proves each
+     * occurs only in content/StrictBinder.java and that no forward image pre-exists in the tree,
+     * which is what makes the reverse rewrite byte-exact).
+     */
+    static final String T4A_FROM = 'import java.lang.reflect.RecordComponent;'
+    static final String T4A_TO = 'import jrecord.RecordComponent;'
+    static final String T4B_FROM = 'raw.isRecord()'
+    static final String T4B_TO = 'jrecord.Records.isRecord(raw)'
+    static final String T4C_FROM = 'raw.getRecordComponents()'
+    static final String T4C_TO = 'jrecord.Records.components(raw)'
+    /**
+     * Gate (b): any of the three desktop prefixes, or the platform record-component type, left
+     * in an output file is a defect.
+     */
     static final Pattern SURVIVOR = Pattern.compile(
-            /javax\.sound\.sampled\.|javax\.imageio\.|java\.awt\./ + AWT_TAIL)
+            /javax\.sound\.sampled\.|javax\.imageio\.|java\.lang\.reflect\.RecordComponent|/
+                    + /java\.awt\./ + AWT_TAIL)
 
     static final String SELF_TEST_OFF = ''
     static final String SELF_TEST_BREAK_REVERSE = 'breakReverse'
@@ -89,7 +123,10 @@ abstract class TransformSourcesTask extends DefaultTask {
     List<String> getRules() {
         return [T1_FROM + ' -> ' + T1_TO,
                 T2_FROM + ' -> ' + T2_TO,
-                T3_FORWARD.pattern() + ' -> awt.']
+                T3_FORWARD.pattern() + ' -> awt.',
+                T4A_FROM + ' -> ' + T4A_TO,
+                T4B_FROM + ' -> ' + T4B_TO,
+                T4C_FROM + ' -> ' + T4C_TO]
     }
 
     /** {@code build/transformed/java}, an extra {@code java} srcDir of the main source set. */
@@ -99,25 +136,36 @@ abstract class TransformSourcesTask extends DefaultTask {
     @Inject
     abstract FileSystemOperations getFs()
 
-    /** Forward rules T1, T2, T3 in that order (the prototype's {@code forward}). */
+    /** Forward rules T1, T2, T3, T4a–c in that order (the prototype's {@code forward}). */
     static String forward(String text) {
         return rewrite(text, false)
     }
 
-    /** The forward pass; {@code dropT2} is the self-test's deliberately broken rule set. */
-    private static String rewrite(String text, boolean dropT2) {
+    /**
+     * The forward pass; {@code broken} is the self-test's deliberately broken rule set (T2 and
+     * T4a dropped, so gate (b) sees one survivor of each kind).
+     */
+    private static String rewrite(String text, boolean broken) {
         String out = text.replace(T1_FROM, T1_TO)
-        if (!dropT2) {
+        if (!broken) {
             out = out.replace(T2_FROM, T2_TO)
         }
-        return T3_FORWARD.matcher(out).replaceAll('awt.')
+        out = T3_FORWARD.matcher(out).replaceAll('awt.')
+        if (!broken) {
+            out = out.replace(T4A_FROM, T4A_TO)
+        }
+        out = out.replace(T4B_FROM, T4B_TO)
+        return out.replace(T4C_FROM, T4C_TO)
     }
 
     /** Reverse rules in the same order (the prototype's {@code reverse}), used by gate (a). */
     static String reverse(String text) {
         String out = text.replace(T1_TO, T1_FROM)
         out = out.replace(T2_TO, T2_FROM)
-        return T3_REVERSE.matcher(out).replaceAll('java.awt.')
+        out = T3_REVERSE.matcher(out).replaceAll('java.awt.')
+        out = out.replace(T4A_TO, T4A_FROM)
+        out = out.replace(T4B_TO, T4B_FROM)
+        return out.replace(T4C_TO, T4C_FROM)
     }
 
     @TaskAction
@@ -227,6 +275,163 @@ abstract class TransformSourcesTask extends DefaultTask {
 }
 
 /**
+ * The build-time record table for the {@code jrecord} shim (M10 hotfix; see rule T4 of
+ * {@link TransformSourcesTask}).
+ *
+ * <p>{@code content.StrictBinder} binds JSON onto the game's records by reflection over their
+ * record components, in declaration order — the order the canonical constructor takes. With
+ * {@code minSdk 33} D8 desugars every record: the fields, the canonical constructor and the
+ * compact-constructor checks survive, but the {@code Record} attribute does not, so
+ * {@code Class.getRecordComponents()} has nothing to answer and {@code Class.getDeclaredFields()}
+ * comes back in dex order (alphabetical), which loses the component order. This task recovers
+ * the order where records are still records: it compiles the <em>whole</em> desktop tree
+ * ({@code ../src/main/java}, the six desktop-only files included — the Gradle JVM is a full
+ * JDK 17 with {@code java.desktop}) with the JDK's own compiler into {@code build/records/classes},
+ * loads every class file (without initialising it) through a class loader over that directory
+ * and the Gson jar, and writes one line per {@code Class.isRecord()} class to
+ * {@code build/transformed/resources/META-INF/flapforge-records.properties}:
+ * {@code <binary class name, $ for nested>=<component names in declaration order, comma-separated>}
+ * (an empty value for a zero-component record; keys sorted; one leading comment line naming
+ * the generator and the source count). {@code build/transformed/resources} is a Java resources
+ * srcDir of the main source set, so the file lands in the APK where
+ * {@code jrecord.Records} reads it with {@code Class.getResourceAsStream}. The table is the
+ * source of truth on every runtime (JVM, ART 13, ART 14+); {@code RecordsTest} proves on the
+ * JVM that every entry names real fields in canonical-constructor order.
+ *
+ * <p>A compile failure or an empty table fails the build (the tree declares 128+ records).
+ * Inputs are the source tree and the Gson jar, so the task is up to date when neither changed.
+ */
+abstract class RecordMetadataTask extends DefaultTask {
+
+    /** Classpath-relative path of the table; {@code jrecord.Records.TABLE_RESOURCE} reads it. */
+    static final String TABLE_PATH = 'META-INF/flapforge-records.properties'
+
+    /** The desktop source tree ({@code ../src/main/java}), every file of it. */
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getSourceRoot()
+
+    /** The compile and load classpath: the Gson jar (the tree's only library dependency). */
+    @Classpath
+    abstract ConfigurableFileCollection getLibraries()
+
+    /** {@code build/records/classes}: the throw-away compile output the table is read from. */
+    @OutputDirectory
+    abstract DirectoryProperty getClassesDir()
+
+    /** {@code build/transformed/resources/META-INF/flapforge-records.properties}. */
+    @OutputFile
+    abstract RegularFileProperty getTableFile()
+
+    @Inject
+    abstract FileSystemOperations getFs()
+
+    @TaskAction
+    void generate() {
+        Path srcRoot = sourceRoot.get().asFile.toPath()
+        Path classes = classesDir.get().asFile.toPath()
+        Path table = tableFile.get().asFile.toPath()
+        List<File> libraries = getLibraries().files.toList()
+
+        List<File> sources
+        try (Stream<Path> walk = Files.walk(srcRoot)) {
+            sources = walk.filter { Files.isRegularFile(it) }
+                    .filter { it.fileName.toString().endsWith('.java') }
+                    .sorted()
+                    .map { it.toFile() }
+                    .collect(Collectors.toList())
+        }
+        if (sources.isEmpty()) {
+            throw new GradleException('recordMetadata: no Java sources under ' + srcRoot)
+        }
+
+        // Compile from scratch every run: a stale class file could list a record that no
+        // longer exists.
+        fs.delete { delete(classes) }
+        Files.createDirectories(classes)
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler()
+        if (compiler == null) {
+            throw new GradleException('recordMetadata: the build JVM has no Java compiler '
+                    + '(run Gradle on a JDK, not a JRE)')
+        }
+        DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>()
+        StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null,
+                StandardCharsets.UTF_8)
+        boolean compiled
+        try {
+            List<String> options = ['--release', '17', '-proc:none', '-encoding', 'UTF-8',
+                                    '-Xlint:none', '-nowarn', '-d', classes.toString(),
+                                    '-cp', libraries.collect { it.absolutePath }
+                                            .join(File.pathSeparator)]
+            compiled = compiler.getTask(null, fileManager, diagnostics, options, null,
+                    fileManager.getJavaFileObjectsFromFiles(sources)).call()
+        } finally {
+            fileManager.close()
+        }
+        if (!compiled) {
+            StringBuilder msg = new StringBuilder('recordMetadata: compiling ' + sources.size()
+                    + ' desktop sources failed\n')
+            diagnostics.diagnostics
+                    .findAll { it.kind == Diagnostic.Kind.ERROR }
+                    .take(15)
+                    .each {
+                        msg.append('  ').append(it.source == null ? '?' : it.source.name)
+                                .append(':').append(it.lineNumber).append(': ')
+                                .append(it.getMessage(Locale.ROOT)).append('\n')
+                    }
+            throw new GradleException(msg.toString())
+        }
+
+        // Load every class without initialising it (no static initialiser runs) and keep the
+        // records. The platform loader is the parent so nothing of Gradle's own classpath
+        // (which carries its own Gson) can shadow the jar the game compiled against.
+        List<Path> classFiles
+        try (Stream<Path> walk = Files.walk(classes)) {
+            classFiles = walk.filter { Files.isRegularFile(it) }
+                    .filter { it.fileName.toString().endsWith('.class') }
+                    .sorted()
+                    .collect(Collectors.toList())
+        }
+        URL[] urls = ([classes.toUri().toURL()] + libraries.collect { it.toURI().toURL() }) as URL[]
+        TreeMap<String, String> records = new TreeMap<>()
+        int loaded = 0
+        try (URLClassLoader loader = new URLClassLoader(urls, ClassLoader.platformClassLoader)) {
+            for (Path classFile : classFiles) {
+                String rel = classes.relativize(classFile).toString()
+                        .replace(File.separatorChar, '/' as char)
+                String name = rel.substring(0, rel.length() - '.class'.length()).replace('/', '.')
+                if (name.endsWith('package-info') || name.endsWith('module-info')) {
+                    continue
+                }
+                Class<?> type = Class.forName(name, false, loader)
+                loaded++
+                if (type.isRecord()) {
+                    records.put(type.name,
+                            type.recordComponents.collect { it.name }.join(','))
+                }
+            }
+        }
+        if (records.isEmpty()) {
+            throw new GradleException('recordMetadata: no record found among ' + loaded
+                    + ' classes compiled from ' + srcRoot + ' (the tree declares 128+)')
+        }
+
+        StringBuilder out = new StringBuilder()
+        out.append('# Generated by recordMetadata (android/build.gradle) from ')
+                .append(sources.size()).append(' desktop sources: ').append(records.size())
+                .append(' records, <binary name>=<components in declaration order>. Do not edit.\n')
+        records.each { name, components -> out.append(name).append('=').append(components).append('\n') }
+        Files.createDirectories(table.parent)
+        Files.write(table, out.toString().getBytes(StandardCharsets.UTF_8))
+        logger.lifecycle('recordMetadata: ' + records.size() + ' records among ' + loaded
+                + ' classes (' + sources.size() + ' sources) -> ' + table)
+    }
+}
+
+/** The game's JSON layer (data/*.json, save files); same version as the desktop build. */
+def gsonDependency = 'com.google.code.gson:gson:2.14.0'
+
+/**
  * Desktop-only files with Android replacements (the transform prototype's EXCLUDED set; the
  * Android host supplies its own window, presenter, input bridge and entry point).
  */
@@ -248,6 +453,19 @@ def transformSources = tasks.register('transformSources', TransformSourcesTask) 
     selfTest = providers.gradleProperty('transformSelfTest')
             .orElse(TransformSourcesTask.SELF_TEST_OFF)
     outputDir = layout.buildDirectory.dir('transformed/java')
+}
+
+def recordMetadata = tasks.register('recordMetadata', RecordMetadataTask) {
+    group = 'build'
+    description = 'Compiles the desktop sources with the JDK and writes the record component ' +
+            'table the jrecord shim binds content with (build/transformed/resources/' +
+            RecordMetadataTask.TABLE_PATH + ').'
+    sourceRoot = layout.projectDirectory.dir('../src/main/java')
+    // A detached configuration: `implementation` itself is not resolvable, and the table must
+    // be read from classes compiled against the very jar the APK ships.
+    libraries.from(configurations.detachedConfiguration(dependencies.create(gsonDependency)))
+    classesDir = layout.buildDirectory.dir('records/classes')
+    tableFile = layout.buildDirectory.file('transformed/resources/' + RecordMetadataTask.TABLE_PATH)
 }
 
 android {
@@ -286,6 +504,9 @@ android {
             // "/version.properties"); a Java resources dir lands those files at the APK root
             // (P0 probe), where the Android class loader serves them like the fat jar does.
             resources.srcDir('../src/main/resources')
+            // The record table (recordMetadata above), read by jrecord.Records from the same
+            // root: META-INF/flapforge-records.properties.
+            resources.srcDir('build/transformed/resources')
         }
     }
 
@@ -301,17 +522,21 @@ android {
 // Every consumer of the main java srcDirs runs after the transform: preBuild is the anchor of
 // the whole variant task chain, javac (main and unit test) and the built-in Kotlin compile task
 // (AGP 9 feeds it the java srcDirs too) are wired explicitly so the order never depends on it.
-tasks.named('preBuild') { dependsOn(transformSources) }
-tasks.withType(JavaCompile).configureEach { dependsOn(transformSources) }
+// The record table is wired the same way (its resources srcDir is consumed by the
+// process<Variant>JavaRes tasks, which hang off preBuild as well).
+tasks.named('preBuild') { dependsOn(transformSources, recordMetadata) }
+tasks.withType(JavaCompile).configureEach { dependsOn(transformSources, recordMetadata) }
 tasks.configureEach { task ->
     if (task.name ==~ /compile\w*Kotlin/) {
-        task.dependsOn(transformSources)
+        task.dependsOn(transformSources, recordMetadata)
+    }
+    if (task.name ==~ /process\w*JavaRes/) {
+        task.dependsOn(recordMetadata)
     }
 }
 
 dependencies {
-    // The game's JSON layer (data/*.json, save files); same version as the desktop build.
-    implementation 'com.google.code.gson:gson:2.14.0'
+    implementation gsonDependency
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.16'
 }
