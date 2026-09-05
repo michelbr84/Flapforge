@@ -86,8 +86,7 @@
   "hud.streak_bonus": "+{0} coins/step",
 
   "pause.title": "Paused",
-  "pause.resume_hint": "Space or click to resume",
-  "pause.quit_hint": "Esc quits to the menu",
+  "pause.resume": "Resume",
 
   "draft.title": "Choose a modifier",
   "draft.subtitle": "Draft {0} of {1} - gate {2}",
@@ -111,7 +110,7 @@
   "modifier.tag.greed": "Greed",
 
   "gameover.title": "Game over",
-  "gameover.retry_hint": "Space: retry   Enter: summary   Esc: menu",
+  "gameover.summary": "Summary",
   "gameover.best_hint": "That's your best run yet: {0} points",
 
   "stat.gates": "Gates",

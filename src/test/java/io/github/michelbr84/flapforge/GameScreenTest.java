@@ -326,18 +326,6 @@ class GameScreenTest {
         assertEquals(1, screens.depth());
     }
 
-    @Test
-    void theGameOverPromptBlinksOnTheUpstreamPeriod() {
-        tap(Keys.SPACE);
-        runUntilGameOver();
-        GameOverOverlay over = (GameOverOverlay) screens.top();
-        assertFalse(over.promptVisible(), "the prompt starts hidden, as upstream");
-        ticks(60);
-        assertTrue(over.promptVisible(), "shown after 60 ticks");
-        ticks(60);
-        assertFalse(over.promptVisible(), "hidden again after 120");
-    }
-
     // ------------------------------------------------------------------ abilities (M5)
 
     /**

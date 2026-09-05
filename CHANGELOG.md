@@ -12,6 +12,22 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+### Added
+
+- Buttons on the game-over strip (Retry / Summary / Menu) and on the pause
+  panel (Resume / Menu), hit-tested through `FocusRing`, so every action is
+  reachable by touch or mouse — on Android the summary and the menu used to
+  be unreachable, since any tap retried. `Space`, `Enter` and `Esc` keep
+  their old meanings, and a tap outside the buttons still retries (game
+  over) or resumes (pause).
+
+### Removed
+
+- The blinking `Space: retry   Enter: summary   Esc: menu` hint of the
+  game-over strip and the two pause hint lines, replaced by the buttons
+  (`gameover.retry_hint`, `pause.resume_hint` and `pause.quit_hint` left
+  the string tables; `gameover.summary` and `pause.resume` joined them).
+
 ## 0.1.0 — 2026-09-03
 
 ### Added — M0: skeleton, window, loop, input, menu shell

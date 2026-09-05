@@ -15,13 +15,14 @@ import io.github.michelbr84.flapforge.progression.ProgressionOutcome;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.GameRenderer;
-import io.github.michelbr84.flapforge.render.HudRenderer;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.render.TextPainter.Align;
+import io.github.michelbr84.flapforge.ui.FocusRing;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiCues;
+import io.github.michelbr84.flapforge.ui.component.Button;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.util.ArrayList;
@@ -44,9 +45,11 @@ import java.util.Objects;
  * formula, the level bar the XP moved and the seed the run was played with. It is a view of what
  * has already been written, so opening it — or never opening it — changes nothing.
  *
- * <p>The prompt blinks on the same 60-off/60-on period as upstream's game-over prompt
- * ({@link HudRenderer#BLINK_HALF_TICKS}). {@code Space} or a left click retries immediately with a
- * new seed and the same configuration; {@code Esc} returns to the menu.
+ * <p>The strip carries three buttons — retry, summary and menu — hit-tested through a
+ * {@link FocusRing}, so a touch or click lands on the action it names (on Android every tap
+ * arrives as a left click at its true position). {@code Space} or a click outside the buttons
+ * retries immediately with a new seed and the same configuration; {@code Enter} opens the
+ * summary and {@code Esc} returns to the menu, exactly as before.
  *
  * <p>The overlay also drives {@link GameRenderer#tickFrozen()} on every tick: the ground, the
  * hills and the obstacles stay frozen, as upstream, but the clouds keep drifting at 30 px/s
@@ -54,7 +57,7 @@ import java.util.Objects;
  */
 public final class GameOverOverlay implements Screen {
 
-    /** Height of the panel with the three M1 rows and no reward strip. */
+    /** Height of the panel with the three M1 rows, before the button row and reward strip. */
     public static final int PANEL_H = 190;
 
     private static final Color DIM = new Color(0, 0, 0, 0x73);
@@ -66,6 +69,12 @@ public final class GameOverOverlay implements Screen {
     private static final int ROW_STEP = 26;
     private static final int BASE_ROWS = 3;
     private static final int LEVEL_LINE_H = 24;
+    private static final int BUTTON_H = 42;
+    private static final int BUTTON_W = 106;
+    private static final int BUTTON_GAP = 8;
+    private static final int BUTTON_BOTTOM_PAD = 14;
+    /** Vertical room {@link #layout()} reserves for the button row. */
+    private static final int BUTTON_AREA_H = BUTTON_H + BUTTON_BOTTOM_PAD + 8;
 
     private final ScreenManager screens;
     private final RunResult result;
@@ -76,12 +85,15 @@ public final class GameOverOverlay implements Screen {
     private final List<Row> rows = new ArrayList<>();
     private final String levelUpText;
     private final String challengeLine;
+    private final FocusRing ring = new FocusRing();
+    private final Button retryButton;
+    private final Button summaryButton;
+    private final Button menuButton;
     private int panelY;
     private int panelH;
     private boolean dailyShown;
     private PlayerProfile profile;
     private ProgressionRules rules;
-    private int ticks;
 
     /**
      * Creates the overlay without a reward strip (a screen built without a profile).
@@ -167,15 +179,31 @@ public final class GameOverOverlay implements Screen {
         this.challengeLine = outcome != null && outcome.challengeFirstCompleted()
                 ? strings.format(StringKey.GAMEOVER_CHALLENGE_COMPLETED,
                         outcome.rewardSummary().challengeCoins()) : null;
+
+        this.retryButton = new Button(strings.get(StringKey.SUMMARY_RETRY), this::doRetry);
+        this.summaryButton = new Button(strings.get(StringKey.GAMEOVER_SUMMARY),
+                this::openSummary);
+        this.menuButton = new Button(strings.get(StringKey.SUMMARY_MENU), this::toMenu);
+        retryButton.setFontSize(15);
+        summaryButton.setFontSize(15);
+        menuButton.setFontSize(15);
+        ring.add(retryButton);
+        ring.add(summaryButton);
+        ring.add(menuButton);
         layout();
     }
 
     /** Sizes the panel around the rows it holds and keeps it centred on {@link #PANEL_Y}. */
     private void layout() {
-        this.panelH = PANEL_H + (rows.size() - BASE_ROWS) * ROW_STEP
+        this.panelH = PANEL_H + BUTTON_AREA_H + (rows.size() - BASE_ROWS) * ROW_STEP
                 + (levelUpText == null ? 0 : LEVEL_LINE_H)
                 + (challengeLine == null ? 0 : LEVEL_LINE_H);
         this.panelY = PANEL_Y - (panelH - PANEL_H) / 2;
+        double buttonY = panelY + panelH - BUTTON_BOTTOM_PAD - (double) BUTTON_H;
+        double left = PANEL_X + (PANEL_W - 3.0 * BUTTON_W - 2.0 * BUTTON_GAP) / 2.0;
+        retryButton.setBounds(left, buttonY, BUTTON_W, BUTTON_H);
+        summaryButton.setBounds(left + BUTTON_W + BUTTON_GAP, buttonY, BUTTON_W, BUTTON_H);
+        menuButton.setBounds(left + 2.0 * (BUTTON_W + BUTTON_GAP), buttonY, BUTTON_W, BUTTON_H);
     }
 
     /**
@@ -290,12 +318,57 @@ public final class GameOverOverlay implements Screen {
     }
 
     /**
-     * Whether the blinking prompt is currently drawn.
+     * The retry button, for tests.
      *
-     * @return {@code true} during the second half of the blink period
+     * @return the button
      */
-    public boolean promptVisible() {
-        return ticks >= HudRenderer.BLINK_HALF_TICKS;
+    public Button retryButton() {
+        return retryButton;
+    }
+
+    /**
+     * The summary button, for tests.
+     *
+     * @return the button
+     */
+    public Button summaryButton() {
+        return summaryButton;
+    }
+
+    /**
+     * The menu button, for tests.
+     *
+     * @return the button
+     */
+    public Button menuButton() {
+        return menuButton;
+    }
+
+    /** Pops the overlay and starts a new run on the game screen below. */
+    private void doRetry() {
+        // The rewards were applied and queued for the disk before this overlay was pushed,
+        // so restarting here cannot lose them (D29).
+        screens.pop();
+        onRetry.run();
+    }
+
+    /** Opens the full breakdown of the run on top of this overlay. */
+    private void openSummary() {
+        screens.push(new RunSummaryScreen(screens, result, outcome, profile, rules, onRetry,
+                strings));
+    }
+
+    /** Leaves the overlay and the game screen below it for the menu. */
+    private void toMenu() {
+        UiCues.back();
+        screens.pop();
+        screens.pop();
+    }
+
+    @Override
+    public void onEnter() {
+        ring.resetTransition();
+        ring.focus(retryButton);
     }
 
     @Override
@@ -303,29 +376,25 @@ public final class GameOverOverlay implements Screen {
         // The screen manager ticks only the top screen, so the frozen run below would stand
         // perfectly still; upstream kept its clouds drifting on the game-over screen (§5).
         renderer.tickFrozen();
-        ticks++;
-        if (ticks >= HudRenderer.BLINK_PERIOD_TICKS) {
-            ticks = 0;
-        }
         if (input.isJustPressed(InputAction.PAUSE) || input.isJustPressed(InputAction.BACK)) {
-            UiCues.back();
-            screens.pop();
-            screens.pop();
+            toMenu();
             return;
         }
-        boolean retry = input.isJustPressed(InputAction.FLAP)
-                || input.isMouseJustPressed(Keys.BUTTON_LEFT);
-        if (retry) {
-            // The rewards were applied and queued for the disk before this overlay was pushed,
-            // so restarting here cannot lose them (D29).
-            screens.pop();
-            onRetry.run();
-            return;
-        }
+        // Enter stays a global shortcut, handled before the ring would re-interpret it as an
+        // activation of whichever button holds the focus.
         if (input.isJustPressed(InputAction.CONFIRM)) {
             UiCues.select();
-            screens.push(new RunSummaryScreen(screens, result, outcome, profile, rules, onRetry,
-                    strings));
+            openSummary();
+            return;
+        }
+        // The ring before the tap-anywhere fallback: a left click also arrives as FLAP, so a
+        // tap that lands on a button must be consumed here or it would retry instead.
+        if (ring.handle(input) != null) {
+            return;
+        }
+        if (input.isJustPressed(InputAction.FLAP)
+                || input.isMouseJustPressed(Keys.BUTTON_LEFT)) {
+            doRetry();
         }
     }
 
@@ -350,21 +419,16 @@ public final class GameOverOverlay implements Screen {
             g.setFont(Fonts.bold(14));
             g.setColor(ProceduralArt.TEXT_LIGHT);
             TextPainter.drawCentered(g, challengeLine, Playfield.WIDTH / 2.0,
-                    panelY + panelH - (levelUpText == null ? 40.0 : 58.0));
+                    panelY + panelH - BUTTON_AREA_H - (levelUpText == null ? 12.0 : 30.0));
         }
         if (levelUpText != null) {
             g.setFont(Fonts.bold(14));
             g.setColor(ProceduralArt.TEXT_LIGHT);
             TextPainter.drawCentered(g, levelUpText, Playfield.WIDTH / 2.0,
-                    panelY + panelH - 40.0);
+                    panelY + panelH - BUTTON_AREA_H - 12.0);
         }
 
-        if (promptVisible()) {
-            g.setFont(Fonts.regular(13));
-            g.setColor(ProceduralArt.TEXT_LIGHT);
-            TextPainter.drawCentered(g, strings.get(StringKey.GAMEOVER_RETRY_HINT),
-                    Playfield.WIDTH / 2.0, panelY + panelH - 16.0);
-        }
+        ring.render(g);
     }
 
     private void row(Graphics2D g, int index, Row entry) {

@@ -86,8 +86,7 @@
   "hud.streak_bonus": "+{0} moedas/etapa",
 
   "pause.title": "Pausado",
-  "pause.resume_hint": "Espaço ou clique para continuar",
-  "pause.quit_hint": "Esc volta ao menu",
+  "pause.resume": "Continuar",
 
   "draft.title": "Escolha um modificador",
   "draft.subtitle": "Escolha {0} de {1} - cano {2}",
@@ -111,7 +110,7 @@
   "modifier.tag.greed": "Ganância",
 
   "gameover.title": "Fim de jogo",
-  "gameover.retry_hint": "Espaço: de novo   Enter: resumo   Esc: menu",
+  "gameover.summary": "Resumo",
   "gameover.best_hint": "É a sua melhor partida: {0} pontos",
 
   "stat.gates": "Portões",
