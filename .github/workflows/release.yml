@@ -148,6 +148,16 @@ jobs:
           path: bundles
           merge-multiple: true
 
+      # A manual re-dispatch republishes the same version after a fix: drop any
+      # existing release and its tag first so the next step recreates the tag at
+      # this run's commit rather than leaving it on the superseded one. A tag
+      # push (the normal path) has nothing to clean up, so this is a no-op.
+      - name: Remove a superseded release and tag for this version
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "v${{ steps.version.outputs.version }}" --cleanup-tag --yes || true
+
       # On a tag push the computed name matches the pushed tag and the existing
       # tag is used as-is; on a manual dispatch the action creates the tag at
       # this run's commit and publishes the release around it.
