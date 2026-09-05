@@ -14,6 +14,11 @@ import awt.Shape;
  * render/GearRenderer.java:39-41; render/BackgroundRenderer.java:561 via
  * {@code Path2D.append}). Public double fields mirror AWT; the AWT query methods are not
  * exercised and are absent.
+ *
+ * <p>Outline orientation: {@code java.awt.geom.EllipseIterator} starts at 3 o'clock and runs
+ * through 6 o'clock (clockwise on screen, like {@code RectIterator}); the shim's
+ * {@link Double#appendTo} reproduces that sense, so an ellipse appended into a non-zero
+ * {@link Path2D} together with rectangles winds the same way they do.
  */
 public abstract class Ellipse2D implements Shape {
 
@@ -56,11 +61,22 @@ public abstract class Ellipse2D implements Shape {
 
         @Override
         public void appendTo(Path2D.Double sink) {
-            // A full sweep of the ellipse, AWT angle convention: 0 deg at 3 o'clock, positive
-            // sweep visually counterclockwise (toward 12 o'clock).
-            Path2D.appendArc(sink, x + width / 2d, y + height / 2d,
-                    width / 2d, height / 2d, 0d, 360d, true);
-            sink.closePriv();
+            // A full sweep of the ellipse in EllipseIterator's direction: from 3 o'clock through
+            // 6 o'clock, i.e. a NEGATIVE sweep in the AWT angle convention (0 deg at 3 o'clock,
+            // positive toward 12), which is visually clockwise on the y-down screen — the same
+            // sense as RectIterator's outline. The winding shows wherever an ellipse shares a
+            // non-zero path with other shapes (render/BackgroundRenderer.java:561 cloudBank
+            // appends five ellipses and a rectangle strip into one path): the strip-over-ellipse
+            // overlap must count +2 and stay filled, where the opposite sweep would leave it at
+            // 0, a hole. Only the subpath the sweep opened is closed. An ellipse with a negative
+            // extent appends nothing and leaves a subpath the sink already had open
+            // (Path2D.append) untouched; a zero width or height still appends EllipseIterator's
+            // degenerate outline — a line across the other extent, which draw strokes and fill
+            // ignores (Path2D.appendArc has the cases).
+            if (Path2D.appendArc(sink, x + width / 2d, y + height / 2d,
+                    width / 2d, height / 2d, 0d, -360d, true)) {
+                sink.closePriv();
+            }
         }
     }
 }

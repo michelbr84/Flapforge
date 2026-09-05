@@ -166,6 +166,30 @@ public final class AwtMatrix {
     }
 
     /**
+     * The x of the transformed point {@code (x, y)}: {@code m00*x + m01*y + m02}. The
+     * allocation-free form of {@link #apply(double[])} the path pipeline uses per segment
+     * (pair with {@link #transformY(double, double)}).
+     *
+     * @param x the user-space x
+     * @param y the user-space y
+     * @return the device-space x
+     */
+    public double transformX(double x, double y) {
+        return m00 * x + m01 * y + m02;
+    }
+
+    /**
+     * The y of the transformed point {@code (x, y)}: {@code m10*x + m11*y + m12}.
+     *
+     * @param x the user-space x
+     * @param y the user-space y
+     * @return the device-space y
+     */
+    public double transformY(double x, double y) {
+        return m10 * x + m11 * y + m12;
+    }
+
+    /**
      * Transforms a point in place inside a two-element array.
      *
      * @param point the array {@code [x, y]}, replaced by the transformed point
@@ -204,6 +228,25 @@ public final class AwtMatrix {
     }
 
     /**
+     * Writes the components in {@code android.graphics.Matrix.setValues} order (row-major 3x3,
+     * the last row {@code 0 0 1}) into a caller-owned buffer, so the Graphics2D image and text
+     * pipeline can refresh its one android matrix without allocating.
+     *
+     * @param values a buffer of at least nine floats, filled in place
+     */
+    public void toFloatValues(float[] values) {
+        values[0] = (float) m00;
+        values[1] = (float) m01;
+        values[2] = (float) m02;
+        values[3] = (float) m10;
+        values[4] = (float) m11;
+        values[5] = (float) m12;
+        values[6] = 0f;
+        values[7] = 0f;
+        values[8] = 1f;
+    }
+
+    /**
      * Builds an {@code android.graphics.Matrix} with the same components, used by the
      * Graphics2D image and text pipeline to let the canvas apply the transform in one step.
      *
@@ -211,10 +254,9 @@ public final class AwtMatrix {
      */
     public android.graphics.Matrix toAndroidMatrix() {
         android.graphics.Matrix matrix = new android.graphics.Matrix();
-        matrix.setValues(new float[] {
-                (float) m00, (float) m01, (float) m02,
-                (float) m10, (float) m11, (float) m12,
-                0f, 0f, 1f });
+        float[] values = new float[9];
+        toFloatValues(values);
+        matrix.setValues(values);
         return matrix;
     }
 

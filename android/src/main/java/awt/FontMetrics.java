@@ -16,16 +16,36 @@ import android.graphics.Paint;
  * (render/TextPainter.java:76, the vertical-centring baseline). {@code getHeight()} is part of
  * the shim contract (semantics 7: stringWidth/getHeight/getAscent/getDescent) and follows the
  * AWT definition {@code leading + ascent + descent}. No other FontMetrics method is exercised.
+ *
+ * <p>Allocation profile: a {@link Font} is immutable, so its metrics are constant — the
+ * instance is created once per font (cached by {@link Font#metrics()}), the vertical metrics
+ * are read once here, and {@code stringWidth} measures through the font's shared, never-mutated
+ * paint. The object is therefore safe to hand to every thread that shares the font.
  */
 public class FontMetrics {
 
     private final Paint paint;
+    private final int leading;
+    private final int ascent;
+    private final int descent;
 
-    /** Package-visible: created by {@link Graphics2D#getFontMetrics()}. */
+    /**
+     * JDK 17 {@code FontDesignMetrics} rounds every vertical metric up from 0.05
+     * ({@code (int) (0.95f + value)}), not half-up: Nunito at 12 px (raw 12.13 / 4.24) is
+     * 13 / 5 on the desktop, and {@code TextPainter.centeredBaseline}'s {@code (ascent -
+     * descent) / 2} must land on the same pixel here.
+     */
+    private static final float ROUNDING_UP = 0.95f;
+
+    /** Package-visible: created once per font by {@link Font#metrics()}. */
     FontMetrics(Font font) {
-        paint = new Paint();
-        paint.setTypeface(font.typeface());
-        paint.setTextSize(Math.max(1f, font.size()));
+        paint = font.measurePaint();
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        ascent = (int) (ROUNDING_UP - fm.ascent);
+        descent = (int) (ROUNDING_UP + fm.descent);
+        // FontDesignMetrics.getLeading: whatever makes leading + ascent + descent equal
+        // getHeight() = getAscent() + (int) (0.95f + descent + leading).
+        leading = (int) (ROUNDING_UP + fm.descent + fm.leading) - descent;
     }
 
     /**
@@ -40,16 +60,15 @@ public class FontMetrics {
 
     /**
      * The standard height of a line: {@code getLeading() + getAscent() + getDescent()} — the AWT
-     * definition, summed from the individually rounded parts so that
-     * {@code getHeight() >= getAscent() + getDescent()} always holds (rounding the float sum
-     * instead can come out one pixel short of the rounded parts).
+     * definition, which {@code FontDesignMetrics} computes as
+     * {@code getAscent() + (int) (0.95f + descent + leading)}; the leading stored here is the
+     * difference that makes both forms agree, so {@code getHeight() >= getAscent() +
+     * getDescent()} always holds.
      *
      * @return the line height in pixels
      */
     public int getHeight() {
-        Paint.FontMetrics fm = paint.getFontMetrics();
-        int leading = Math.round(fm.leading);
-        return leading + Math.round(-fm.ascent) + Math.round(fm.descent);
+        return leading + ascent + descent;
     }
 
     /**
@@ -58,7 +77,7 @@ public class FontMetrics {
      * @return the ascent in pixels, positive
      */
     public int getAscent() {
-        return Math.round(-paint.getFontMetrics().ascent);
+        return ascent;
     }
 
     /**
@@ -67,6 +86,6 @@ public class FontMetrics {
      * @return the descent in pixels, positive
      */
     public int getDescent() {
-        return Math.round(paint.getFontMetrics().descent);
+        return descent;
     }
 }

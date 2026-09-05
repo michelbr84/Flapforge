@@ -18,6 +18,18 @@ The Android touch-and-screen release: the game-over and pause overlays gained
 real buttons, tall screens are filled edge to edge, and the release now ships
 a sideloadable APK built by CI.
 
+### Fixed
+
+- The Android APK crashed on launch and showed the default launcher icon:
+  the `Rewrite (#13)` history that became `main` had dropped the M10 launcher
+  icons and ~500 lines of `awt` shim parity/fidelity fixes, so the first real
+  frame — which the Robolectric boot test skips (its holder has no canvas) —
+  threw on the regressed shim. The proven shim, the adaptive launcher icons
+  (the bird, generated from the desktop icon by `IconGen`) and the manifest
+  `icon`/`roundIcon` are restored, and the Android module is now compiled,
+  unit-tested and assembled in CI on every push so this cannot silently
+  regress again.
+
 ### Added
 
 - Buttons on the game-over strip (Retry / Summary / Menu) and on the pause

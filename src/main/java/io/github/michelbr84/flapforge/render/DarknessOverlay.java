@@ -134,8 +134,13 @@ public final class DarknessOverlay {
         int sy = sliceTop(birdY);
         int srcTop = Math.max(0, sy + top);
         int srcBottom = Math.min(MASK_HEIGHT, sy + bottom);
-        g.drawImage(mask, 0, srcTop - sy, Playfield.WIDTH, srcBottom - sy, 0, srcTop,
-                Playfield.WIDTH, srcBottom, null);
+        // Only blit a non-empty slice: an inverted or zero-height source rectangle is not part
+        // of the drawImage census and would throw on the Android shim (the mask always covers
+        // the playfield, so this can only bite an extreme overscan on a very tall window).
+        if (srcBottom > srcTop) {
+            g.drawImage(mask, 0, srcTop - sy, Playfield.WIDTH, srcBottom - sy, 0, srcTop,
+                    Playfield.WIDTH, srcBottom, null);
+        }
         // Visible rows the three-playfield mask cannot cover lie beyond FADE_RADIUS of the
         // hole, where the veil is flat at its peak — a plain fill is exact there.
         if (srcTop - sy > top) {
