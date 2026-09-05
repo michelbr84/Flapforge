@@ -29,13 +29,23 @@ public class FontMetrics {
     private final int ascent;
     private final int descent;
 
+    /**
+     * JDK 17 {@code FontDesignMetrics} rounds every vertical metric up from 0.05
+     * ({@code (int) (0.95f + value)}), not half-up: Nunito at 12 px (raw 12.13 / 4.24) is
+     * 13 / 5 on the desktop, and {@code TextPainter.centeredBaseline}'s {@code (ascent -
+     * descent) / 2} must land on the same pixel here.
+     */
+    private static final float ROUNDING_UP = 0.95f;
+
     /** Package-visible: created once per font by {@link Font#metrics()}. */
     FontMetrics(Font font) {
         paint = font.measurePaint();
         Paint.FontMetrics fm = paint.getFontMetrics();
-        leading = Math.round(fm.leading);
-        ascent = Math.round(-fm.ascent);
-        descent = Math.round(fm.descent);
+        ascent = (int) (ROUNDING_UP - fm.ascent);
+        descent = (int) (ROUNDING_UP + fm.descent);
+        // FontDesignMetrics.getLeading: whatever makes leading + ascent + descent equal
+        // getHeight() = getAscent() + (int) (0.95f + descent + leading).
+        leading = (int) (ROUNDING_UP + fm.descent + fm.leading) - descent;
     }
 
     /**
@@ -50,9 +60,10 @@ public class FontMetrics {
 
     /**
      * The standard height of a line: {@code getLeading() + getAscent() + getDescent()} — the AWT
-     * definition, summed from the individually rounded parts so that
-     * {@code getHeight() >= getAscent() + getDescent()} always holds (rounding the float sum
-     * instead can come out one pixel short of the rounded parts).
+     * definition, which {@code FontDesignMetrics} computes as
+     * {@code getAscent() + (int) (0.95f + descent + leading)}; the leading stored here is the
+     * difference that makes both forms agree, so {@code getHeight() >= getAscent() +
+     * getDescent()} always holds.
      *
      * @return the line height in pixels
      */

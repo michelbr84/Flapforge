@@ -764,7 +764,7 @@ else on the desktop changed.
 
 | Class | Role |
 | --- | --- |
-| `MainActivity` | the entry point: `Shims.init` and `SavePaths.override(getFilesDir())` before anything else, immersive sticky fullscreen, keep-screen-on, the `GameSurfaceView` as content view, the back gesture on the `OnBackInvokedDispatcher`; boots the game once the surface has a size and finishes when the loop ends |
+| `MainActivity` | the entry point: `Shims.init` and `SavePaths.override(getFilesDir())` before anything else, immersive sticky fullscreen, keep-screen-on, the `GameSurfaceView` as content view, the back gesture on the `OnBackInvokedDispatcher`; boots the game once the surface has a size and finishes when the loop ends. The manifest keeps it portrait on Android 16 large screens through `PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY` (pinned by `ManifestContractTest`) |
 | `GameSurfaceView` | a `SurfaceView` with a software `RGBA_8888` canvas; owns the surface lifecycle state under one lock that `draw` holds for a whole frame, so `surfaceDestroyed` blocks until the frame in flight is posted |
 | `SurfacePresenter` | the `FramePresenter`: locks the canvas, wraps it in `awt.Graphics2D`, paints letterbox + viewport + renderer exactly like `BufferStrategyPresenter`, posts; skips (and counts) when there is nothing to draw on; always reports fullscreen |
 | `AndroidWindow` | the `AppWindow` over the view: the surface size; icons and dispose are no-ops |
@@ -849,7 +849,18 @@ tests plain unit tests instead of emulator runs. They do prove:
   manager; quit drains the save into the app's files dir — and
   `DesktopProfileGuard` fingerprints `~/.flapforge` before and after every
   boot, so the Android path cannot touch the desktop profile without the
-  suite failing.
+  suite failing;
+- **determinism** — `AndroidDeterminismTest` runs the transformed
+  `GameApplication` headless on the android classpath and pins the published
+  `hash=eaaa01685261a433 ticks=3000 gates=36 points=36` line (and, when the
+  fat jar exists, compares another seed with the desktop run);
+- **fidelity** — `GoldenRenderTest` draws seven scenes with the game's own
+  drawing code (`ProceduralArt`, `TextPainter`, `BackgroundRenderer`) through
+  the shims and compares the pixels with desktop Java2D references generated
+  by `android/tools/GoldenRender.java`, so a shim drift in transforms, paths,
+  arcs, gradients, strokes, clips, text or images fails a scene;
+- **the manifest** — `ManifestContractTest` pins the merged manifest's
+  portrait lock, `minSdk`, back-callback opt-in and large-screen opt-out.
 
 They cannot prove: drawing on a real `Surface` — `ShadowSurfaceView`'s holder
 never hands out a canvas, so every present in the tests is a counted skip and

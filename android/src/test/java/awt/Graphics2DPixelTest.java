@@ -176,6 +176,145 @@ public class Graphics2DPixelTest {
         return path;
     }
 
+    @Test
+    public void ellipseAndRectangleInOneNonZeroPathFillTheirOverlap() {
+        // BackgroundRenderer.cloudBank appends ellipses and a rectangle strip into one non-zero
+        // path. EllipseIterator and RectIterator both wind clockwise on screen, so where the
+        // strip crosses a single ellipse the winding is +2 and the pixels stay filled (JDK 17
+        // verified: the overlap is opaque); an ellipse wound the other way would cancel the
+        // strip there and punch a hole through the cloud bank.
+        BufferedImage image = argb();
+        Graphics2D g = crisp(image);
+        g.setColor(RED);
+        Path2D.Double path = new Path2D.Double();
+        path.append(new Ellipse2D.Double(8, 8, 32, 32), false); // centre (24,24), r = 16
+        path.append(new Rectangle2D.Double(0, 28, 64, 20), false); // the strip, y 28..48
+        g.fill(path);
+
+        assertBlock(image, 16, 30, 32, 36, OPAQUE_RED); // inside both
+        assertPixel(image, 24, 36, OPAQUE_RED);
+        assertPixel(image, 24, 20, OPAQUE_RED); // ellipse only
+        assertPixel(image, 56, 36, OPAQUE_RED); // strip only
+        assertNotInked(image, 56, 10);
+        assertNotInked(image, 24, 52);
+    }
+
+    @Test
+    public void roundRectangleWindsAgainstRectanglesAndEllipsesLikeRoundRectIterator() {
+        // RoundRectIterator starts at the top of the left edge and runs down it first, i.e.
+        // counterclockwise on screen — the opposite of RectIterator and EllipseIterator — so
+        // under the non-zero rule a round rectangle sharing a path with either leaves their
+        // overlap at winding 0 (JDK 17 verified: the overlap pixels are transparent).
+        BufferedImage image = argb();
+        Graphics2D g = crisp(image);
+        g.setColor(RED);
+        Path2D.Double path = new Path2D.Double();
+        path.append(new RoundRectangle2D.Double(8, 8, 32, 32, 12, 12), false);
+        path.append(new Rectangle2D.Double(0, 28, 64, 20), false);
+        g.fill(path);
+        assertNotInked(image, 24, 36); // overlap: -1 + 1
+        assertPixel(image, 24, 20, OPAQUE_RED); // round rectangle only
+        assertPixel(image, 56, 36, OPAQUE_RED); // rectangle only
+
+        image = argb();
+        g = crisp(image);
+        g.setColor(RED);
+        path = new Path2D.Double();
+        path.append(new RoundRectangle2D.Double(8, 8, 32, 32, 12, 12), false);
+        path.append(new Ellipse2D.Double(16, 24, 40, 32), false);
+        g.fill(path);
+        assertNotInked(image, 28, 36); // overlap: -1 + 1
+        assertPixel(image, 24, 16, OPAQUE_RED); // round rectangle only
+        assertPixel(image, 48, 40, OPAQUE_RED); // ellipse only
+    }
+
+    @Test
+    public void zeroArcRoundRectangleKeepsRoundRectIteratorsStartAndDirection() {
+        // RoundRectIterator with a zero arc width or height keeps its start (the top of the
+        // left edge) and its direction (down that edge first, counterclockwise on screen); only
+        // its corner cubics collapse onto the edges. JDK 17 verified: a zero-arc round
+        // rectangle and a rectangle in one non-zero path leave their overlap transparent (1536
+        // pixels inked of 2 x 1024), and a 12 px dash from phase 0 runs down the left edge, not
+        // along the top. A clockwise rectangle outline in its place (the shim's former
+        // fallback) fills the overlap and starts the dash along the top edge.
+        for (double[] arcs : new double[][] {{0, 0}, {0, 12}, {12, 0}}) {
+            BufferedImage image = argb();
+            Graphics2D g = crisp(image);
+            g.setColor(RED);
+            Path2D.Double path = new Path2D.Double();
+            path.append(new RoundRectangle2D.Double(8, 8, 32, 32, arcs[0], arcs[1]), false);
+            path.append(new Rectangle2D.Double(24, 24, 32, 32), false);
+            g.fill(path);
+            String arc = "arcs " + arcs[0] + "x" + arcs[1] + ": ";
+            assertTrue(arc + "the overlap is at winding 0", !inked(image, 32, 32));
+            assertTrue(arc + "the overlap is at winding 0", !inked(image, 36, 28));
+            assertEquals(arc + "round rectangle only", OPAQUE_RED, image.getRGB(12, 12));
+            assertEquals(arc + "rectangle only", OPAQUE_RED, image.getRGB(50, 50));
+            assertEquals(arc + "2 x 1024 - 2 x 256 pixels", 1536, countInked(image));
+        }
+
+        BufferedImage dashed = argb();
+        Graphics2D g = crisp(dashed);
+        g.setColor(RED);
+        g.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f,
+                new float[] {12f, 100f}, 0f));
+        g.draw(new RoundRectangle2D.Double(8, 8, 40, 40, 0, 0));
+        assertInked(dashed, 8, 12); // the first dash runs down the left edge from (8,8) ...
+        assertInked(dashed, 7, 16);
+        assertInked(dashed, 8, 19);
+        assertNotInked(dashed, 8, 24); // ... and ends after 12 px
+        assertNotInked(dashed, 12, 8); // the top edge is walked last, deep inside the gap
+        assertNotInked(dashed, 16, 8);
+        assertNotInked(dashed, 20, 48); // and so is the bottom edge
+        int count = countInked(dashed);
+        assertTrue("two 12 px dashes of a 2 px stroke, got " + count, count >= 40 && count <= 56);
+    }
+
+    @Test
+    public void lineToAfterClosePathContinuesFromTheClosedSubpathsStart() {
+        // java.awt.geom.Path2D accepts lineTo after closePath and continues from the closed
+        // subpath's start; android.graphics.Path replays the pair the same way. JDK 17 verified
+        // on this geometry: the closed square fills, the tail (8,8)-(8,56)-(40,56) fills as a
+        // triangle implicitly closed to that start and wound against the square, so their
+        // overlap cancels under the non-zero rule (854 pixels in all); stroked, the tail is an
+        // open polyline — no diagonal — and the square keeps its outline (256 pixels).
+        Path2D.Double path = new Path2D.Double();
+        path.moveTo(8, 8);
+        path.lineTo(24, 8);
+        path.lineTo(24, 24);
+        path.lineTo(8, 24);
+        path.closePath();
+        path.lineTo(8, 56);
+        path.lineTo(40, 56);
+
+        BufferedImage filled = argb();
+        Graphics2D g = crisp(filled);
+        g.setColor(RED);
+        g.fill(path);
+        assertPixel(filled, 20, 12, OPAQUE_RED); // the square, outside the tail
+        assertPixel(filled, 12, 40, OPAQUE_RED); // the tail
+        assertPixel(filled, 30, 54, OPAQUE_RED);
+        assertNotInked(filled, 10, 20); // the overlap: +1 - 1
+        assertNotInked(filled, 9, 22);
+        assertNotInked(filled, 40, 40);
+        int count = countInked(filled);
+        assertTrue("256 + 768 - 2 x 85 = 854 pixels, got " + count, count >= 840 && count <= 870);
+
+        BufferedImage drawn = argb();
+        g = crisp(drawn);
+        g.setColor(RED);
+        g.setStroke(new BasicStroke(2f));
+        g.draw(path);
+        assertInked(drawn, 16, 8); // the square's top edge
+        assertInked(drawn, 8, 40); // the tail's left leg
+        assertInked(drawn, 24, 56); // the tail's bottom leg
+        assertNotInked(drawn, 24, 32); // on the would-be diagonal: the tail is open
+        assertNotInked(drawn, 29, 40);
+        assertNotInked(drawn, 16, 16); // the square's interior
+        count = countInked(drawn);
+        assertTrue("256 pixels of outline, got " + count, count >= 240 && count <= 272);
+    }
+
     // ---------------------------------------------------------------- (c) linear gradient
 
     @Test
@@ -228,6 +367,68 @@ public class Graphics2DPixelTest {
         g.fillRect(0, 0, 64, 16);
         assertBlock(image, 0, 0, 64, 16, OPAQUE_BLUE);
         assertSame(BLUE, g.getPaint());
+    }
+
+    @Test
+    public void gradientAfterATranslucentColorKeepsItsOwnAlpha() {
+        // Skia scales a shader by the paint alpha; AWT draws a GradientPaint at the ramp
+        // colours' own alpha however translucent the Color the context drew with before, so a
+        // gradient fill, stroke or text run following a 25% fill must come out opaque.
+        Color faint = new Color(0, 255, 0, 64);
+        GradientPaint ramp = new GradientPaint(0f, 8f, RED, 63f, 8f, BLUE);
+
+        BufferedImage filled = argb(64, 16);
+        Graphics2D g = crisp(filled);
+        g.setColor(faint);
+        g.fillRect(0, 0, 64, 16);
+        g.setPaint(ramp);
+        g.fillRect(0, 0, 64, 16);
+        assertOpaque(filled, 1, 8);
+        assertOpaque(filled, 32, 8);
+        assertOpaque(filled, 62, 8);
+        int left = filled.getRGB(1, 8);
+        int right = filled.getRGB(62, 8);
+        assertTrue("left is the ramp's red, not green-tinted: " + PixelTestSupport.hex(left),
+                red(left) > 200 && green(left) < 20 && blue(left) < 60);
+        assertTrue("right is the ramp's blue: " + PixelTestSupport.hex(right),
+                blue(right) > 200 && green(right) < 20 && red(right) < 60);
+
+        BufferedImage stroked = argb(64, 16);
+        g = crisp(stroked);
+        g.setStroke(new BasicStroke(4f));
+        g.setColor(faint);
+        g.drawLine(0, 8, 63, 8);
+        g.setPaint(ramp);
+        g.drawLine(0, 8, 63, 8);
+        assertOpaque(stroked, 1, 8);
+        assertOpaque(stroked, 62, 8);
+        assertTrue(red(stroked.getRGB(1, 8)) > 200 && green(stroked.getRGB(1, 8)) < 20);
+        assertTrue(blue(stroked.getRGB(62, 8)) > 200);
+
+        BufferedImage text = argb(64, 16);
+        g = text.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+        g.setColor(faint);
+        g.drawString("MMMMMMMMMMMMMMMM", 0, 13);
+        g.setPaint(ramp);
+        g.drawString("MMMMMMMMMMMMMMMM", 0, 13);
+        int opaqueInk = 0;
+        int partialInk = 0;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 64; x++) {
+                int alpha = text.getRGB(x, y) >>> 24;
+                if (alpha == 0xFF) {
+                    opaqueInk++;
+                } else if (alpha != 0) {
+                    partialInk++;
+                }
+            }
+        }
+        // Under the old shim every glyph pixel came out at the 25% alpha of the previous run.
+        assertTrue("the gradient text run is mostly opaque ink (" + opaqueInk + " opaque, "
+                + partialInk + " partial)", opaqueInk > 0 && opaqueInk > partialInk);
     }
 
     // ---------------------------------------------------------------- (d) dashes
@@ -595,6 +796,75 @@ public class Graphics2DPixelTest {
         g.drawOval(8, 8, 48, 48);
         assertNotInked(drawn, 32, 32);
         assertInked(drawn, 32, 8);
+    }
+
+    @Test
+    public void zeroExtentEllipsesAndArcsStrokeAsLinesOfTheRemainingExtent() {
+        // EllipseIterator and ArcIterator keep emitting their segments when one extent is zero
+        // (the cubics collapse onto a line), so draw() strokes the remaining extent and fill()
+        // inks nothing; only a negative extent has no outline. JDK 17 verified: a 2 px stroke
+        // of Ellipse2D(20,8,0,40) inks columns 19-20 over rows 8..47 (80 pixels), drawOval the
+        // same, fill nothing; Arc2D(8,20,40,0, 0,180) inks rows 19-20 from x = 7 to 48.
+        BufferedImage ellipse = argb();
+        Graphics2D g = crisp(ellipse);
+        g.setColor(RED);
+        g.setStroke(new BasicStroke(2f));
+        g.draw(new Ellipse2D.Double(20, 8, 0, 40));
+        assertInked(ellipse, 20, 28);
+        assertInked(ellipse, 19, 28);
+        assertInked(ellipse, 20, 9);
+        assertInked(ellipse, 20, 46);
+        assertNotInked(ellipse, 20, 5);
+        assertNotInked(ellipse, 20, 50);
+        assertNotInked(ellipse, 17, 28);
+        assertNotInked(ellipse, 23, 28);
+        int count = countInked(ellipse);
+        assertTrue("a 2 x 40 line, got " + count, count >= 76 && count <= 88);
+
+        BufferedImage oval = argb();
+        g = crisp(oval);
+        g.setColor(RED);
+        g.setStroke(new BasicStroke(2f));
+        g.drawOval(20, 8, 0, 40);
+        for (int y = 0; y < SIZE; y++) {
+            for (int x = 0; x < SIZE; x++) {
+                assertEquals("drawOval matches the shape form at (" + x + "," + y + ")",
+                        ellipse.getRGB(x, y), oval.getRGB(x, y));
+            }
+        }
+
+        BufferedImage filled = argb();
+        g = crisp(filled);
+        g.setColor(RED);
+        g.fill(new Ellipse2D.Double(20, 8, 0, 40));
+        g.fillOval(20, 8, 0, 40);
+        g.fill(new Ellipse2D.Double(8, 20, 40, 0));
+        assertEquals("no interior to fill", 0, countInked(filled));
+
+        BufferedImage arc = argb();
+        g = crisp(arc);
+        g.setColor(RED);
+        g.setStroke(new BasicStroke(2f));
+        Arc2D.Double flat = new Arc2D.Double(Arc2D.OPEN);
+        flat.setArc(8, 20, 40, 0, 0, 180, Arc2D.OPEN);
+        g.draw(flat);
+        assertInked(arc, 28, 20);
+        assertInked(arc, 10, 20);
+        assertInked(arc, 46, 20);
+        assertNotInked(arc, 28, 24);
+        assertNotInked(arc, 28, 16);
+        count = countInked(arc);
+        assertTrue("a 2 x 40 line plus its caps, got " + count, count >= 76 && count <= 92);
+
+        // A negative extent has no outline at all, as before.
+        BufferedImage negative = argb();
+        g = crisp(negative);
+        g.setColor(RED);
+        g.setStroke(new BasicStroke(2f));
+        g.draw(new Ellipse2D.Double(20, 8, -1, 40));
+        g.drawOval(20, 8, 40, -1);
+        g.drawArc(8, 20, 40, -1, 0, 180);
+        assertEquals(0, countInked(negative));
     }
 
     @Test

@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- hardwareAccelerated="false": every frame is drawn through SurfaceHolder.lockCanvas, a
+         software canvas that the awt.Graphics2D shim renders onto directly, and the window's view
+         hierarchy holds nothing but that SurfaceView, so the process needs no GPU context (no
+         HardwareRenderer thread, no EGL surface) — the same drawing path Robolectric's native
+         graphics exercise in the unit tests. -->
     <application
         android:label="Flapforge"
         android:icon="@mipmap/ic_launcher"
@@ -14,6 +19,15 @@
             android:exported="true"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize">
+            <!-- Android 16 ignores screenOrientation for apps targeting API 36 on displays of
+                 sw600dp and more (tablets, foldables opened flat) unless the app opts out with
+                 this property, so the portrait-only playfield holds there too; the opt-out is
+                 honoured up to targetSdk 36 (ManifestContractTest pins both). Without it the
+                 activity survives a rotation (configChanges above turns it into a surfaceChanged,
+                 the viewport letterboxes) but the game would run landscape. -->
+            <property
+                android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+                android:value="true" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

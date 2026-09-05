@@ -44,7 +44,10 @@ import awt.geom.RoundRectangle2D;
  *
  * <p>Semantics decisions: the paint state is one slot ({@code setColor} and {@code setPaint}
  * write it, {@code getPaint} reads it — the only concrete census values are {@link Color} and
- * {@link GradientPaint}); clip shapes are captured in device space when set and intersected
+ * {@link GradientPaint}), and a {@link GradientPaint} is drawn at its ramp colours' own alpha
+ * however translucent the {@link Color} the same context drew with before (Skia scales a
+ * shader by the paint alpha, so the android paint is reset to opaque before the shader is
+ * installed); clip shapes are captured in device space when set and intersected
  * canvas-side by successive {@code clipPath} calls, with {@code getClip} handing back an opaque
  * device-space shape that {@code setClip} accepts verbatim (every census pair wraps a single
  * change under one unchanged transform, so the roundtrip is exact); hints
@@ -84,7 +87,7 @@ public class Graphics2D {
     // Rendering hints (census keys only; defaults AWT-like).
     private boolean antialias = false;
     private boolean textAntialias = true;
-    private boolean nearestNeighbourImages = false;
+    private boolean nearestNeighbourImages = true; // SunGraphics2D default: NEAREST_NEIGHBOR
 
     // Clip state: device-space paths intersected at draw time (semantics 3).
     private android.graphics.Path[] clipPaths = new android.graphics.Path[0];
@@ -93,7 +96,7 @@ public class Graphics2D {
     private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint imagePaint = new Paint();
     private final android.graphics.Matrix androidMatrix = new android.graphics.Matrix();
     private final float[] matrixValues = new float[9];
     private final RectF rectBuffer = new RectF();
@@ -640,6 +643,11 @@ public class Graphics2D {
      */
     private void applyPaintState(Paint target, boolean deviceSpace) {
         if (paintState instanceof GradientPaint gradient) {
+            // Skia multiplies a shader's output by the paint alpha, and the target keeps the
+            // colour of the last Color it drew with (a translucent fill, say). AWT draws a
+            // GradientPaint at its ramp colours' own alpha whatever came before, so the paint is
+            // made opaque before the shader goes in.
+            target.setColor(0xFF000000);
             target.setShader(gradientShader(gradient, deviceSpace));
         } else {
             target.setShader(null);

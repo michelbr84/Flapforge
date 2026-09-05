@@ -153,7 +153,7 @@ watchdog, D4). Without a display a windowed launch prints
 | `--headless-run N` | simulate N frames with no window; M0 prints a summary line (`headless-run frames=N ticks=N presents=N seed=S`), from M1 the last line is `hash=<hex>` (the state hash CI compares across OS/JDK). The run behind the line is the *pinned classic configuration* (`RunConfig.classic`): classic bird, Green Fields, normal tier, no abilities, no drafts and — from M8 — no boss (`RunConfig.bossEnabled` is off there and on for every profile run, every challenge, the balancing tool and the feasibility tests). It reaches 36 gates and Green Fields' boss is at gate 30, so the pin is what keeps `hash=eaaa01685261a433` for `--headless-run 3000 --seed 42` where M1 recorded it. A session without a profile (`ContentRunFactory` with no supplier) plays the same pinned configuration. | M0 (hash: M1; boss pin: M8) |
 | `--no-audio` | never open a sound device: `AudioBackend.create` returns `NullAudio` without touching the sound system. Use it in scripts, on CI and on machines whose audio stack is slow to open; the game plays exactly the same, silently. A machine where no line opens ends up here anyway, after one line on stderr. | M2 |
 | `--lang CODE` | UI language for this launch: `auto` (default locale), `en`, `pt_BR`. Overrides `settings.language`; an unknown code is ignored and `auto` applies. The language can also be changed live in Settings, and both take effect immediately (the menu behind the settings screen re-labels itself). | M2 |
-| `--home DIR` | profile directory (`settings.json`, and from M3 `save.json`) instead of the per-OS default. Always pass it in tests and scripts so nothing writes to the real profile. | M2 (settings) |
+| `--home DIR` | profile directory (`settings.json`, and from M3 `save.json`) instead of the per-OS default, for windowed launches (a headless run reads and writes no profile). Always pass it in tests and scripts so nothing writes to the real profile. | M2 (settings) |
 | `--reset-save` | start from a fresh profile; the old save and its backup are moved aside as `save.reset-<time>.json` / `save.bak.reset-<time>.json`, never deleted | M3 |
 | `--bird ID` | start with the given bird | M4 |
 | `--tier ID` | difficulty tier (`normal`, `hard`, `nightmare`) | M4 |
@@ -364,8 +364,21 @@ the pure-JVM shim tests need no runner. Two things to know:
   tested through a `BufferedImage`-backed `awt.Graphics2D`. A test that
   expects `presentCount` to grow will never pass under Robolectric.
 
-The results are counted per class in the XML: the M10 suite is 201 tests in
-20 classes, 0 failures, and the count is part of every M10 change's gate.
+The results are counted per class in the XML: the M10 suite is 223 tests in
+23 classes, 0 failures, and the count is part of every M10 change's gate.
+
+Three closure tests pin the port against the desktop. `AndroidDeterminismTest`
+runs the transformed `GameApplication` headless (`--headless-run 3000 --seed 42`)
+and expects the published `hash=eaaa01685261a433 ticks=3000 gates=36 points=36`
+line; a second case compares seed 7 with `build/libs/flapforge-<version>-all.jar`
+when the fat jar exists and is skipped in CI. `GoldenRenderTest` draws seven
+scenes with the game's own drawing code through the shims and compares them
+with desktop Java2D references — regenerate them with
+`android/tools/GoldenRender.java` as described in
+`android/src/test/resources/golden/README.md` whenever the drawing code or the
+bundled font changes. `ManifestContractTest` pins the merged manifest
+(portrait, `minSdk 33`, the back-callback opt-in and the Android 16
+large-screen resizability opt-out).
 
 ### Launcher icon
 

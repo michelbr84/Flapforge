@@ -1602,8 +1602,9 @@ release rather than as a new version: desktop behaviour did not change
   the sky gradient still costs one `LinearGradient` per frame on the device);
   `Path2D.append` writes straight into the path, and the
   `Shape.appendTo` contract says a shape closes only the subpath it opened
-  (a degenerate arc or ellipse appends nothing), so the result equals the
-  former fresh-sink copy. `Graphics2DAllocationTest` measures a frame-like
+  (a negative extent, or both radii zero, appends nothing; a zero-width or
+  zero-height ellipse or arc appends the degenerate outline its AWT iterator
+  produces), so the result equals the former fresh-sink copy. `Graphics2DAllocationTest` measures a frame-like
   batch (300 fills, 100 draws, 50 `getFontMetrics` + `drawString`, 10
   `drawImage`): about 480 KB → 19 KB per batch (two runs on the original shim measured 480,087 and 480,725 bytes; 19,133 after).
 - **Host seam** in the desktop code: `app.GameHost`, `app.AppWindow` and
@@ -1635,8 +1636,8 @@ release rather than as a new version: desktop behaviour did not change
   `versionCode 1`, release signed with the debug keystore for sideloading,
   `minifyEnabled false` (Gson reflects over the record types); the desktop
   resources (`data/*.json`, `assets/fonts`, `version.properties`) land at the
-  APK root where `Class.getResourceAsStream` finds them; 1,602,691 bytes
-  (about 1.5 MiB), 40 entries.
+  APK root where `Class.getResourceAsStream` finds them; about 1.5 MiB,
+  40 entries.
 - **Launcher icon** from the desktop procedural icon:
   `android/tools/IconGen.java` renders `render.ProceduralArt.icon(int)` — the
   vector `drawIcon` that `./gradlew iconExport` uses for the desktop bundles
@@ -1660,7 +1661,7 @@ release rather than as a new version: desktop behaviour did not change
   tag, checks its `versionName` against `version.properties` and attaches it
   as `Flapforge-<version>-android.apk` beside the bundles.
 - **Tests** (`android/src/test`, JUnit 4 + Robolectric 4.16,
-  `@Config(sdk = 35)` with native Skia rasterisation): 201 tests in 20
+  `@Config(sdk = 35)` with native Skia rasterisation): 223 tests in 23
   classes — pixel proofs of the `Graphics2D` semantics, an allocation
   tripwire for its hot path, `Path2D.append` parity with a fresh sink,
   `BufferedImage`,
@@ -1670,6 +1671,18 @@ release rather than as a new version: desktop behaviour did not change
   presenter, and a real boot of the game inside the activity (Play tapped, a
   run flapped and paused, back to the menu, quit) with `DesktopProfileGuard`
   fingerprinting `~/.flapforge` before and after.
+- **Fidelity and contract checks**: `GoldenRenderTest` draws seven scenes with
+  the game's own drawing code through the shims and compares them with the
+  desktop Java2D references in `android/src/test/resources/golden`
+  (regeneration in its README; a wrong arc sign, fill rule, gradient, stroke,
+  baseline or subimage offset fails a scene); `AndroidDeterminismTest` runs the
+  transformed `GameApplication` headless and pins
+  `hash=eaaa01685261a433 ticks=3000 gates=36 points=36`; `ManifestContractTest`
+  pins the merged manifest. The golden scenes found shim parity defects that
+  are fixed: ellipse and round-rectangle winding, gradient alpha after a
+  translucent colour, zero-extent outlines, `FontMetrics` rounding
+  (`FontDesignMetrics`' `0.95f` rule) and the nearest-neighbour interpolation
+  default.
 
 ## Inherited upstream history (kingyuluk/FlappyBird)
 

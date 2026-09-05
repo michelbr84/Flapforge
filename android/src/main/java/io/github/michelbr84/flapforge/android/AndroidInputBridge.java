@@ -1,6 +1,5 @@
 package io.github.michelbr84.flapforge.android;
 
-import android.annotation.SuppressLint;
 import android.view.MotionEvent;
 import android.view.View;
 import io.github.michelbr84.flapforge.app.AppWindow;
@@ -80,7 +79,11 @@ import java.util.Objects;
  * {@link #iconified(boolean)} ({@code onStop} / {@code onStart}) and {@link #closeRequested()}
  * ({@code onDestroy}). They write to the queue whether or not the bridge is attached; the queue
  * is the game's, and the loop drains it. Every touch callback runs on the UI thread, the only
- * thread that touches the gesture state.
+ * thread that touches the gesture state. The handler goes into the view's volatile slot
+ * ({@link GameSurfaceView#setTouchHandler}), never through {@code View.setOnTouchListener}:
+ * {@link #attach(AppWindow)} runs on the boot thread and {@link #detach()} on the loop thread,
+ * and only the volatile slot makes either visible to the UI thread's next dispatch under the
+ * memory model (the framework reads its own listener field without synchronisation).
  */
 public final class AndroidInputBridge implements InputBridge {
 
@@ -141,17 +144,15 @@ public final class AndroidInputBridge implements InputBridge {
     }
 
     /**
-     * Registers the touch and surface listeners on the window's view and queues a
+     * Installs the touch handler and the surface listener on the window's view and queues a
      * {@code Resized} with the current surface size. Called from the thread that boots the game;
-     * the listeners themselves run on the UI thread.
+     * the handler and the listener themselves run on the UI thread, which sees the install at
+     * its next dispatch (the view's handler slot is volatile, the listener list is copy-on-write).
      *
      * @param window the window; it must be the {@link AndroidWindow} the Android host created,
-     *     because the listeners go on its view
+     *     because the handler and the listener go on its view
      * @throws IllegalArgumentException when the window is not an {@link AndroidWindow}
      */
-    // The view is a game surface, not a widget: it has no click semantics to mirror for
-    // accessibility services, so the ClickableViewAccessibility advice does not apply.
-    @SuppressLint("ClickableViewAccessibility")
     @Override
     public synchronized void attach(AppWindow window) {
         Objects.requireNonNull(window, "window");
@@ -163,20 +164,20 @@ public final class AndroidInputBridge implements InputBridge {
             return;
         }
         GameSurfaceView surface = androidWindow.view();
-        surface.setOnTouchListener(touchHandler);
+        surface.setTouchHandler(touchHandler);
         surface.addSurfaceListener(surfaceHandler);
         view = surface;
         attached = true;
         queue.offer(new RawInput.Resized(surface.surfaceWidth(), surface.surfaceHeight()));
     }
 
-    /** Removes both listeners (called on the loop thread during shutdown). */
+    /** Removes the handler and the listener (called on the loop thread during shutdown). */
     @Override
     public synchronized void detach() {
         if (!attached) {
             return;
         }
-        view.setOnTouchListener(null);
+        view.setTouchHandler(null);
         view.removeSurfaceListener(surfaceHandler);
         view = null;
         attached = false;

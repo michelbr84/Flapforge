@@ -229,6 +229,38 @@ public class ShimSurfaceTest {
     }
 
     @Test
+    public void pathLineToAfterClosePathContinuesFromTheSubpathStart() {
+        // java.awt.geom.Path2D throws only on an empty path: after a closePath the next lineTo
+        // is legal and continues from the closed subpath's start (JDK 17: 'Z' then 'L 20 20',
+        // the current point after the close being the last moveTo). A second closePath is a
+        // no-op there, like AWT's (no second SEG_CLOSE). Every census builder opens each subpath
+        // with moveTo, so this is parity, not a game path; the pixels are pinned in
+        // Graphics2DPixelTest.lineToAfterClosePathContinuesFromTheClosedSubpathsStart.
+        Path2D.Double path = new Path2D.Double();
+        path.moveTo(10, 10);
+        path.lineTo(30, 10);
+        path.lineTo(30, 30);
+        path.closePath();
+        path.closePath();
+        path.lineTo(20, 40);
+        path.closePath();
+        assertFrame(10, 10, 20, 30, path.getBounds2D());
+
+        // append with connect joins the closed subpath's start to the appended outline, as AWT
+        // does (JDK 17: 'M 0 0 L 2 0 Z L 5 5 ...').
+        Path2D.Double connected = new Path2D.Double();
+        connected.moveTo(0, 0);
+        connected.lineTo(2, 0);
+        connected.closePath();
+        connected.append(new Rectangle2D.Double(5, 5, 2, 2), true);
+        assertFrame(0, 0, 7, 7, connected.getBounds2D());
+
+        // reset() empties the path for good: a lineTo is an error again.
+        path.reset();
+        expectIse(() -> path.lineTo(1, 1));
+    }
+
+    @Test
     public void pathAppendCopiesShapesAndConnectJoinsSubpaths() {
         Path2D.Double path = new Path2D.Double();
         path.append(new Rectangle2D.Double(0, 0, 4, 4), false);
@@ -248,24 +280,24 @@ public class ShimSurfaceTest {
     }
 
     @Test
-    public void appendOfADegenerateShapeLeavesTheOpenSubpathAlone() {
+    public void appendOfAShapeWithoutAnOutlineLeavesTheOpenSubpathAlone() {
         // append hands the live path to the shape (no temporary sink since the allocation pass),
-        // so a shape whose outline is empty must neither line to its own centre nor close the
-        // subpath the caller has open: the result equals appending through a fresh sink.
-        Arc2D.Double zeroSweep = new Arc2D.Double(Arc2D.PIE);
-        zeroSweep.setArc(50, 50, 20, 20, 0, 0, Arc2D.PIE);
-        Arc2D.Double zeroRadius = new Arc2D.Double(Arc2D.CHORD);
-        zeroRadius.setArc(50, 50, 0, 20, 0, 90, Arc2D.CHORD);
-        Shape[] degenerate = {zeroSweep, zeroRadius, new Ellipse2D.Double(50, 50, 0, 20),
-                new Ellipse2D.Double(50, 50, 20, -1)};
-        for (Shape shape : degenerate) {
+        // so a shape whose outline is empty — a negative extent, for which the AWT iterators
+        // emit no segment at all — must neither line to its own centre nor close the subpath
+        // the caller has open: the result equals appending through a fresh sink.
+        Arc2D.Double negativeArc = new Arc2D.Double(Arc2D.CHORD);
+        negativeArc.setArc(50, 50, -1, 20, 0, 90, Arc2D.CHORD);
+        Shape[] outlineless = {negativeArc, new Ellipse2D.Double(50, 50, 20, -1),
+                new RoundRectangle2D.Double(50, 50, 20, -1, 6, 6),
+                new Rectangle2D.Double(50, 50, -1, 20)};
+        for (Shape shape : outlineless) {
             for (boolean connect : new boolean[] {false, true}) {
                 Path2D.Double path = new Path2D.Double();
                 path.moveTo(0, 0);
                 path.lineTo(2, 0);
                 path.append(shape, connect);
-                path.lineTo(2, 2); // still open: a leaked close would make this throw
-                assertFrame(0, 0, 2, 2, path.getBounds2D()); // and no centre point crept in
+                path.lineTo(2, 2);
+                assertFrame(shape.getClass().getName(), 0, 0, 2, 2, path.getBounds2D());
             }
         }
 
@@ -276,6 +308,47 @@ public class ShimSurfaceTest {
         path.lineTo(2, 0);
         path.append(pie(), false);
         assertFrame(0, 0, 20, 10, path.getBounds2D());
+    }
+
+    @Test
+    public void zeroExtentShapesAppendTheDegenerateOutlineOfTheirAwtIterator() {
+        // A zero width, height or sweep is not "no outline": EllipseIterator, ArcIterator and
+        // RoundRectIterator keep emitting their segments with the geometry collapsed (JDK 17:
+        // Ellipse2D(50,50,0,20) -> M(50,60) C.. C.. C.. C.. Z along x = 50; the zero-sweep PIE
+        // -> M(70,60) L(60,60) Z; the zero-width CHORD -> M(50,60) C..(50,50) Z), so the bounds
+        // grow to the remaining extent and a `draw` strokes it as a line
+        // (Graphics2DPixelTest.zeroExtentEllipsesAndArcsStrokeAsLinesOfTheRemainingExtent).
+        // The path stays usable afterwards: the lineTo continues from the closed outline's
+        // start, as in AWT.
+        Arc2D.Double zeroSweep = new Arc2D.Double(Arc2D.PIE);
+        zeroSweep.setArc(50, 50, 20, 20, 0, 0, Arc2D.PIE);
+        Arc2D.Double zeroWidth = new Arc2D.Double(Arc2D.CHORD);
+        zeroWidth.setArc(50, 50, 0, 20, 0, 90, Arc2D.CHORD);
+        Shape[] degenerate = {zeroSweep, zeroWidth, new Ellipse2D.Double(50, 50, 0, 20),
+                new Ellipse2D.Double(50, 50, 20, 0),
+                new RoundRectangle2D.Double(50, 50, 0, 20, 6, 6)};
+        double[][] expected = {{70, 60}, {50, 60}, {50, 70}, {70, 50}, {50, 70}};
+        for (int i = 0; i < degenerate.length; i++) {
+            for (boolean connect : new boolean[] {false, true}) {
+                Path2D.Double path = new Path2D.Double();
+                path.moveTo(0, 0);
+                path.lineTo(2, 0);
+                path.append(degenerate[i], connect);
+                path.lineTo(2, 2);
+                assertFrame(degenerate[i].getClass().getName() + " #" + i, 0, 0,
+                        expected[i][0], expected[i][1], path.getBounds2D());
+            }
+        }
+
+        // A frame that is a point has no stroke in Java2D (the iterators' point-sized outline
+        // renders as nothing), so the shim appends nothing for it either.
+        Shape[] points = {new Ellipse2D.Double(50, 50, 0, 0),
+                new RoundRectangle2D.Double(50, 50, 0, 0, 6, 6)};
+        for (Shape shape : points) {
+            Path2D.Double sink = new Path2D.Double();
+            shape.appendTo(sink);
+            assertFrame(shape.getClass().getName(), 0, 0, 0, 0, sink.getBounds2D());
+        }
     }
 
     @Test
@@ -307,10 +380,25 @@ public class ShimSurfaceTest {
     }
 
     private static void assertFrame(double x, double y, double w, double h, Rectangle2D r) {
+        assertFrame("", x, y, w, h, r);
+    }
+
+    private static void assertFrame(String what, double x, double y, double w, double h,
+            Rectangle2D r) {
         Rectangle2D.Double d = frame(r);
-        assertEquals("x", x, d.x, EPS);
-        assertEquals("y", y, d.y, EPS);
-        assertEquals("width", w, d.width, EPS);
-        assertEquals("height", h, d.height, EPS);
+        String prefix = what.isEmpty() ? "" : what + " ";
+        assertEquals(prefix + "x", x, d.x, EPS);
+        assertEquals(prefix + "y", y, d.y, EPS);
+        assertEquals(prefix + "width", w, d.width, EPS);
+        assertEquals(prefix + "height", h, d.height, EPS);
+    }
+
+    private static void expectIse(Runnable action) {
+        try {
+            action.run();
+            fail("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            // AWT parity: "missing initial moveto"
+        }
     }
 }

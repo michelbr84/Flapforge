@@ -50,6 +50,9 @@ plugins {
  */
 abstract class TransformSourcesTask extends DefaultTask {
 
+    // The rules below are mirrored by hand in android/p0/transform_prototype.py (whose output
+    // the transformed tree is diffed against) and in android/src/test/java/awt/GoldenRenderTest
+    // (its forward() keeps the golden scene copy honest): change all three together.
     /** T1: desktop audio backend package → shim package. */
     static final String T1_FROM = 'javax.sound.sampled.'
     static final String T1_TO = 'jssound.'

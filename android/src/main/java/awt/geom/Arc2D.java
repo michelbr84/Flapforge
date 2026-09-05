@@ -122,16 +122,21 @@ public abstract class Arc2D implements Shape {
         public void appendTo(Path2D.Double sink) {
             double cx = x + width / 2d;
             double cy = y + height / 2d;
-            // The closure segments belong to the subpath the arc opened. A degenerate arc opens
-            // none, so it appends nothing at all — the sink may be a live path with a subpath of
-            // its own open (Path2D.append), which must be left exactly as it was.
+            // The closure segments belong to the subpath the arc opened. A negative extent opens
+            // none (ArcIterator parity), so nothing at all is appended — the sink may be a live
+            // path with a subpath of its own open (Path2D.append), which must be left exactly as
+            // it was. A zero width or height still opens the degenerate outline ArcIterator
+            // emits (a line across the other extent), and a zero sweep opens the start point
+            // alone: a PIE then strokes its radius and an OPEN arc nothing, as in Java2D. A
+            // CHORD of zero sweep is left unclosed on purpose: Java2D strokes nothing for its
+            // M Z, where Skia would cap the closed point into a dot.
             if (!Path2D.appendArc(sink, cx, cy, width / 2d, height / 2d, start, extent, true)) {
                 return;
             }
             if (type == PIE) {
                 sink.lineTo(cx, cy);
             }
-            if (type != OPEN) {
+            if (type != OPEN && !(type == CHORD && extent == 0d)) {
                 sink.closePriv();
             }
         }

@@ -162,6 +162,24 @@ public class BundledFontTest {
     }
 
     @Test
+    public void bundledFontMetricsRoundLikeFontDesignMetrics() throws Exception {
+        // JDK 17 FontDesignMetrics: (int) (0.95f + value). Measured on the desktop JDK with the
+        // bundled Nunito (hhea 1011 / -353 per 1000 em): 11 px -> 12 / 4, 12 px -> 13 / 5,
+        // 16 px -> 17 / 6, 28 px -> 29 / 10. Half-up rounding would give 11 / 4, 12 / 4,
+        // 16 / 6 and 28 / 10, moving TextPainter.centeredBaseline by half a pixel.
+        Font base = loadBundledFont();
+        Graphics2D g = argb().createGraphics();
+        int[][] expected = {{11, 12, 4}, {12, 13, 5}, {16, 17, 6}, {28, 29, 10}};
+        for (int[] e : expected) {
+            FontMetrics fm = g.getFontMetrics(base.deriveFont((float) e[0]));
+            assertEquals(e[0] + " px ascent", e[1], fm.getAscent());
+            assertEquals(e[0] + " px descent", e[2], fm.getDescent());
+            // Nunito's line gap is 0, so FontDesignMetrics' height is ascent + descent here.
+            assertEquals(e[0] + " px height", e[1] + e[2], fm.getHeight());
+        }
+    }
+
+    @Test
     public void heightIsTheSumOfTheRoundedPartsForEverySize() {
         // AWT: getHeight() == getLeading() + getAscent() + getDescent() on the int values, so the
         // vertical-centring maths in TextPainter never sees height < ascent + descent.

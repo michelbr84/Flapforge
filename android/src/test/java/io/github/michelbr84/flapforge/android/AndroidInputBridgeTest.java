@@ -2,8 +2,11 @@ package io.github.michelbr84.flapforge.android;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.robolectric.Shadows.shadowOf;
 
 import android.graphics.PixelFormat;
 import android.os.SystemClock;
@@ -21,6 +24,7 @@ import io.github.michelbr84.flapforge.input.RawInput;
 import io.github.michelbr84.flapforge.render.HudRenderer;
 import io.github.michelbr84.flapforge.render.Viewport;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -127,6 +131,51 @@ public class AndroidInputBridgeTest {
         assertTrue(bridge.isAttached());
         InputFrame frame = queue.nextTick();
         assertEquals(List.of(new RawInput.Resized(WIDTH, HEIGHT)), frame.systemEvents());
+    }
+
+    @Test
+    public void attachAndDetachFromOtherThreadsReachTheUiThreadsNextDispatch() throws Exception {
+        // attach() runs on the game's boot thread and detach() on the loop thread, while every
+        // touch is dispatched on the UI thread. The bridge therefore installs its handler
+        // through the view's volatile slot, never through View.setOnTouchListener, whose
+        // listener field the framework reads without synchronisation (visible in practice, not
+        // under the memory model).
+        onAnotherThread(() -> bridge.attach(new AndroidWindow(view)));
+        assertTrue(bridge.isAttached());
+        assertNotNull("the handler sits in the view's volatile slot", view.touchHandler());
+        assertNull("and not in View's own listener field", shadowOf(view).getOnTouchListener());
+        queue.nextTick(); // the attach Resized
+
+        assertTrue(touch(MotionEvent.ACTION_DOWN, 100f, 200f));
+        InputFrame down = queue.nextTick();
+        assertTrue(down.isMouseJustPressed(Keys.BUTTON_LEFT));
+        assertEquals(100, down.mouseX(), 0.0);
+        touch(MotionEvent.ACTION_UP, 100f, 200f);
+        queue.nextTick();
+
+        onAnotherThread(bridge::detach);
+        assertFalse(bridge.isAttached());
+        assertNull(view.touchHandler());
+        assertFalse("nothing consumes a touch once detached",
+                touch(MotionEvent.ACTION_DOWN, 100f, 200f));
+        assertEquals(0, queue.pendingCount());
+    }
+
+    private static void onAnotherThread(Runnable action) throws InterruptedException {
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread thread = new Thread(() -> {
+            try {
+                action.run();
+            } catch (Throwable t) {
+                failure.set(t);
+            }
+        }, "flapforge-test-other-thread");
+        thread.start();
+        thread.join(5_000L);
+        assertFalse("the action finished", thread.isAlive());
+        if (failure.get() != null) {
+            throw new AssertionError("the action failed on the other thread", failure.get());
+        }
     }
 
     @Test

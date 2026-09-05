@@ -35,7 +35,7 @@ host seam (`GameHost` / `AppWindow` / `InputBridge`) lets the unchanged game run
 `SurfaceView` presenter with touch gestures (tap = flap, drag = wheel, second finger or the
 HUD badge = ability, back = `Esc`), the activity lifecycle mapped onto the game's own
 focus/iconify/close events, hold-to-flap on by default, a launcher icon generated from the
-procedural desktop icon, and 201 tests (JUnit 4, most under Robolectric). `minSdk 33`,
+procedural desktop icon, and 223 tests (JUnit 4, most under Robolectric). `minSdk 33`,
 `compileSdk 36`, debug-signed for sideloading. Details: `docs/ARCHITECTURE.md` ("Android
 port") and `docs/DEVELOPMENT.md` ("Android build").
 

@@ -35,8 +35,10 @@ public interface Shape {
      *
      * <p>The sink is not always empty: {@code Path2D.Double.append} hands over the live path,
      * subpath state included. A shape therefore opens its own subpath (a MOVETO) before any other
-     * segment and closes only a subpath it opened; a degenerate shape that emits no outline
-     * appends nothing at all, so the result is the same as appending through a fresh sink.
+     * segment and closes only a subpath it opened; a shape without an outline (a negative
+     * extent, for which the AWT iterators emit no segment) appends nothing at all, so the result
+     * is the same as appending through a fresh sink. A zero extent is not that case: the shape
+     * still appends the degenerate outline its AWT iterator produces.
      *
      * @param sink the segment sink to append to
      */

@@ -794,7 +794,7 @@ Launch flags (all of them shipped; details in
 | `--scale N` | initial window scale (integer multiple of the 420×640 playfield); default: the largest scale whose window fits the screen |
 | `--fullscreen` | start in borderless fullscreen (`F11` toggles) |
 | `--no-audio` | start silent: no sound device is opened at all |
-| `--home DIR` | use `DIR` instead of the default settings/save directory (`~/.flapforge`, `%APPDATA%\Flapforge`, `~/Library/Application Support/Flapforge`) |
+| `--home DIR` | use `DIR` instead of the default settings/save directory (`~/.flapforge`, `%APPDATA%\Flapforge`, `~/Library/Application Support/Flapforge`) for windowed launches; a headless run reads and writes no profile |
 | `--headless-run N` | simulate `N` frames without a window and print a summary line plus the determinism hash CI compares across platforms |
 | `--no-window` | run without a window |
 | `--help`, `-h` | print the usage text |
@@ -841,7 +841,9 @@ same wrapper:
 compiling; the desktop tree is never modified. The details, the integrity gate
 and its self-test are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
-**Touch controls.** The game is always fullscreen and portrait; the 420×640
+**Touch controls.** The game is always fullscreen and portrait (the manifest
+opts out of Android 16's large-screen resizability, so tablets stay portrait
+too); the 420×640
 playfield is scaled to the screen and letterboxed. A finger is the mouse:
 
 | Touch | Action |
