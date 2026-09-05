@@ -47,7 +47,6 @@ public class BootedFrameRenderTest {
 
     private static final int WIDTH = 1080;
     private static final int HEIGHT = 2400;
-    private static final int LETTERBOX = 0xff000000 | 0x0e1116;
     private static final long BOOT_TIMEOUT_MS = 10_000L;
     private static final long LOOP_TIMEOUT_MS = 5_000L;
 
@@ -86,11 +85,13 @@ public class BootedFrameRenderTest {
             } finally {
                 g.dispose();
             }
-            // Fill-screen is off by default, so the band above the playfield is the letterbox
-            // tone the presenter paints first; the playfield itself carries the menu.
-            assertEquals("the band above the playfield is the letterbox fill", LETTERBOX,
-                    image.getRGB(WIDTH / 2, 20));
-            assertNotEquals("the menu rendered into the playfield", LETTERBOX,
+            // Fill-screen is off by default, so the ~377 px band above the playfield is the
+            // presenter's letterbox fill — one flat tone (the world palette's, not a constant)
+            // — while the playfield carries the menu.
+            int band = image.getRGB(WIDTH / 2, 20);
+            assertEquals("the letterbox band is one flat tone", band,
+                    image.getRGB(WIDTH / 2, 300));
+            assertNotEquals("the menu rendered into the playfield", band,
                     image.getRGB(WIDTH / 2, HEIGHT / 2));
             assertTrue(image.getRGB(WIDTH / 2, HEIGHT / 2) != 0);
         } finally {
