@@ -69,7 +69,7 @@ public class SurfacePresenterTest {
         Viewport viewport = new Viewport(WIDTH, HEIGHT, false);
         SolidRenderer renderer = new SolidRenderer();
         SurfacePresenter presenter = new SurfacePresenter(new AndroidWindow(view()), viewport,
-                renderer);
+                renderer, () -> { });
         BufferedImage image = new BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         try {
@@ -95,7 +95,7 @@ public class SurfacePresenterTest {
     public void presentWithoutASurfaceIsSkippedAndDoesNotThrow() {
         SolidRenderer renderer = new SolidRenderer();
         SurfacePresenter presenter = new SurfacePresenter(new AndroidWindow(view()),
-                new Viewport(WIDTH, HEIGHT, false), renderer);
+                new Viewport(WIDTH, HEIGHT, false), renderer, () -> { });
 
         presenter.present(0.5);
         presenter.present(0.25);
@@ -114,7 +114,7 @@ public class SurfacePresenterTest {
         assertTrue(view.isSurfaceAlive());
         SolidRenderer renderer = new SolidRenderer();
         SurfacePresenter presenter = new SurfacePresenter(new AndroidWindow(view),
-                new Viewport(WIDTH, HEIGHT, false), renderer);
+                new Viewport(WIDTH, HEIGHT, false), renderer, () -> { });
 
         presenter.present(0.0);
 
@@ -131,7 +131,7 @@ public class SurfacePresenterTest {
     @Test
     public void disposeStopsPresenting() {
         SurfacePresenter presenter = new SurfacePresenter(new AndroidWindow(view()),
-                new Viewport(WIDTH, HEIGHT, false), new SolidRenderer());
+                new Viewport(WIDTH, HEIGHT, false), new SolidRenderer(), () -> { });
         presenter.dispose();
         presenter.present(0.0);
         assertEquals(0, presenter.presentCount());
@@ -141,7 +141,7 @@ public class SurfacePresenterTest {
     @Test
     public void isAlwaysFullscreenAndIgnoresToggles() {
         SurfacePresenter presenter = new SurfacePresenter(new AndroidWindow(view()),
-                new Viewport(WIDTH, HEIGHT, false), new SolidRenderer());
+                new Viewport(WIDTH, HEIGHT, false), new SolidRenderer(), () -> { });
         assertTrue(presenter.isFullscreen());
         presenter.setFullscreen(false);
         assertTrue(presenter.isFullscreen());

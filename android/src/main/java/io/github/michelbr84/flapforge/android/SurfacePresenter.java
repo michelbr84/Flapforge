@@ -22,6 +22,11 @@ import java.util.Objects;
  * value, D18: no per-frame allocation), then the viewport transform and clip are applied and
  * the renderer draws the logical playfield, exactly as on the desktop.
  *
+ * <p>Every present, drawn or skipped, first runs the host's frame hook on the loop thread: the
+ * loop calls no other host code per frame, so the hook is where the {@link AndroidHost} looks at
+ * loop-owned state (the screen stack) on the only thread allowed to. It runs before the frame
+ * so what it samples is at most one frame old at the next touch.
+ *
  * <p>There is no fullscreen handshake on Android — the activity is immersive from
  * {@code onCreate} on — so the presenter reports fullscreen and ignores requests to change it,
  * and there is no resize to react to either: the view tracks the surface size itself and the
@@ -32,6 +37,7 @@ public final class SurfacePresenter implements FramePresenter, GameSurfaceView.F
     private final GameSurfaceView view;
     private final Viewport viewport;
     private final FrameRenderer renderer;
+    private final Runnable frameHook;
     private volatile boolean disposed;
     private volatile long presentCount;
     private volatile long skippedCount;
@@ -46,15 +52,20 @@ public final class SurfacePresenter implements FramePresenter, GameSurfaceView.F
      * @param window the window whose surface is drawn
      * @param viewport the loop-owned viewport
      * @param renderer the frame renderer
+     * @param frameHook run on the loop thread at the start of every {@link #present(double)},
+     *     drawn or skipped (see the class javadoc)
      */
-    public SurfacePresenter(AndroidWindow window, Viewport viewport, FrameRenderer renderer) {
+    public SurfacePresenter(AndroidWindow window, Viewport viewport, FrameRenderer renderer,
+            Runnable frameHook) {
         this.view = Objects.requireNonNull(window, "window").view();
         this.viewport = Objects.requireNonNull(viewport, "viewport");
         this.renderer = Objects.requireNonNull(renderer, "renderer");
+        this.frameHook = Objects.requireNonNull(frameHook, "frameHook");
     }
 
     @Override
     public void present(double alpha) {
+        frameHook.run();
         if (disposed) {
             skippedCount++;
             return;

@@ -15,16 +15,14 @@ import android.view.SurfaceHolder;
 import io.github.michelbr84.flapforge.app.GameApplication;
 import io.github.michelbr84.flapforge.app.GameContext;
 import io.github.michelbr84.flapforge.persistence.SavePaths;
-import java.io.IOException;
+import io.github.michelbr84.flapforge.persistence.SettingsStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import jssound.AudioSystem;
+import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -38,15 +36,12 @@ import org.robolectric.annotation.GraphicsMode;
  * files directory before anything else, starts the real {@link GameApplication} on the boot
  * thread once the surface has a size, runs the loop against the surface (Robolectric's fake
  * holder has no canvas, so every frame is a counted skip), and shuts the game down on destroy
- * — the loop thread ends, and the one file the session wrote (the profile, saved by the
- * startup grant of what a fresh profile already owns) sits under the files dir.
+ * — the loop thread ends, and the two files the session wrote (the first-run settings, seeded
+ * by the boot thread, and the profile, saved by the startup grant of what a fresh profile
+ * already owns) sit under the files dir.
  *
- * <p>This test is also the guard for the developer's real profile: the desktop's
- * {@code ~/.flapforge} is fingerprinted before the activity is created and again after the game
- * has shut down, and the two must be identical. The boot is the real one — content, settings,
- * profile, fonts, the audio warm-up over Robolectric's {@code ShadowAudioTrack}, the boot
- * screen — so a regression that let the Android path read or write the desktop directory
- * would show up here rather than on a device.
+ * <p>The desktop's {@code ~/.flapforge} is fingerprinted around the whole boot
+ * ({@link DesktopProfileGuard}).
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35)
@@ -58,16 +53,18 @@ public class MainActivityBootTest {
     private static final long BOOT_TIMEOUT_MS = 10_000L;
     private static final long LOOP_END_TIMEOUT_MS = 5_000L;
 
-    /** The desktop's Linux profile directory, which this test must never touch. */
-    private static final Path DESKTOP_PROFILE_DIR =
-            Path.of(System.getProperty("user.home", ".")).resolve(SavePaths.DOT_DIR_NAME)
-                    .toAbsolutePath().normalize();
-    private static final List<String> GUARDED_FILES = List.of(SavePaths.SAVE_FILE,
-            SavePaths.SAVE_BACKUP_FILE, SavePaths.SETTINGS_FILE);
+    /**
+     * The activity's {@code onPause} suspends the shim's audio output, a static flag the
+     * sandbox class loader shares with every other test class of this configuration.
+     */
+    @After
+    public void resumeAudioOutput() {
+        AudioSystem.resumeOutput();
+    }
 
     @Test
     public void bootsOnTheFirstSizedSurfaceAndShutsDownOnDestroy() throws Exception {
-        Map<String, String> desktopBefore = fingerprintDesktopProfile();
+        Map<String, String> desktopBefore = DesktopProfileGuard.fingerprint();
 
         ActivityController<MainActivity> controller =
                 Robolectric.buildActivity(MainActivity.class).setup();
@@ -78,7 +75,8 @@ public class MainActivityBootTest {
             assertEquals("saves are routed before anything else", filesDir,
                     SavePaths.overrideDir());
             assertEquals(filesDir, SavePaths.profileDir());
-            assertFalse("never the desktop profile", filesDir.startsWith(DESKTOP_PROFILE_DIR));
+            assertFalse("never the desktop profile",
+                    filesDir.startsWith(DesktopProfileGuard.DESKTOP_PROFILE_DIR));
             assertNull("the game waits for a sized surface", activity.application());
 
             // Back before the game is up is ignored, never a finish().
@@ -125,47 +123,23 @@ public class MainActivityBootTest {
         // (the activity is already destroyed, so it is a no-op) rather than leave it queued.
         shadowOf(Looper.getMainLooper()).idle();
 
-        // What the real path writes: the startup pass grants what a fresh profile already
-        // satisfies (the base modifiers) and saves it once (GameApplication's
-        // grantWhatIsAlreadyEarned, D13/D14); nothing touched the settings, so settings.json is
-        // never written. Both would land under the files dir, never under ~/.flapforge.
+        // What the real path writes: the boot thread seeds settings.json with the Android
+        // first-run default (hold-to-flap on) before the game reads it, and the startup pass
+        // grants what a fresh profile already satisfies (the base modifiers) and saves it once
+        // (GameApplication's grantWhatIsAlreadyEarned, D13/D14). Both land under the files dir,
+        // never under ~/.flapforge.
         Path filesDir = activity.getFilesDir().toPath().toAbsolutePath().normalize();
         assertEquals(filesDir, SavePaths.profileDir());
         assertTrue("the startup grant wrote the profile into the files dir",
                 Files.isRegularFile(filesDir.resolve(SavePaths.SAVE_FILE)));
-        assertFalse(Files.exists(filesDir.resolve(SavePaths.SETTINGS_FILE)));
+        Path settings = filesDir.resolve(SavePaths.SETTINGS_FILE);
+        assertTrue("the first run seeded the settings into the files dir",
+                Files.isRegularFile(settings));
+        assertTrue("Android first-run default: hold-to-flap on",
+                new SettingsStore(Runnable::run, settings).load().settings().holdToFlap);
 
         assertEquals("the desktop profile is untouched", desktopBefore,
-                fingerprintDesktopProfile());
-    }
-
-    /**
-     * MD5 of each guarded file under {@code ~/.flapforge}, or {@code "absent"}; an empty map
-     * when the directory does not exist (CI).
-     */
-    private static Map<String, String> fingerprintDesktopProfile() throws IOException {
-        Map<String, String> fingerprint = new LinkedHashMap<>();
-        if (!Files.isDirectory(DESKTOP_PROFILE_DIR)) {
-            return fingerprint;
-        }
-        for (String name : GUARDED_FILES) {
-            Path file = DESKTOP_PROFILE_DIR.resolve(name);
-            fingerprint.put(name, Files.isRegularFile(file) ? md5(file) : "absent");
-        }
-        return fingerprint;
-    }
-
-    private static String md5(Path file) throws IOException {
-        try {
-            byte[] digest = MessageDigest.getInstance("MD5").digest(Files.readAllBytes(file));
-            StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                hex.append(String.format("%02x", b));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+                DesktopProfileGuard.fingerprint());
     }
 
     private static <T> T awaitNonNull(String what, Supplier<T> value, long timeoutMs)

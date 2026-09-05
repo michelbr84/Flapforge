@@ -51,6 +51,27 @@ import java.util.Objects;
  * <p>Threads: the mixer thread writes while the game thread stops, flushes and closes. The track
  * is thread-safe for that, and {@link #write} never holds the line's monitor around the blocking
  * track write, so a concurrent {@link #stop()} can always get in to unblock it.
+ *
+ * <p><b>Host-side output gate</b> (M10, P3). Nothing in the game can silence the mixer — its
+ * thread writes for as long as the line is open — so {@link AudioSystem#suspendOutput()} does it
+ * from outside, per open line: the track is <em>paused</em> (never stopped or flushed, so the
+ * queued audio and the playback head survive) and every {@link #write} parks on the line's
+ * monitor until {@link AudioSystem#resumeOutput()} plays the track again and lets the write
+ * through. That leaves the mixer thread asleep with one rendered pass in hand, not spinning,
+ * which is what a backgrounded activity wants. The gate follows the line's own lifecycle: a
+ * {@link #start()} while suspended only records the intent and the track plays on resume; a
+ * {@link #stop()} releases a parked writer with a short count of {@code 0} (the stopped-track
+ * answer AWT documents, with nothing enqueued); a {@link #close()} releases it into the
+ * closed-line {@link IllegalStateException}. The mixer's own shutdown — stop, flush, join, close
+ * — therefore ends its thread whether or not the output is suspended. A track write in flight at
+ * the moment of the suspend returns short, as it does for any pause from another thread; the
+ * tail of that one pass is dropped, which is inaudible on an output that is being silenced. The
+ * wait itself is not interruptible, like the track write it fronts: an interrupt is remembered
+ * while the write is parked and re-asserted on the thread once the wait ends.
+ *
+ * <p>Lock order: {@code AudioSystem}'s output lock is always taken <em>before</em> this line's
+ * monitor and never after it — the registry calls into a line while holding its lock, a line
+ * registers and unregisters itself only after leaving its own monitor.
  */
 public final class SourceDataLine {
 
@@ -61,6 +82,19 @@ public final class SourceDataLine {
     /** Buffer a one-argument {@link #open(AudioFormat)} asks for: AWT's default line buffer. */
     static final int DEFAULT_BUFFER_MS = 500;
 
+    /**
+     * Where the line stands in its start/stop cycle. Kept apart from the track's own play state
+     * because a suspended line defers {@code play()}: the intent is what the resume replays.
+     */
+    private enum Run {
+        /** Opened, never started: AWT's fresh line, whose writes queue but do not play. */
+        IDLE,
+        /** Between {@link #start()} and {@link #stop()}. */
+        STARTED,
+        /** After a {@link #stop()}: a parked writer is released with a short count. */
+        STOPPED
+    }
+
     private final Object lock = new Object();
     private volatile AudioTrack track;
     private volatile int bufferSize;
@@ -70,6 +104,13 @@ public final class SourceDataLine {
     private long framesWritten;
     /** Guarded by {@link #lock}. */
     private boolean closed;
+    /** Guarded by {@link #lock}. */
+    private Run run = Run.IDLE;
+    /**
+     * This line's copy of the host's output flag, set only by {@link #applyOutputState(boolean)}
+     * under {@link #lock}; volatile so {@link #drain()} can read it without the monitor.
+     */
+    private volatile boolean suspended;
 
     private SourceDataLine() {
     }
@@ -157,39 +198,59 @@ public final class SourceDataLine {
             this.framesWritten = 0;
             this.track = built;
         }
+        // Outside the monitor (lock order): the registry hands the line the host's current
+        // output state, so a line opened while suspended starts suspended.
+        AudioSystem.register(this);
     }
 
     /**
      * Starts playback (census: SoftwareMixer.java:214). In streaming mode the track plays as
-     * soon as data is written.
+     * soon as data is written. While the host has the output suspended only the intent is
+     * recorded; the track plays on {@link AudioSystem#resumeOutput()}.
      *
      * @throws IllegalStateException when the line is not open
      */
     public void start() {
-        openTrack().play();
+        synchronized (lock) {
+            AudioTrack current = openTrack();
+            run = Run.STARTED;
+            if (!suspended) {
+                current.play();
+            }
+        }
     }
 
     /**
      * Pauses playback, keeping the queued data (census: SoftwareMixer.java:318). A line that
-     * is not open has nothing to stop.
+     * is not open has nothing to stop. A writer parked by a suspended output is released with a
+     * short count.
      */
     public void stop() {
-        AudioTrack current = track;
-        if (current != null) {
+        synchronized (lock) {
+            AudioTrack current = track;
+            if (current == null) {
+                return;
+            }
+            run = Run.STOPPED;
             current.pause();
+            lock.notifyAll();
         }
     }
 
     /**
      * Writes PCM frames, blocking until the track has taken them (census:
-     * SoftwareMixer.java:578).
+     * SoftwareMixer.java:578). While the host has the output suspended the call parks until
+     * {@link AudioSystem#resumeOutput()}, {@link #stop()} or {@link #close()} — see the class
+     * javadoc.
      *
      * @param buffer the frames
      * @param offset the first byte
      * @param length the byte count, a whole number of frames
      * @return the bytes the track accepted: {@code length} normally, fewer when the track was
-     *     paused or stopped on entry or while blocked
-     * @throws IllegalStateException when the line is not open, or the track reports an error
+     *     paused or stopped on entry or while blocked, {@code 0} when the line was stopped while
+     *     the output was suspended
+     * @throws IllegalStateException when the line is not open (or was closed while the write
+     *     was parked), or the track reports an error
      * @throws IllegalArgumentException when {@code length} is not a whole number of frames
      * @throws ArrayIndexOutOfBoundsException when the range is outside the array
      */
@@ -199,13 +260,17 @@ public final class SourceDataLine {
             throw new ArrayIndexOutOfBoundsException(
                     "offset " + offset + ", length " + length + ", array " + buffer.length);
         }
-        AudioTrack current = openTrack();
+        openTrack();
         int frame = frameSize;
         if (length % frame != 0) {
             throw new IllegalArgumentException("Flapforge shim: write length " + length
                     + " is not a whole number of " + frame + "-byte frames");
         }
         if (length == 0) {
+            return 0;
+        }
+        AudioTrack current = awaitOutput();
+        if (current == null) {
             return 0;
         }
         int written = current.write(buffer, offset, length, AudioTrack.WRITE_BLOCKING);
@@ -222,7 +287,9 @@ public final class SourceDataLine {
     /**
      * Waits for the playback head to pass the last written frame: polls every
      * {@value #DRAIN_POLL_MS} ms and gives up after the queued duration plus
-     * {@value #DRAIN_GRACE_MS} ms. Returns at once when the line is not open or not playing.
+     * {@value #DRAIN_GRACE_MS} ms. Returns at once when the line is not open or not playing —
+     * which includes a suspended output, whose track is paused or was never played — and at the
+     * next poll when the output is suspended while it waits: a paused head never advances.
      */
     public void drain() {
         AudioTrack current = track;
@@ -240,8 +307,8 @@ public final class SourceDataLine {
             long deadline = System.nanoTime()
                     + drainBoundMillis(queued, sampleRate) * 1_000_000L;
             while (queuedFrames(current) > 0 && System.nanoTime() < deadline) {
-                if (track != current) {
-                    return; // closed meanwhile
+                if (track != current || suspended) {
+                    return; // closed or suspended meanwhile
                 }
                 try {
                     Thread.sleep(DRAIN_POLL_MS);
@@ -277,7 +344,8 @@ public final class SourceDataLine {
 
     /**
      * Stops and releases the track (census: SoftwareMixer.java:216, :332). Idempotent, and a
-     * no-op for a line that was never opened; the line cannot be reopened afterwards.
+     * no-op for a line that was never opened; the line cannot be reopened afterwards. A writer
+     * parked by a suspended output is released into the closed-line exception.
      */
     public void close() {
         AudioTrack current;
@@ -288,8 +356,11 @@ public final class SourceDataLine {
             closed = true;
             current = track;
             track = null;
+            lock.notifyAll();
         }
         if (current != null) {
+            // Outside the monitor (lock order); the registry can no longer reach the track.
+            AudioSystem.unregister(this);
             try {
                 current.stop();
             } catch (IllegalStateException alreadyGone) {
@@ -338,6 +409,77 @@ public final class SourceDataLine {
      */
     static long drainBoundMillis(long queuedFrames, int sampleRate) {
         return (queuedFrames * 1000L + sampleRate - 1) / sampleRate + DRAIN_GRACE_MS;
+    }
+
+    /**
+     * Registry callback, called with {@code AudioSystem}'s output lock held (lock order): takes
+     * the host's output state for this line. Suspending pauses a started track and resuming
+     * plays it again and releases the parked writer; a line that was never started has nothing
+     * to pause, and one that was stopped keeps its pause. Idempotent for a repeated state.
+     *
+     * @param outputSuspended the host's flag
+     * @return {@code false} when the line is closed and must not be registered
+     */
+    boolean applyOutputState(boolean outputSuspended) {
+        synchronized (lock) {
+            AudioTrack current = track;
+            if (current == null) {
+                return false;
+            }
+            if (suspended == outputSuspended) {
+                return true;
+            }
+            suspended = outputSuspended;
+            if (run == Run.STARTED) {
+                if (outputSuspended) {
+                    current.pause();
+                } else {
+                    current.play();
+                }
+            }
+            if (!outputSuspended) {
+                lock.notifyAll();
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Shim infrastructure for the jssound tests, which assert on the platform's play state.
+     *
+     * @return the track, or {@code null} when the line is not open
+     */
+    AudioTrack track() {
+        return track;
+    }
+
+    /**
+     * The gate in front of the track write: parks while the output is suspended and the line is
+     * neither stopped nor closed. Not interruptible (see the class javadoc).
+     *
+     * @return the track to write to, or {@code null} for a stopped line under a suspended
+     *     output, whose write is a short count of {@code 0}
+     * @throws IllegalStateException when the line was closed meanwhile
+     */
+    private AudioTrack awaitOutput() {
+        boolean interrupted = false;
+        try {
+            synchronized (lock) {
+                while (suspended && track != null && run != Run.STOPPED) {
+                    try {
+                        lock.wait();
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
+                AudioTrack current = openTrack();
+                return suspended ? null : current;
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     private AudioTrack openTrack() {

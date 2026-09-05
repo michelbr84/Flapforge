@@ -3,13 +3,17 @@ package jssound;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * android.media shim for the M10 build-time source transform
  * ({@code javax.sound.sampled.*} -> {@code jssound.*}).
  *
- * <p>Stand-in for the three {@code javax.sound.sampled.AudioSystem} entry points the game uses.
+ * <p>Stand-in for the three {@code javax.sound.sampled.AudioSystem} entry points the game uses,
+ * plus the host-only output gate ({@link #suspendOutput()} / {@link #resumeOutput()}) that has
+ * no AWT counterpart — see below.
  *
  * <ul>
  *   <li>{@link #getAudioInputStream(InputStream)} — audio/SoundBank.java:313 — parses a
@@ -28,8 +32,32 @@ import java.util.Objects;
  *   <li>{@link #getSourceDataLine(AudioFormat)} — audio/SoftwareMixer.java:158 — hands out an
  *       unopened {@link SourceDataLine} after checking the platform can play the format.</li>
  * </ul>
+ *
+ * <p><b>Output gate (M10, P3; not part of {@code javax.sound.sampled}).</b> The game never
+ * calls {@link #suspendOutput()} or {@link #resumeOutput()}: they exist for the Android host,
+ * whose activity must silence and freeze the audio output while it is paused or stopped, and
+ * the game offers no way to do that ({@code audio/AudioManager} has no suspend API; the mixer
+ * thread writes for as long as its line is open). The two methods act on every open line at
+ * once, through a registry every {@link SourceDataLine} joins on open and leaves on close
+ * (explicit, so the registry mirrors the open tracks exactly and a line missed by a suspend is
+ * impossible): a suspend pauses each line's track and parks its writer, a resume plays and
+ * releases them, and a line opened in between takes the flag at registration. Both are
+ * idempotent — suspending twice is one suspend, resuming an output that is not suspended does
+ * nothing — and neither blocks: the flag and the registry are guarded by one static lock that
+ * is taken <em>before</em> any line's monitor and never after one, so a suspend or resume can
+ * never wait on a line that is itself waiting on the registry.
  */
 public final class AudioSystem {
+
+    /**
+     * Guards {@link #openLines} and {@link #outputSuspended}. Lock order: this lock, then a
+     * line's monitor — never the reverse (see {@link SourceDataLine}).
+     */
+    private static final Object OUTPUT_LOCK = new Object();
+    /** Every open line, in open order; guarded by {@link #OUTPUT_LOCK}. */
+    private static final Set<SourceDataLine> openLines = new LinkedHashSet<>();
+    /** The host's flag; guarded by {@link #OUTPUT_LOCK}. */
+    private static boolean outputSuspended;
 
     private static final int RIFF = 0x52494646; // "RIFF"
     private static final int WAVE = 0x57415645; // "WAVE"
@@ -134,6 +162,73 @@ public final class AudioSystem {
     public static SourceDataLine getSourceDataLine(AudioFormat format)
             throws LineUnavailableException {
         return SourceDataLine.forFormat(format);
+    }
+
+    // ------------------------------------------------------------------ host-only output gate
+
+    /**
+     * Silences and freezes every open line (host only; no AWT counterpart — see the class
+     * javadoc): each started track is paused with its queued audio kept, and every
+     * {@link SourceDataLine#write} parks until {@link #resumeOutput()}, or until its own line is
+     * stopped or closed. Lines opened afterwards start suspended. Idempotent, never blocks.
+     */
+    public static void suspendOutput() {
+        synchronized (OUTPUT_LOCK) {
+            if (outputSuspended) {
+                return;
+            }
+            outputSuspended = true;
+            for (SourceDataLine line : openLines) {
+                line.applyOutputState(true);
+            }
+        }
+    }
+
+    /**
+     * Undoes {@link #suspendOutput()}: every started track plays again from where it was
+     * paused and the parked writers go through. A no-op when the output is not suspended.
+     */
+    public static void resumeOutput() {
+        synchronized (OUTPUT_LOCK) {
+            if (!outputSuspended) {
+                return;
+            }
+            outputSuspended = false;
+            for (SourceDataLine line : openLines) {
+                line.applyOutputState(false);
+            }
+        }
+    }
+
+    /**
+     * Shim infrastructure for the jssound tests.
+     *
+     * @return whether {@link #suspendOutput()} is in effect
+     */
+    static boolean isOutputSuspended() {
+        synchronized (OUTPUT_LOCK) {
+            return outputSuspended;
+        }
+    }
+
+    /**
+     * Joins a line that has just opened its track (called outside the line's monitor), handing
+     * it the current output state so a line opened while suspended starts suspended. A line
+     * closed before it got here is not kept.
+     */
+    static void register(SourceDataLine line) {
+        synchronized (OUTPUT_LOCK) {
+            if (line.applyOutputState(outputSuspended)) {
+                openLines.add(line);
+            }
+        }
+    }
+
+    /** Removes a line whose track is closed (called outside the line's monitor). */
+    static void unregister(SourceDataLine line) {
+        synchronized (OUTPUT_LOCK) {
+            openLines.remove(line);
+        }
     }
 
     // ------------------------------------------------------------------ WAVE parsing
