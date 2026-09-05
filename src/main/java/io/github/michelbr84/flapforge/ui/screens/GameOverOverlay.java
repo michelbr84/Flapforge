@@ -359,9 +359,12 @@ public final class GameOverOverlay implements Screen {
                 strings));
     }
 
-    /** Leaves the overlay and the game screen below it for the menu. */
+    /**
+     * Leaves the overlay and the game screen below it for the menu. No cue here: the ring plays
+     * the select cue when the menu button activates, and the Esc path plays its own back cue —
+     * the one-cue-per-press rule every other menu button follows.
+     */
     private void toMenu() {
-        UiCues.back();
         screens.pop();
         screens.pop();
     }
@@ -378,6 +381,7 @@ public final class GameOverOverlay implements Screen {
         // perfectly still; upstream kept its clouds drifting on the game-over screen (§5).
         renderer.tickFrozen();
         if (input.isJustPressed(InputAction.PAUSE) || input.isJustPressed(InputAction.BACK)) {
+            UiCues.back();
             toMenu();
             return;
         }

@@ -237,17 +237,20 @@ class SettingsScreenTest {
     void togglesReachTheEngineTheyBelongTo() {
         Toggle smoothing = screen.toggle("smoothing");
         Toggle integerScaling = screen.toggle("integerScaling");
+        Toggle fillScreen = screen.toggle("fillScreen");
         Toggle showFps = screen.toggle("showFps");
         Toggle reduceFlashing = screen.toggle("reduceFlashing");
 
         smoothing.setValue(false);
         integerScaling.setValue(true);
+        fillScreen.setValue(false);
         showFps.setValue(true);
         reduceFlashing.setValue(false);
         ticks(1);
 
         assertFalse(ProceduralArt.isSmoothing(), "rendering honours smoothing");
         assertTrue(context.viewport().isIntegerScaling(), "the viewport honours integer scaling");
+        assertFalse(context.viewport().isExtendVertical(), "the viewport honours fill screen");
         assertTrue(screens.isDebugOverlayVisible(), "the debug overlay honours showFps");
         assertFalse(ParticleSystem.defaultReduceFlashing(), "particles honour reduce flashing");
         assertTrue(screen.isDirty());

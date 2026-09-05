@@ -104,13 +104,8 @@ public final class LightningRenderer {
             g.draw(rect);
             g.setStroke(old);
             double plateY = fromTop ? top : top + h - ANCHOR_H;
-            // A TOP plate hangs from row 0, which on tall windows sits below the visible top:
-            // a mount column up to the visible edge keeps it attached instead of floating in
-            // extended sky. The warning/strike band itself is never extended — it communicates
-            // the exact lethal extent.
-            if (fromTop && Overscan.top() < 0) {
-                rect.setFrame(x - 4, Overscan.top(), w + 8, -Overscan.top() + 2);
-                g.fill(rect);
+            if (fromTop) {
+                mount(g, x, w);
             }
             rect.setFrame(x - 4, plateY, w + 8, ANCHOR_H);
             g.fill(rect);
@@ -134,6 +129,9 @@ public final class LightningRenderer {
             double tipY = fromTop ? top + h : top;
             rect.setFrame(x - 8, tipY - 2, w + 16, 4);
             g.fill(rect);
+            if (fromTop) {
+                mount(g, x, w);
+            }
             // Chevrons along the anchored edge, pointing the way the bolt will travel.
             int count = Math.max(1, (int) (h / 60));
             for (int i = 0; i < count; i++) {
@@ -151,6 +149,9 @@ public final class LightningRenderer {
         g.setColor(glow(glowA));
         rect.setFrame(x - 14, top, w + 28, h);
         g.fill(rect);
+        if (fromTop) {
+            mount(g, x, w);
+        }
         jitter.setSeed(0x0B01L + (long) (clock * 7) + (long) (alpha * 4));
         double cx = x + w / 2;
         for (int i = 0; i <= SEGMENTS; i++) {
@@ -168,6 +169,20 @@ public final class LightningRenderer {
         g.setColor(reduceFlashing ? CORE_SOFT : CORE_WHITE);
         g.drawPolyline(boltX, boltY, SEGMENTS + 1);
         g.setStroke(old);
+    }
+
+    /**
+     * A plain column from the visible top down to the anchored edge, in the context's current
+     * colour. A TOP bolt anchors at row 0, which on tall windows sits below the visible top:
+     * the column keeps it attached to the screen edge in every state instead of floating in
+     * extended sky. The band itself is never extended — it communicates the exact lethal
+     * extent.
+     */
+    private void mount(Graphics2D g, double x, double w) {
+        if (Overscan.top() < 0) {
+            rect.setFrame(x - 4, Overscan.top(), w + 8, -Overscan.top() + 2);
+            g.fill(rect);
+        }
     }
 
     private void chevron(Graphics2D g, double cx, double cy, int dir) {

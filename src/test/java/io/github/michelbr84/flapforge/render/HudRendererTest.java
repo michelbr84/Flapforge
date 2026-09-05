@@ -123,6 +123,20 @@ class HudRendererTest {
     // ------------------------------------------------------------------ tests
 
     @Test
+    void theReadyHintBlinksOnTheUpstreamPeriod() {
+        HudRenderer hud = hud(Strings.load("en"));
+        assertFalse(hud.promptVisible(), "the prompt starts hidden, as upstream");
+        for (int i = 0; i < HudRenderer.BLINK_HALF_TICKS; i++) {
+            hud.tick();
+        }
+        assertTrue(hud.promptVisible(), "shown after 60 ticks");
+        for (int i = 0; i < HudRenderer.BLINK_HALF_TICKS; i++) {
+            hud.tick();
+        }
+        assertFalse(hud.promptVisible(), "hidden again after 120");
+    }
+
+    @Test
     void theCooldownRingFillsAsTheAbilityRecharges() {
         Strings strings = Strings.load("en");
         HudRenderer hud = hud(strings);

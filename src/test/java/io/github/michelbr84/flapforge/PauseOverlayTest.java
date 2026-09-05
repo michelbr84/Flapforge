@@ -126,6 +126,21 @@ class PauseOverlayTest {
     }
 
     @Test
+    void enterStillResumes() {
+        boolean[] left = {false};
+        pushedOverlay(left);
+        // Past the transition grace, so CONFIRM reaches the overlay and activates the focused
+        // Resume button through the ring rather than the tap-anywhere fallback.
+        for (int i = 0; i < ScreenManager.TRANSITION_GRACE_TICKS; i++) {
+            screens.tick(InputFrame.EMPTY);
+        }
+        screens.tick(press(InputAction.CONFIRM));
+        assertEquals(2, screens.depth(), "Enter keeps its old meaning");
+        assertTrue(left[0], "the leave callback ran");
+        assertTrue(screens.consumeAccumulatorReset());
+    }
+
+    @Test
     void escapeStillQuitsToTheMenu() {
         boolean[] left = {false};
         pushedOverlay(left);

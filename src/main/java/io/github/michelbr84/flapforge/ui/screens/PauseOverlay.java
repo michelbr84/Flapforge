@@ -123,9 +123,12 @@ public final class PauseOverlay implements Screen {
         screens.requestAccumulatorReset();
     }
 
-    /** Abandons the paused run for the menu. */
+    /**
+     * Abandons the paused run for the menu. No cue here: the ring plays the select cue when the
+     * menu button activates, and the Esc path plays its own back cue — the one-cue-per-press
+     * rule every other menu button follows.
+     */
     private void quitToMenu() {
-        UiCues.back();
         leave(2);
     }
 
@@ -153,6 +156,7 @@ public final class PauseOverlay implements Screen {
     @Override
     public void tick(InputFrame input) {
         if (input.isJustPressed(InputAction.PAUSE) || input.isJustPressed(InputAction.BACK)) {
+            UiCues.back();
             quitToMenu();
             return;
         }
