@@ -3,6 +3,8 @@ name: Release
 # Runs on a v* tag only (M9): builds and tests once per OS, packages each OS
 # with jpackage through scripts/package.sh (per-OS icon, E9), zips the app
 # images and attaches them — with the fat jar — to the GitHub release.
+# Since M10 the Android APK (android/, debug-signed sideload build) is built in
+# parallel and attached as Flapforge-<version>-android.apk.
 on:
   push:
     tags: ['v*']
@@ -76,9 +78,68 @@ jobs:
           path: build/libs/flapforge-*-all.jar
           if-no-files-found: error
 
+  android:
+    name: Package Android
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Read the version
+        id: version
+        shell: bash
+        run: echo "version=$(sed -n 's/^version=//p' src/main/resources/version.properties)" >> "$GITHUB_OUTPUT"
+
+      - name: Install the Android SDK components
+        # Same components as android.yml (see the runner-image note there): compileSdk 36
+        # and the build-tools AGP 9.4.0 resolves; a no-op on the current ubuntu-latest image.
+        shell: bash
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true # `yes` dies of SIGPIPE; not an error
+          "$sdkmanager" --install "platforms;android-36" "build-tools;36.0.0"
+          "$sdkmanager" --list_installed | grep -E 'platforms;android-36 |build-tools;36\.0\.0 '
+
+      - name: Build, test and name the APK
+        # The APK file name carries the desktop version (version.properties); the
+        # versionName baked into the APK comes from android/build.gradle, so the two
+        # must agree before the file is renamed.
+        shell: bash
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          if ! grep -qF "versionName = '${version}'" android/build.gradle; then
+            echo "::error::android/build.gradle versionName does not match version.properties (${version})"
+            exit 1
+          fi
+          ./gradlew -p android assembleRelease test --stacktrace
+          shopt -s nullglob
+          apks=(android/build/outputs/apk/release/*.apk)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one release APK, found ${#apks[@]}: ${apks[*]}"
+            exit 1
+          fi
+          mkdir -p build
+          mv "${apks[0]}" "build/Flapforge-${version}-android.apk"
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: flapforge-android
+          path: build/Flapforge-*-android.apk
+          if-no-files-found: error
+
   release:
     name: Attach the bundles to the release
-    needs: package
+    needs: [package, android]
     runs-on: ubuntu-latest
     steps:
       - name: Download all bundles

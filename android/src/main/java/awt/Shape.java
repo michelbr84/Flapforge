@@ -33,6 +33,11 @@ public interface Shape {
      * coordinates. Implemented by every concrete shape; {@link Graphics2D} then transforms the
      * segments with the current matrix before any float conversion happens.
      *
+     * <p>The sink is not always empty: {@code Path2D.Double.append} hands over the live path,
+     * subpath state included. A shape therefore opens its own subpath (a MOVETO) before any other
+     * segment and closes only a subpath it opened; a degenerate shape that emits no outline
+     * appends nothing at all, so the result is the same as appending through a fresh sink.
+     *
      * @param sink the segment sink to append to
      */
     void appendTo(Path2D.Double sink);

@@ -57,10 +57,13 @@ public abstract class Ellipse2D implements Shape {
         @Override
         public void appendTo(Path2D.Double sink) {
             // A full sweep of the ellipse, AWT angle convention: 0 deg at 3 o'clock, positive
-            // sweep visually counterclockwise (toward 12 o'clock).
-            Path2D.appendArc(sink, x + width / 2d, y + height / 2d,
-                    width / 2d, height / 2d, 0d, 360d, true);
-            sink.closePriv();
+            // sweep visually counterclockwise (toward 12 o'clock). Only the subpath the sweep
+            // opened is closed: a degenerate ellipse appends nothing and leaves a subpath the
+            // sink already had open (Path2D.append) untouched.
+            if (Path2D.appendArc(sink, x + width / 2d, y + height / 2d,
+                    width / 2d, height / 2d, 0d, 360d, true)) {
+                sink.closePriv();
+            }
         }
     }
 }

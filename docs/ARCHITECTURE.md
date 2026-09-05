@@ -609,6 +609,258 @@ writes `build/icon/flapforge.png` (256²), `flapforge.ico` (PNG-in-ICO, 16/32/48
 per-OS file to `jpackage --icon`. The tool is presentation-adjacent but ships in the `tools`
 source set, run by `./gradlew iconExport`.
 
+## Android port `[M10]`
+
+M10 runs the game on Android without libGDX, a game engine or a second
+renderer. The whole presentation layer speaks `java.awt` — the census behind
+the shims counts 246 `setColor` sites, 103 `setFont`, 72 `fill(Shape)` and so
+on — so the port keeps that vocabulary and changes what the names resolve to.
+Everything lives under `android/`, a separate Gradle build
+(`./gradlew -p android ...`, AGP 9.4.0 on the same wrapper) that the desktop
+build never configures.
+
+```text
+android/
+├── build.gradle            the transformSources task, the gate, the APK configuration
+├── gradle.properties       kotlin.stdlib.default.dependency=false: no Kotlin stdlib in the APK
+├── p0/transform_prototype.py   the executable spec of the transform (P0)
+├── tools/IconGen.java      launcher-icon generator, run by hand against the desktop classes
+└── src/
+    ├── main/AndroidManifest.xml
+    ├── main/res/           launcher icon: mipmap-*/ PNGs, adaptive-icon XMLs, values/colors.xml — all from ProceduralArt.icon
+    ├── main/java/awt/, jssound/, jimageio/      the shim packages (P1)
+    ├── main/java/io/github/michelbr84/flapforge/android/   the Android host (P2/P3)
+    └── test/java/...       Robolectric and pure-JVM tests, a test-only copy of the OFL font
+```
+
+### Why a source transform, not an abstraction layer
+
+Wrapping Java2D behind a `Renderer` interface would have meant rewriting the
+render, ui and audio packages — every one of those call sites — and routing
+the desktop build through the wrapper too, which is exactly the code the
+`v0.1.0` release froze. Instead the Android build **copies** `src/main/java`
+into `android/build/transformed/java`, rewriting three package prefixes, and
+compiles the copies against shim packages of the same shape. Consequences:
+
+- the desktop tree is a build *input*, never edited: the pure packages, the
+  render code and the desktop build stay byte-identical, and the published
+  hash (`eaaa01685261a433`) cannot move because nothing that produces it
+  changed;
+- the game runs *unchanged* on Android — `GameApplication`, the screens, the
+  renderers, the mixer — with only the toolkit underneath swapped;
+- what the shims must provide is finite and known: the census of members the
+  game calls.
+
+### The transform and its gate
+
+`TransformSourcesTask` (`android/build.gradle`; the executable spec is
+`android/p0/transform_prototype.py`) applies, in this order:
+
+| Rule | From | To | Guard |
+| --- | --- | --- | --- |
+| T1 | `javax.sound.sampled.` | `jssound.` | — |
+| T2 | `javax.imageio.` | `jimageio.` | — |
+| T3 | `java.awt.` | `awt.` | only when followed by an uppercase letter (a class) or by `geom.` / `image.` / `event.`, so the `"java.awt.headless"` property string survives |
+
+Six desktop-only files are excluded and replaced by the Android host:
+`app/GameWindow`, `app/BufferStrategyPresenter`, `app/AwtInputBridge`,
+`app/KeyRepeatFilter`, `app/AwtHost` and `Flapforge`; an excluded file that
+disappears from the tree fails the task rather than silently being
+transformed. After the forward pass a **double integrity gate** runs, both
+halves mandatory: (a) reversing the rules on every output must reproduce the
+source byte for byte — a rule that eats or corrupts anything fails here — and
+(b) no `java.awt.` / `javax.sound.sampled.` / `javax.imageio.` reference may
+survive in the output — a rule that misses something fails here. Either
+failure is a `GradleException` naming the files.
+`-PtransformSelfTest=breakReverse` mutates one output after the rewrite so (a)
+must fail; `breakForward` drops T2 so (b) must fail; CI runs the latter on
+every Android build, so a gate that stopped biting is itself a failure. The
+output directory is an extra `java` srcDir of the main source set, and every
+`JavaCompile` (and AGP 9's built-in Kotlin compile, which is fed the java
+srcDirs too) depends on the task. `../src/main/resources` is a second srcDir,
+so `data/*.json`, `assets/fonts` and `version.properties` land at the APK
+root, where `Class.getResourceAsStream("/data/...")` finds them exactly as in
+the fat jar.
+
+### The shim surface policy
+
+The shims (`android/src/main/java/{awt,jssound,jimageio}`) are
+**census-bound**: each class's javadoc lists every member the game calls with
+its call sites, and that list is the surface. A member outside the census is
+either absent — so a new use fails at compile time, where it is cheap — or,
+where a signature had to exist for the census path, throws
+`UnsupportedOperationException`: a real format conversion in
+`AudioSystem.getAudioInputStream(AudioFormat, AudioInputStream)`, for
+instance, which `SoundBank` never reaches because the reader only yields
+16-bit PCM. The semantics decisions the tests pin down:
+
+- `awt.Graphics2D` is a state machine over an `android.graphics.Canvas`: all
+  geometry flows through the `awt.geom` shims as double-precision segments,
+  is transformed by the pure-double `AwtMatrix` (composed exactly like
+  `AffineTransform`) and converted to float once, when the `Path` is built;
+  clips are captured in device space and intersected canvas-side; the paint
+  is one slot (`Color` or `GradientPaint`); the antialiasing and
+  interpolation hints map onto paint flags and the remaining census hints are
+  accepted and ignored; there is no composite state because no census site
+  sets one.
+- `awt.image.BufferedImage` wraps an `ARGB_8888` bitmap and exposes AWT's
+  non-premultiplied ARGB ints; `getSubimage` shares the parent pixels like
+  AWT (a view with an offset, not a copy); `TYPE_INT_RGB` starts opaque black
+  and forces alpha like AWT. One documented loss: Android stores
+  premultiplied pixels, so a translucent colour written with `setRGB` can
+  read back off by one channel unit — opaque and alpha-only values round-trip
+  exactly.
+- `awt.Font` wraps a `Typeface` plus a pixel size (sizes are pixels);
+  `createFont` copies the stream into a temp file under the app cache dir —
+  the one reason `Shims.init(Context)` exists — and the bundled OFL font goes
+  through the game's own `AssetManager.loadFont` path unchanged.
+  `GraphicsEnvironment.isHeadless()` is always `true`, which turns the
+  desktop's `compatible()` image path into dead code.
+- `jssound` parses RIFF/WAVE (16-bit PCM only, tolerant of extra chunks and
+  the 16/18/40-byte `fmt ` forms) and plays through one `AudioTrack` per
+  `SourceDataLine` in `MODE_STREAM` with blocking writes, a bounded `drain`
+  and an idempotent `close`. `AudioSystem.suspendOutput()` /
+  `resumeOutput()` are a host-only extension with no `javax.sound`
+  counterpart: the game has no suspend API (the mixer thread writes for as
+  long as its line is open), so the gate pauses every open track and parks
+  the writer on the line monitor until resume, stop or close — the mixer's
+  own shutdown order still terminates within its join timeout. The lock order
+  is the registry lock before any line monitor, never after.
+- `jimageio.ImageIO.read` decodes through `BitmapFactory` asking for
+  unpremultiplied, unscaled `ARGB_8888`, answers `null` for undecodable bytes
+  and refuses a `null` stream — the contract `AssetManager` expects.
+
+### The host seam (D8)
+
+The desktop side gained one seam so the transformed game could run on a
+different toolkit without a single platform check:
+
+```java
+interface GameHost {
+    AppWindow createWindow(String title, Integer requestedScale, boolean fullscreen);
+    FramePresenter createPresenter(AppWindow window, Viewport viewport, FrameRenderer renderer);
+    InputBridge createInputBridge(InputQueue queue);
+    int displayRefreshRateHz();
+}
+```
+
+`GameApplication.start(LaunchOptions, GameHost)` owns the order — content,
+settings, profile, then window, presenter and bridge, then the loop thread —
+and the host owns the toolkit behind each object. `AppWindow` is the four
+things the application needs from a window (canvas width and height, icons,
+dispose); `InputBridge` is attach/detach with the contract that attaching ends
+with a synthetic `Resized`. `AwtHost` is the desktop implementation
+(`GameWindow` on the EDT, `BufferStrategyPresenter`, `AwtInputBridge`) and
+absorbed every toolkit type `GameApplication` used to name — window creation
+with the headless/`AWTError` fallback, the display refresh rate — so
+`GameApplication` compiles against the shims without seeing one.
+`AppVersion` took the `version.properties` reader out of the excluded entry
+point. `Flapforge.main` and `SmokeWindowTest` pass `new AwtHost()`; nothing
+else on the desktop changed.
+
+### The Android host and its threads
+
+`io.github.michelbr84.flapforge.android` (`android/src/main/java`):
+
+| Class | Role |
+| --- | --- |
+| `MainActivity` | the entry point: `Shims.init` and `SavePaths.override(getFilesDir())` before anything else, immersive sticky fullscreen, keep-screen-on, the `GameSurfaceView` as content view, the back gesture on the `OnBackInvokedDispatcher`; boots the game once the surface has a size and finishes when the loop ends |
+| `GameSurfaceView` | a `SurfaceView` with a software `RGBA_8888` canvas; owns the surface lifecycle state under one lock that `draw` holds for a whole frame, so `surfaceDestroyed` blocks until the frame in flight is posted |
+| `SurfacePresenter` | the `FramePresenter`: locks the canvas, wraps it in `awt.Graphics2D`, paints letterbox + viewport + renderer exactly like `BufferStrategyPresenter`, posts; skips (and counts) when there is nothing to draw on; always reports fullscreen |
+| `AndroidWindow` | the `AppWindow` over the view: the surface size; icons and dispose are no-ops |
+| `AndroidHost` | the `GameHost`: builds the three objects around the activity's view, keeps the viewport for the bridge, and samples the screen stack once per frame on the loop thread to tell the bridge whether a run is on top |
+| `AndroidInputBridge` | the `InputBridge`: touch events and surface sizes to `RawInput`, plus the helpers the activity feeds (`key`, `focusLost`, `iconified`, `closeRequested`) |
+
+Four threads matter, and each owns one kind of state:
+
+- **UI thread** — every activity callback, surface callback and touch event.
+  It only ever *enqueues* `RawInput` records and flips the audio gate; the
+  bridge's gesture state is UI-thread-only.
+- **Boot thread** (`flapforge-android-boot`, distinct from the game's own
+  `flapforge-boot` step threads) — created by the first sized
+  `surfaceChanged`: seeds the first-run settings (`holdToFlap = true` when no
+  `settings.json` exists, through `SettingsStore` on a direct executor),
+  calls `GameApplication.start(LaunchOptions.DEFAULTS, host)` exactly once,
+  hands the screen stack to the host, then waits for the loop thread to end
+  and finishes the activity from the UI thread. A launch that aborts before
+  the loop starts finishes the activity too.
+- **Loop thread** (`flapforge-loop`, the game's own) — ticks and presents as
+  on the desktop; `present` first runs the host's frame hook (the one place
+  host code reads loop-owned state — `ScreenManager.top() instanceof
+  GameScreen` — and publishes it as a volatile flag), then draws under the
+  view's lifecycle lock. During shutdown it disposes the presenter and
+  detaches the bridge.
+- **Mixer thread** (`flapforge-audio`, the game's own `SoftwareMixer` on
+  `Threads.audioThreadFactory()`) — writes to the `AudioTrack`; parked by the
+  output gate while the activity is paused, released by resume, stop or
+  close. The save executor (`flapforge-save`) is unchanged.
+
+Lifecycle, as events on the queue or actions on the shims:
+
+| Callback | Effect |
+| --- | --- |
+| `onStart` / `onStop` | `Iconified(false)` / `Iconified(true)` — a live run pauses, the attract demo waits; the loop keeps running (stopping it in the background is a later step) |
+| `onResume` / `onPause` | `AudioSystem.resumeOutput()` / `FocusLost` then `AudioSystem.suspendOutput()` — the run pauses as on a desktop focus loss, every held key and button is released, the output goes silent at once |
+| `onWindowFocusChanged(true)` | re-enters immersive mode (the bars otherwise come back for good after a dialog or the task switcher) |
+| back gesture | an `ESCAPE` tap through the bridge (`BACK` on menus, `PAUSE` in a run); the activity never finishes itself here — quitting is the game's own path |
+| `onDestroy` | `CloseRequested` and a bounded wait (3 s) for the loop, so the exit save drains; a destroy that races the boot waits for it, and a boot that outlasts the wait quits the game it just started |
+
+Gestures, all resolved in the bridge without touching the queue's contract:
+
+| Touch | Queue | Why |
+| --- | --- | --- |
+| `ACTION_DOWN` | `MouseMove` then `MouseDown(BUTTON_LEFT)` | the pointer always moves before it clicks; the press goes out on the down edge, never after classification, because a run flaps on the press |
+| mostly vertical drag past the touch slop | `Wheel` notches, one per 24 surface px of displacement from the press point (only the growth of the truncated total, so dragging back un-scrolls) | the sign is traced through the screens' `scroll -= wheel * WHEEL_STEP`: a finger moving up must reveal what lies below, which is the notch a wheel rolled away from the user produces. A sideways-first drag is locked horizontal and never scrolls (a slider knob is dragged, not the list under it) |
+| second finger while the first is down | `MouseDown(BUTTON_RIGHT)` at its pixel, `MouseUp` on its lift; the first keeps `BUTTON_LEFT` | the desktop's right button is the ability; pairing is by pointer id in either lift order, and `ACTION_CANCEL` releases whatever is held |
+| first-finger press within `ABILITY_RADIUS + 10` logical px of the HUD badge (`HudRenderer.ABILITY_CX/CY`) while a `GameScreen` is on top | `BUTTON_RIGHT` instead of `BUTTON_LEFT`, press and release alike | the zone is on only during a run: the tab bars of the shop, the upgrades and the achievements, the bird roster and the challenge list all start in that corner, and the pause and game-over overlays act on any left click |
+| `surfaceChanged` | `Resized` | the loop-owned viewport follows the surface as it follows the AWT canvas |
+
+Clicks resolve on the press edge in every component (`FocusRing`, `ListView`,
+`TabBar` and `Slider` act on `isMouseJustPressed`), so a drag that starts on
+a list item selects it before it scrolls; moving the menus to
+click-on-release would be a desktop-side decision the bridge does not make.
+
+### What Robolectric verifies, and what it cannot
+
+The Android tests (`android/src/test`; JUnit 4, Robolectric 4.16,
+`@Config(sdk = 35)`, `@GraphicsMode(NATIVE)`) run in the JVM against
+Robolectric's real `android.graphics` natives, which is what makes the shim
+tests plain unit tests instead of emulator runs. They do prove:
+
+- **pixels** — every `Graphics2D` semantics decision (arc orientation, fill
+  rules, gradients, dash phase, transform order, device-space clipping,
+  stroke versus fill, baseline text, the `drawImage` variants, shared
+  subimages) is rasterised by Skia into an ARGB `BufferedImage` and read
+  back;
+- **fonts** — the bundled OFL font loads through the game's own path
+  (`getResourceAsStream` + `Font.createFont`), derives and draws;
+- **audio** — the WAVE reader byte for byte; `SourceDataLine`'s lifecycle and
+  the bytes that reach the `AudioTrack`; the output gate's parking and
+  release, including the real `SoftwareMixer` shutting down while suspended
+  (`ShadowAudioTrack` keeps the platform's own play states, so a released
+  track refusing to play is real logic);
+- **input** — real `MotionEvent`s dispatched to the view arrive on the
+  `InputQueue` as the desktop's mouse events, observed through `nextTick()`
+  the way the loop observes them;
+- **the boot and the lifecycle** — the activity starts the real
+  `GameApplication` (content, settings, profile, fonts, the audio warm-up);
+  a tap on Play through the real touch path starts a run and switches the
+  badge zone on; pause, resume, stop, start and back reach the screen
+  manager; quit drains the save into the app's files dir — and
+  `DesktopProfileGuard` fingerprints `~/.flapforge` before and after every
+  boot, so the Android path cannot touch the desktop profile without the
+  suite failing.
+
+They cannot prove: drawing on a real `Surface` — `ShadowSurfaceView`'s holder
+never hands out a canvas, so every present in the tests is a counted skip and
+the frame body is exercised through a `BufferedImage`-backed `Graphics2D`
+instead; audio timing — the shadow takes every write in full at once and
+parks the playback head at the last frame, so a `drain` finishes on its first
+poll and every wait observed is the shim's own; frame pacing, display density
+and the platform touch slop (the bridge tests pass an explicit slop); the
+immersive-mode window flags; installation and the debug signature; and
+performance on hardware. Those remain a device run.
+
 ## Package tree with milestone tags
 
 The tree below is the authoritative file plan (Appendix A §3 of the
@@ -808,7 +1060,7 @@ removed from the tree once this table superseded it.
 ## Further reading
 
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) — building, running, testing, flags,
-  coding rules.
+  coding rules, and the Android build `[M10]`.
 - `BALANCING.md` `[M1]` — the physics conversion table and simulation
   results.
 - `SAVE_SYSTEM.md` `[M3]`, `PROGRESSION.md` and `CONTENT.md` `[M4]`,

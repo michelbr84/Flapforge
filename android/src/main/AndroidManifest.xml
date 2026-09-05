@@ -3,6 +3,8 @@
 
     <application
         android:label="Flapforge"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
         android:hardwareAccelerated="false"
         android:enableOnBackInvokedCallback="true">

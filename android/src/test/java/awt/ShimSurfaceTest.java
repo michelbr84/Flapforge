@@ -248,6 +248,37 @@ public class ShimSurfaceTest {
     }
 
     @Test
+    public void appendOfADegenerateShapeLeavesTheOpenSubpathAlone() {
+        // append hands the live path to the shape (no temporary sink since the allocation pass),
+        // so a shape whose outline is empty must neither line to its own centre nor close the
+        // subpath the caller has open: the result equals appending through a fresh sink.
+        Arc2D.Double zeroSweep = new Arc2D.Double(Arc2D.PIE);
+        zeroSweep.setArc(50, 50, 20, 20, 0, 0, Arc2D.PIE);
+        Arc2D.Double zeroRadius = new Arc2D.Double(Arc2D.CHORD);
+        zeroRadius.setArc(50, 50, 0, 20, 0, 90, Arc2D.CHORD);
+        Shape[] degenerate = {zeroSweep, zeroRadius, new Ellipse2D.Double(50, 50, 0, 20),
+                new Ellipse2D.Double(50, 50, 20, -1)};
+        for (Shape shape : degenerate) {
+            for (boolean connect : new boolean[] {false, true}) {
+                Path2D.Double path = new Path2D.Double();
+                path.moveTo(0, 0);
+                path.lineTo(2, 0);
+                path.append(shape, connect);
+                path.lineTo(2, 2); // still open: a leaked close would make this throw
+                assertFrame(0, 0, 2, 2, path.getBounds2D()); // and no centre point crept in
+            }
+        }
+
+        // The non-degenerate forms still close what they opened, and only that: the quadrant
+        // pie (3 o'clock to 12 o'clock of a 20 x 20 frame, plus its centre) joins the bounds.
+        Path2D.Double path = new Path2D.Double();
+        path.moveTo(0, 0);
+        path.lineTo(2, 0);
+        path.append(pie(), false);
+        assertFrame(0, 0, 20, 10, path.getBounds2D());
+    }
+
+    @Test
     public void appendToRoundTripsEveryShape() {
         Shape[] shapes = {new Rectangle2D.Double(1, 1, 2, 2), new Ellipse2D.Double(0, 0, 4, 2),
                 new RoundRectangle2D.Double(0, 0, 10, 10, 4, 4), new Line2D.Double(0, 0, 3, 3),

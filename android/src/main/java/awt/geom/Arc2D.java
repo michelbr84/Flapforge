@@ -122,8 +122,13 @@ public abstract class Arc2D implements Shape {
         public void appendTo(Path2D.Double sink) {
             double cx = x + width / 2d;
             double cy = y + height / 2d;
-            Path2D.appendArc(sink, cx, cy, width / 2d, height / 2d, start, extent, true);
-            if (type == PIE && sink.hasCurrentPoint()) {
+            // The closure segments belong to the subpath the arc opened. A degenerate arc opens
+            // none, so it appends nothing at all — the sink may be a live path with a subpath of
+            // its own open (Path2D.append), which must be left exactly as it was.
+            if (!Path2D.appendArc(sink, cx, cy, width / 2d, height / 2d, start, extent, true)) {
+                return;
+            }
+            if (type == PIE) {
                 sink.lineTo(cx, cy);
             }
             if (type != OPEN) {

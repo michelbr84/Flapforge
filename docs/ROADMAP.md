@@ -20,6 +20,25 @@ M0–M9, one commit each on `rewrite/flapforge` (tagged `v0.1.0`):
 Also in 0.1.0: `speed_run_1` retuned 40 → 30 gates (BALANCING.md §11.1) and the `glide_1`
 retune (§12) — both measured, both recorded.
 
+## M10 — Android port (done; attached to the 0.1.0 release)
+
+M10 shipped after the `v0.1.0` tag as commits on `rewrite/flapforge` (`be5cb13` P0 spike,
+`a1b824b` P1 shims, `0e9bff2` P2 host seam and transform, `41fd006` P3 gestures and lifecycle,
+then the P4 CI/docs pass) and joins the same release: the APK is attached to `v0.1.0` as
+`Flapforge-0.1.0-android.apk` — no new tag and no version bump, because desktop behaviour did
+not change (the host seam is a refactor behind the same hash) and the published hash
+(`eaaa01685261a433`) is untouched. The port is
+libGDX-free: a build-time source transform (`android/build.gradle`) rewrites `java.awt.*`,
+`javax.sound.sampled.*` and `javax.imageio.*` into three census-bound shim packages over
+`android.graphics` / `android.media`, guarded by a double integrity gate with a self-test; a
+host seam (`GameHost` / `AppWindow` / `InputBridge`) lets the unchanged game run on a
+`SurfaceView` presenter with touch gestures (tap = flap, drag = wheel, second finger or the
+HUD badge = ability, back = `Esc`), the activity lifecycle mapped onto the game's own
+focus/iconify/close events, hold-to-flap on by default, a launcher icon generated from the
+procedural desktop icon, and 201 tests (JUnit 4, most under Robolectric). `minSdk 33`,
+`compileSdk 36`, debug-signed for sideloading. Details: `docs/ARCHITECTURE.md` ("Android
+port") and `docs/DEVELOPMENT.md` ("Android build").
+
 ## Deferred, with next-step anchors
 
 * **Leaderboards** — needs online infrastructure 1.0 does not have. `runHistory` (capped
@@ -43,6 +62,16 @@ retune (§12) — both measured, both recorded.
 * **Original art and SFX packs** — the procedural default ships; original assets land
   through `assets/manifest.json` entries (id → path, licence, provenance) with zero code
   changes. `IconExport`/`AssetValidator` already validate the manifest.
+* **Android: stop the loop while the activity is stopped** — `onStop` only queues
+  `Iconified(true)`; the loop thread keeps ticking in the background while the presenter
+  skips. `MainActivity`'s javadoc marks stopping it as the next step; the seams are the queue
+  (`CloseRequested`) and a restart on `onStart`.
+* **Android: store distribution** — the APK is debug-signed and sideloaded by decision. A
+  store listing needs a release keystore and `minifyEnabled` with keep rules for the Gson
+  record reflection.
+* **Android: keyboard and gamepad** — the host reads no key events; a Bluetooth keyboard does
+  nothing. `AndroidInputBridge.key(int)` already turns a key code into the queue's press/release
+  pair, so a `View.OnKeyListener` mapping Android key codes onto `input.Keys` is the whole job.
 
 ## Beyond 1.0 (candidate order)
 

@@ -5,7 +5,8 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Flapforge's own history starts at `0.1.0` (2026-09-03), the milestone M0–M9
-release. The section
+release; the M10 Android port joined that release on 2026-09-05 as an addendum
+inside the same section, not as a new version. The section
 "Inherited upstream history" at the end preserves the release notes of the
 project Flapforge was forked from, [kingyuluk/FlappyBird](https://github.com/kingyuluk/FlappyBird),
 for attribution; those versions were never Flapforge releases.
@@ -1549,6 +1550,126 @@ is fixed here, with a test that fails without the fix.
   `build/libs/flapforge-0.1.0-all.jar`. The published determinism hash
   (`hash=eaaa01685261a433` for `--headless-run 3000 --seed 42`) is unchanged
   and re-verified with the new jar name on JDK 17 and JDK 21.
+
+### Added — M10: Android port (addendum; APK attached to the same release, 2026-09-05)
+
+The port ships as `Flapforge-0.1.0-android.apk` on the existing `v0.1.0`
+release rather than as a new version: desktop behaviour did not change
+(the host seam is a refactor behind the same hash), the published determinism hash (`hash=eaaa01685261a433` for
+`--headless-run 3000 --seed 42`) is unchanged, and the APK is versioned
+`0.1.0` (`versionCode 1`) like the jar and the bundles.
+
+- **Build-time source transform** (`android/build.gradle`, task
+  `transformSources`; the executable spec is
+  `android/p0/transform_prototype.py`): copies `src/main/java` into
+  `android/build/transformed/java` rewriting `javax.sound.sampled.` →
+  `jssound.`, `javax.imageio.` → `jimageio.` and `java.awt.` → `awt.` (the
+  last only before a class name or the `geom.` / `image.` / `event.`
+  subpackages, so the `"java.awt.headless"` property name survives), and
+  skips the six desktop-only files (`app/GameWindow`,
+  `app/BufferStrategyPresenter`, `app/AwtInputBridge`, `app/KeyRepeatFilter`,
+  `app/AwtHost`, `Flapforge`). A double integrity gate fails the build unless
+  reversing the rules reproduces every source byte for byte *and* no desktop
+  prefix survives in the output; `-PtransformSelfTest=breakReverse|breakForward`
+  breaks one half each to prove the gate bites. 318 files transformed, 6
+  excluded; the desktop tree is never edited.
+- **Shim packages** under `android/src/main/java`, census-bound (every member
+  the game calls, with its call sites in the javadoc, and nothing else):
+  `awt` — `Graphics2D` over `android.graphics.Canvas` with a pure-double
+  `AwtMatrix`, device-space clipping, even-odd and non-zero paths,
+  AWT-oriented arcs, dashed strokes, gradient paints and baseline
+  `drawString`; `Color`, `Font`/`FontMetrics` over `Typeface`, `BasicStroke`,
+  `GradientPaint`, `RenderingHints`, the `geom` shapes,
+  `image.BufferedImage` over an `ARGB_8888` bitmap with AWT's shared-raster
+  `getSubimage`, and a `GraphicsEnvironment` that is always headless;
+  `jssound` — a RIFF/WAVE 16-bit PCM reader behind
+  `AudioSystem.getAudioInputStream`, `SourceDataLine` over `AudioTrack` in
+  stream mode, and the host-only `AudioSystem.suspendOutput()` /
+  `resumeOutput()` gate that pauses every open track and parks the mixer
+  thread while the activity is in the background; `jimageio` —
+  `ImageIO.read` via `BitmapFactory`, unpremultiplied. Members outside the
+  census either do not exist or throw `UnsupportedOperationException`.
+- **`Graphics2D` allocation pass**: the draw path allocates nothing in the
+  steady state. `FontMetrics` is created once per (immutable) `Font` and
+  cached on it, over the font's one never-mutated measuring paint; a context
+  recycles one `Path2D.Double` sink, one `android.graphics.Path`, scratch
+  `awt.geom` shapes for the integer convenience methods and the float buffer
+  and `Rect` of the image/text pipeline (`AwtMatrix.transformX/Y`,
+  `toFloatValues`); clipping brackets a draw with plain save/restore calls
+  instead of a captured `Runnable`; a single-entry `LinearGradient` cache
+  keyed on the device-space end points and colours serves repeated identical
+  gradients within one context (the host opens a fresh context per frame, so
+  the sky gradient still costs one `LinearGradient` per frame on the device);
+  `Path2D.append` writes straight into the path, and the
+  `Shape.appendTo` contract says a shape closes only the subpath it opened
+  (a degenerate arc or ellipse appends nothing), so the result equals the
+  former fresh-sink copy. `Graphics2DAllocationTest` measures a frame-like
+  batch (300 fills, 100 draws, 50 `getFontMetrics` + `drawString`, 10
+  `drawImage`): about 480 KB → 19 KB per batch (two runs on the original shim measured 480,087 and 480,725 bytes; 19,133 after).
+- **Host seam** in the desktop code: `app.GameHost`, `app.AppWindow` and
+  `app.InputBridge`; `GameApplication.start(LaunchOptions, GameHost)` asks the
+  host for the window, the presenter, the input bridge and the display
+  refresh rate; `app.AwtHost` is the desktop implementation and absorbed
+  every toolkit type `GameApplication` used to name; `app.AppVersion` owns
+  the `version.properties` reader so nothing the transformed game needs lives
+  in the desktop entry point. Desktop behaviour is unchanged.
+- **Android host** (`android/src/main/java/io/github/michelbr84/flapforge/android`):
+  `MainActivity` — immersive fullscreen, keep-screen-on,
+  `SavePaths.override` to the app's files directory before anything else, the
+  game booted on a dedicated `flapforge-android-boot` thread once the surface
+  has a size, back gesture → `ESCAPE`, `onPause` → `FocusLost` + audio
+  suspend, `onResume` → audio resume, `onStop`/`onStart` → `Iconified`,
+  `onDestroy` → `CloseRequested` with a bounded wait for the exit save;
+  `GameSurfaceView` + `SurfacePresenter` — the desktop presenter's frame body
+  on a software `SurfaceView` canvas, with a lifecycle lock so a destroyed
+  surface is never drawn; `AndroidWindow`, `AndroidHost` and
+  `AndroidInputBridge` — a touch is the mouse: tap = left button on the
+  press edge, a mostly vertical drag = wheel notches every 24 px, a second
+  finger or a press on the HUD ability badge during a run = right button,
+  `surfaceChanged` = `Resized`. On the first run the boot thread writes
+  `settings.json` with `holdToFlap = true`; an existing file is never
+  rewritten.
+- **APK**: AGP 9.4.0 on the Gradle 9.7.1 wrapper as a separate build
+  (`./gradlew -p android ...`), `applicationId io.github.michelbr84.flapforge`,
+  `minSdk 33`, `compileSdk`/`targetSdk 36`, `versionName 0.1.0` /
+  `versionCode 1`, release signed with the debug keystore for sideloading,
+  `minifyEnabled false` (Gson reflects over the record types); the desktop
+  resources (`data/*.json`, `assets/fonts`, `version.properties`) land at the
+  APK root where `Class.getResourceAsStream` finds them; 1,602,691 bytes
+  (about 1.5 MiB), 40 entries.
+- **Launcher icon** from the desktop procedural icon:
+  `android/tools/IconGen.java` renders `render.ProceduralArt.icon(int)` — the
+  vector `drawIcon` that `./gradlew iconExport` uses for the desktop bundles
+  — into `android/src/main/res/` (legacy, round and adaptive-foreground PNGs
+  for mdpi–xxxhdpi, `values/colors.xml` with the Green Fields sky-top
+  background) next to two static adaptive-icon XMLs; the manifest declares
+  `android:icon` and `android:roundIcon`. The tool needs `java.desktop`, so
+  it runs by hand against the desktop classes, not from Gradle, and its
+  output is deterministic.
+- **No Kotlin standard library**: `android/gradle.properties` sets
+  `kotlin.stdlib.default.dependency=false`. AGP 9's built-in Kotlin support
+  otherwise adds `kotlin-stdlib` to a project with no Kotlin sources — 1,079
+  classes and eight `kotlin/*.kotlin_builtins` entries that nothing
+  referenced; the release APK went from 3,588,389 to 1,522,607 bytes before
+  the icons were added.
+- **CI**: `.github/workflows/android.yml` runs the transform,
+  `assembleRelease` and the unit tests on every push that touches `android/`
+  or `src/main/`, proves the integrity gate with
+  `-PtransformSelfTest=breakForward`, and uploads the APK and the JUnit
+  report; `release.yml` gains an `android` job that builds the APK on a `v*`
+  tag, checks its `versionName` against `version.properties` and attaches it
+  as `Flapforge-<version>-android.apk` beside the bundles.
+- **Tests** (`android/src/test`, JUnit 4 + Robolectric 4.16,
+  `@Config(sdk = 35)` with native Skia rasterisation): 201 tests in 20
+  classes — pixel proofs of the `Graphics2D` semantics, an allocation
+  tripwire for its hot path, `Path2D.append` parity with a fresh sink,
+  `BufferedImage`,
+  fonts (the bundled OFL font through the game's own load path), `ImageIO`,
+  byte-for-byte WAVE parsing, `SourceDataLine` and the output gate over
+  `ShadowAudioTrack`, the touch bridge through real `MotionEvent`s, the
+  presenter, and a real boot of the game inside the activity (Play tapped, a
+  run flapped and paused, back to the menu, quit) with `DesktopProfileGuard`
+  fingerprinting `~/.flapforge` before and after.
 
 ## Inherited upstream history (kingyuluk/FlappyBird)
 

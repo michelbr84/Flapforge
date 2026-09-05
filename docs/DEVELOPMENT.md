@@ -16,6 +16,7 @@ rules that every change must respect.
 | Git | to clone and contribute |
 | A desktop session | Linux (X11 or Wayland/XWayland), Windows 10+, macOS 12+. The game is a pure AWT/Java2D application: no OpenGL, no native libraries. |
 | Nothing else | No Gradle installation: the repository ships the Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/*`), which downloads Gradle 9.7.1 on first use and caches it under `~/.gradle`. |
+| Android SDK (APK only) | platform `android-36` and build-tools `36.0.0`, plus `android/local.properties` — see "Android build" `[M10]`. Not needed for anything desktop. |
 
 ## Bootstrapping
 
@@ -67,6 +68,7 @@ Optionally pin `distributionSha256Sum` in
 | `./gradlew assetValidator` | `[M7]` validate `assets/manifest.json` and referenced files |
 | `./gradlew iconExport` | `[M9]` export the procedural icon for `jpackage` |
 | `./gradlew test -Pflapforge.updateGolden` | `[M1]` regenerate golden fixtures on purpose |
+| `./gradlew -p android transformSources assembleRelease test` | `[M10]` the Android port: a separate build under `android/` (source transform, APK, Robolectric tests) — see "Android build" below |
 
 Wrapper scripts: `scripts/build.sh` / `scripts\build.ps1` run `build fatJar`;
 `scripts/run.sh` / `scripts\run.ps1` run `run` and forward every argument to
@@ -253,6 +255,153 @@ DISPLAY=:0 ./gradlew smokeTest
   could not be reproduced on the development machine (12 consecutive green
   runs); it is a build-tool artefact, not a test failure.
 
+## Android build `[M10]`
+
+The Android port is a second Gradle build under `android/`, driven by the
+same wrapper with `-p android`; the root build never configures it and the
+desktop tasks above never see it. It compiles a *transformed copy* of
+`src/main/java` against the shim packages — the design is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md) ("Android port") — so an Android build
+never edits the desktop tree.
+
+### Prerequisites
+
+| Requirement | Notes |
+| --- | --- |
+| JDK 17 | the same toolchain as the desktop build (on the dev machine `~/.gradle/gradle.properties` pins `org.gradle.java.home`; the repository's `gradle.properties` does not) |
+| Android SDK: platform `android-36`, build-tools `36.0.0` | `compileSdk 36` under AGP 9.4.0. Install with `sdkmanager --install "platforms;android-36" "build-tools;36.0.0"` (`cmdline-tools/latest/bin/sdkmanager` in the SDK); no emulator, no NDK, no Android Studio |
+| `android/local.properties` | one line, `sdk.dir=/path/to/Android/Sdk`; git-ignored, so create it per machine — or export `ANDROID_HOME`, which AGP reads when the file is absent (CI does that) |
+| Network, once | the first build resolves AGP, Gson 2.14.0, JUnit 4.13.2 and Robolectric 4.16; the first test run also fetches Robolectric's `android-all-instrumented` jar for SDK 35 into `~/.m2` |
+
+### The three commands
+
+```bash
+./gradlew -p android transformSources   # rewrite src/main/java -> android/build/transformed/java, gated
+./gradlew -p android assembleRelease    # transform (if stale) + compile + dex + sign -> the APK
+./gradlew -p android test               # transform + Robolectric unit tests; no device, no emulator
+```
+
+They compose: `./gradlew -p android transformSources assembleRelease test` is
+the gate CI runs (`.github/workflows/android.yml`) and the one every M10
+change must pass. `assembleRelease` and `test` depend on the transform, so the
+first command on its own only matters when you want to inspect the rewritten
+tree.
+
+`transformSources` prints its tally —
+`318 files transformed, 6 excluded (desktop-only), round-trip OK, 0 surviving refs`
+— and fails the build with `INTEGRITY GATE FAILED`, listing the offending
+files, when either half of the gate trips: (a) reversing the rules must
+reproduce every source byte for byte, (b) no `java.awt.` /
+`javax.sound.sampled.` / `javax.imageio.` reference may survive. A renamed
+desktop-only file fails the task too (`excluded files missing under ...`), so
+the exclusion list in `android/build.gradle` must follow a rename.
+
+### Proving the gate bites
+
+`-PtransformSelfTest=<mode>` deliberately breaks one half and expects the
+failure (the default build never sets it):
+
+```bash
+./gradlew -p android transformSources -PtransformSelfTest=breakReverse   # gate (a): 1 file does not round-trip
+./gradlew -p android transformSources -PtransformSelfTest=breakForward   # gate (b): 1 surviving ref, AssetManager.java:27
+```
+
+`breakReverse` appends a comment to the first output file after the rewrite;
+`breakForward` drops rule T2, so `import javax.imageio.ImageIO;` survives.
+Both must end in `BUILD FAILED` with `INTEGRITY GATE FAILED` — a green run
+here is a bug. Any other mode value is rejected. Both modes leave a poisoned
+output tree behind on purpose: the failed task is not up to date, so the next
+plain build regenerates `build/transformed/java` from scratch. CI runs
+`breakForward` on every Android build and fails when it passes.
+
+### Where things land
+
+| Output | Path |
+| --- | --- |
+| transformed sources | `android/build/transformed/java/` (mirrors `src/main/java` minus the six excluded files) |
+| release APK | `android/build/outputs/apk/release/Flapforge-android-release.apk` (about 1.5 MiB; `output-metadata.json` beside it carries `versionName`/`versionCode`). The release asset is this file renamed `Flapforge-<version>-android.apk` |
+| JUnit XML | `android/build/test-results/testDebugUnitTest/TEST-*.xml`, one per class (what CI publishes) |
+| HTML report | `android/build/reports/tests/testDebugUnitTest/index.html` |
+
+Check what went into the APK with
+`unzip -l android/build/outputs/apk/release/Flapforge-android-release.apk`
+(40 entries): two dex files (`classes.dex` — the transformed game, the shims,
+the host and Gson, 1059 classes; `classes2.dex` — one class),
+`AndroidManifest.xml`, the desktop resources at the root (`data/*.json`,
+`data/strings/*.json`, `assets/manifest.json`, `assets/fonts/*`,
+`version.properties`), the launcher icon under `res/` (fifteen PNGs and two
+adaptive-icon XMLs, under the short names AAPT2 assigns) with
+`resources.arsc`, and two `META-INF/` build-metadata files. Nothing from the
+Kotlin standard library: AGP 9's built-in Kotlin support adds `kotlin-stdlib`
+to the runtime classpath of a project without Kotlin sources, and
+`android/gradle.properties` (`kotlin.stdlib.default.dependency=false`) keeps
+it out — no `kotlin/*` entry, no `Lkotlin/` descriptor in either dex. No
+`java.awt`, `javax.sound` or `javax.imageio` descriptor exists in the dex
+either (`build-tools/36.0.0/dexdump -d classes.dex | grep -cE
+'Ljava/awt|Ljavax/sound|Ljavax/imageio'` prints 0) — what gate (b) guarantees
+at the source level. `aapt2 dump badging` on the APK prints the package,
+`versionCode`/`versionName`, the `Flapforge` label and the icon resource for
+every density.
+
+### Tests and the real profile
+
+The unit tests run under Robolectric 4.16 (`@RunWith(RobolectricTestRunner)`,
+`@Config(sdk = 35)`, `@GraphicsMode(NATIVE)` for real Skia rasterisation);
+the pure-JVM shim tests need no runner. Two things to know:
+
+- **`~/.flapforge` is off limits, and the suite proves it.** The activity
+  tests boot the *real* game — content, settings, profile, fonts, the audio
+  warm-up — inside `MainActivity`, which calls
+  `SavePaths.override(getFilesDir())` before anything else, unconditionally.
+  `DesktopProfileGuard` fingerprints the desktop profile directory before the
+  activity is created and again after the game has shut down, and fails on
+  any difference. Keep that order: nothing that runs before the override may
+  touch `SavePaths`, and no Android test may set `--home` or the
+  `flapforge.home` property. After a run, `md5sum ~/.flapforge/*.json` must
+  be what it was.
+- **Robolectric's `SurfaceView` has no canvas**, so a present on a "created"
+  surface is a counted skip in the tests; the presenter's frame body is
+  tested through a `BufferedImage`-backed `awt.Graphics2D`. A test that
+  expects `presentCount` to grow will never pass under Robolectric.
+
+The results are counted per class in the XML: the M10 suite is 201 tests in
+20 classes, 0 failures, and the count is part of every M10 change's gate.
+
+### Launcher icon
+
+The manifest declares `android:icon="@mipmap/ic_launcher"` and
+`android:roundIcon="@mipmap/ic_launcher_round"`, and everything under
+`android/src/main/res/` derives from the desktop procedural icon —
+`render.ProceduralArt.icon(int)`, the same vector `drawIcon` that
+`./gradlew iconExport` renders for the desktop bundles — so the launcher icon
+cannot drift from the window icon. `android/tools/IconGen.java` writes, per
+density bucket (`mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}`, 1x to 4x):
+`ic_launcher.png` (the 48 dp legacy icon: the full tile),
+`ic_launcher_round.png` (the tile cut to its inscribed disc) and
+`ic_launcher_foreground.png` (the adaptive-icon foreground: a transparent
+108 dp canvas with the tile scaled to the 66 dp safe zone), plus
+`values/colors.xml` with `ic_launcher_background` — the Green Fields sky-top
+colour (`WorldPalette.GREEN_FIELDS.skyTop()`, `#4BC4CF`) behind the adaptive
+foreground. The two `mipmap-anydpi-v26/*.xml` adaptive-icon definitions are
+static and reference those resources; `aapt2 dump badging` on the APK lists
+the icon for every density.
+
+The tool needs `java.desktop`, which the Android project cannot see, so it is
+not a Gradle task. Run it from the repository root against the compiled
+desktop classes (`build/classes/java/main`, which the desktop `classes` task
+— part of every desktop build above — produces) whenever
+`ProceduralArt.drawIcon` or the palette changes, then commit the output:
+
+```bash
+javac -d build/icongen -cp build/classes/java/main android/tools/IconGen.java
+java -Djava.awt.headless=true -cp build/icongen:build/classes/java/main IconGen
+```
+
+An optional argument names the `res` directory (default
+`android/src/main/res`). The output is deterministic: re-running the tool over
+the checked-in tree rewrites every file byte for byte, so a diff after a run
+shows exactly what an icon or palette change did.
+
 ## Adding a player-facing string
 
 No literal the player can read may live in Java code. Every string goes through
@@ -347,7 +496,9 @@ short: `src/main/java` (game), `src/main/resources` (JSON content, strings,
 asset manifest, `version.properties`), `src/test` (unit, property,
 simulation, headless render and GUI smoke tests, fixtures), `src/tools`
 (balancing, save inspector, content check, asset validator, icon export),
-`scripts/`, `docs/`, `.github/`.
+`scripts/`, `docs/`, `.github/`, and `android/` `[M10]` (the Android port: its
+own Gradle build, the shim packages, the Android host and their Robolectric
+tests — see "Android build").
 
 ## Troubleshooting
 
@@ -363,3 +514,6 @@ simulation, headless render and GUI smoke tests, fixtures), `src/tools`
 | `smokeTest` fails with `EOFException` / `NoSuchFileException` under `build/test-results` after the tests passed | Gradle configuration-cache artefact; re-run with `--no-configuration-cache` |
 | The game is silent, `Audio: no output device (...)` on stderr | no usable output line (a container, a busy PulseAudio, no sound card); the game runs on `NullAudio`. `--no-audio` selects that path deliberately |
 | Settings changes are not remembered | check the profile directory (see above) is writable; a failed write raises a warning toast and a `SaveFailed` event |
+| The Android build cannot find the SDK | create `android/local.properties` with `sdk.dir=...`, or export `ANDROID_HOME`; then install `platforms;android-36` and `build-tools;36.0.0` with `sdkmanager` |
+| `INTEGRITY GATE FAILED` from a `-PtransformSelfTest=breakReverse` or `breakForward` run, or `android/build/transformed/java` left poisoned by one | expected: the flagged run is the self-test proving the gate, and it leaves the poisoned tree behind; the next plain `./gradlew -p android transformSources` re-executes and rebuilds it. If the gate fails *without* the flag, a rule ate or missed a reference — read the listed files |
+| An Android activity test fails in `DesktopProfileGuard` | the boot reached `~/.flapforge`: something ran before `SavePaths.override` in `MainActivity.onCreate`, or a test set `--home` / `flapforge.home`; restore the order, then check `md5sum ~/.flapforge/*.json` |

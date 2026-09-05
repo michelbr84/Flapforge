@@ -16,16 +16,26 @@ import android.graphics.Paint;
  * (render/TextPainter.java:76, the vertical-centring baseline). {@code getHeight()} is part of
  * the shim contract (semantics 7: stringWidth/getHeight/getAscent/getDescent) and follows the
  * AWT definition {@code leading + ascent + descent}. No other FontMetrics method is exercised.
+ *
+ * <p>Allocation profile: a {@link Font} is immutable, so its metrics are constant — the
+ * instance is created once per font (cached by {@link Font#metrics()}), the vertical metrics
+ * are read once here, and {@code stringWidth} measures through the font's shared, never-mutated
+ * paint. The object is therefore safe to hand to every thread that shares the font.
  */
 public class FontMetrics {
 
     private final Paint paint;
+    private final int leading;
+    private final int ascent;
+    private final int descent;
 
-    /** Package-visible: created by {@link Graphics2D#getFontMetrics()}. */
+    /** Package-visible: created once per font by {@link Font#metrics()}. */
     FontMetrics(Font font) {
-        paint = new Paint();
-        paint.setTypeface(font.typeface());
-        paint.setTextSize(Math.max(1f, font.size()));
+        paint = font.measurePaint();
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        leading = Math.round(fm.leading);
+        ascent = Math.round(-fm.ascent);
+        descent = Math.round(fm.descent);
     }
 
     /**
@@ -47,9 +57,7 @@ public class FontMetrics {
      * @return the line height in pixels
      */
     public int getHeight() {
-        Paint.FontMetrics fm = paint.getFontMetrics();
-        int leading = Math.round(fm.leading);
-        return leading + Math.round(-fm.ascent) + Math.round(fm.descent);
+        return leading + ascent + descent;
     }
 
     /**
@@ -58,7 +66,7 @@ public class FontMetrics {
      * @return the ascent in pixels, positive
      */
     public int getAscent() {
-        return Math.round(-paint.getFontMetrics().ascent);
+        return ascent;
     }
 
     /**
@@ -67,6 +75,6 @@ public class FontMetrics {
      * @return the descent in pixels, positive
      */
     public int getDescent() {
-        return Math.round(paint.getFontMetrics().descent);
+        return descent;
     }
 }

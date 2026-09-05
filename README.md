@@ -670,6 +670,10 @@ On the game-over strip `Space` (or a left click) retries instantly with a
 fresh seed — rewards are banked the moment the run ends, so a retry never
 loses them. A daily's retry keeps its seed and only counts the attempt.
 
+On Android the same actions are touch gestures — tap to flap, a second
+finger or the HUD badge for the ability, drag to scroll, the system back
+gesture for `Esc`; the table is under [Android](#android).
+
 `M`, `F3` and `F11` work on every screen and are remembered: each one changes
 the matching setting, so the game starts up the way you left it.
 
@@ -705,6 +709,8 @@ rather than complicated input combinations.
 - A desktop session: Linux (X11 or Wayland), Windows 10+, or macOS 12+.
   Flapforge is a plain AWT/Java2D application; it needs no OpenGL, no native
   libraries and no game engine.
+- Or an **Android 13 or newer** phone or tablet (`minSdk 33`) for the
+  Android build — see [Android](#android).
 - Git, if cloning the source repository.
 
 Verify Java:
@@ -795,6 +801,69 @@ Launch flags (all of them shipped; details in
 | `--reset-save` | start from a fresh profile; the old save and its backup are moved aside as `save.reset-<time>.json` and `save.bak.reset-<time>.json`, never deleted |
 | `--lang CODE` | UI language for this launch: `auto` (system locale), `en`, `pt_BR`; it can also be changed live in Settings |
 
+### Android
+
+Flapforge also runs on **Android 13 or newer** (`minSdk 33`, built against
+API 36) — without libGDX or any other engine: the same game sources are
+compiled against small stand-ins for the AWT, `javax.sound.sampled` and
+`javax.imageio` classes they use, written over `android.graphics` and
+`android.media` (see [Technology](#technology)). The port is part of the
+`0.1.0` release; there is no separate Android version.
+
+**Install the released APK.** Download `Flapforge-0.1.0-android.apk` from the
+[v0.1.0 release](https://github.com/michelbr84/Flapforge/releases/tag/v0.1.0)
+and open it on the device. The APK is signed with a debug key and distributed
+by sideloading, so Android asks you to allow installs from the app you open it
+with ("install unknown apps"). An APK built with a different debug key cannot
+update it in place: uninstall first, then install the other one. Settings and
+the save live in the app's private files directory; the desktop profile
+directory is never used.
+
+**Build it yourself.** Besides the JDK you need the Android SDK with platform
+`android-36` and build-tools `36.0.0` (`sdkmanager --install
+"platforms;android-36" "build-tools;36.0.0"`) and an `android/local.properties`
+that tells Gradle where the SDK is (git-ignored; `ANDROID_HOME` works too):
+
+```properties
+sdk.dir=/home/you/Android/Sdk
+```
+
+The Android project is a separate Gradle build under `android/`, driven by the
+same wrapper:
+
+```bash
+./gradlew -p android assembleRelease   # -> android/build/outputs/apk/release/Flapforge-android-release.apk
+./gradlew -p android test              # Robolectric unit tests; no device or emulator needed
+```
+
+`assembleRelease` first rewrites the desktop sources against the shim packages
+(`transformSources`) and checks the rewrite in both directions before
+compiling; the desktop tree is never modified. The details, the integrity gate
+and its self-test are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
+**Touch controls.** The game is always fullscreen and portrait; the 420×640
+playfield is scaled to the screen and letterboxed. A finger is the mouse:
+
+| Touch | Action |
+| --- | --- |
+| Tap anywhere | Flap — and hold to keep flapping: *Hold to flap* is on by default on Android and can be switched off in Settings |
+| A second finger while the first is down, or a tap on the ability badge in the top-left corner of the HUD | Use the equipped active ability |
+| Drag up or down | Scroll a list (the mouse wheel) |
+| System back gesture | Pause the run / go back a screen (`Esc`) |
+| Tap a button, row, tab or slider | Activate it — menus tap and drag exactly as they click and scroll on the desktop |
+
+The launch flags above are desktop-only: the app starts with the defaults (a
+fresh random seed, the device language unless Settings says otherwise, audio
+on) and reads no keys. Mute, the volumes and the debug overlay are in
+Settings; the fullscreen toggle there has no effect, the app is always
+fullscreen. Leaving the app pauses a live run and silences the audio at once;
+quitting from the menu saves before the process ends, as on the desktop.
+This describes what the code does and what the Robolectric unit tests verify
+in the JVM; those tests cannot drive a real display surface, time the audio or
+measure performance, so a device run remains the final check (see
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), "What Robolectric verifies,
+and what it cannot").
+
 ---
 
 ## Technology
@@ -806,8 +875,9 @@ only. There is no game engine and no native code.
 | --- | --- |
 | **Java 17** | language level (`--release 17`), compiled warning-free with `-Xlint:all -Werror` |
 | **AWT / Java2D** | a `java.awt.Frame` with a `Canvas` and a double-buffered `BufferStrategy`; every screen, sprite and effect is drawn with Java2D. No Swing anywhere. |
+| **Android port** (`android/`) | the same sources, rewritten at build time so that `java.awt.*`, `javax.sound.sampled.*` and `javax.imageio.*` resolve to three small shim packages over `android.graphics` and `android.media`; a `SurfaceView` presenter, touch gestures and the activity lifecycle replace the desktop window. A separate Gradle build (AGP 9.4.0 on the same wrapper), `minSdk 33`, Robolectric unit tests; no libGDX, no androidx, no Kotlin standard library |
 | **Gradle 9.7.1** (wrapper) | build, tests (`test`, `smokeTest`, `perfTest`, `simTest`), tools, fat jar |
-| **Gson 2.11.0** | the only runtime dependency: JSON content, settings and save files |
+| **Gson 2.14.0** | the only runtime dependency: JSON content, settings and save files |
 | **JUnit Jupiter** | unit, property, simulation, headless-render and real-window smoke tests |
 | **Procedural art and audio** | all visuals are generated from per-world palettes and bird archetypes; sound effects and music come from a software synthesiser and sequencer — no image or audio files are required to play. The one shipped binary asset is the bundled OFL-licensed UI font (`Nunito`), declared in `assets/manifest.json` and installed at boot; without it the game falls back to the JDK's logical font |
 | **Data-driven content** | birds, upgrades, abilities, modifiers, worlds, obstacle patterns, challenges, achievements and UI strings are JSON files, validated at start-up |
@@ -863,6 +933,7 @@ Flapforge/
 ├── src/tools/              balancing simulator, save inspector, content check, asset validator, icon export
 ├── scripts/                build, run and package wrappers (sh + ps1)
 ├── docs/                   game design, architecture, progression, balancing, content, save system, development, roadmap
+├── android/                Android port (M10): its own Gradle build, the build-time source transform, the awt/jssound/jimageio shims, the Android host, the launcher-icon generator, Robolectric tests
 └── .github/                CI and release workflows, dependabot, issue and pull request templates
 ```
 
@@ -933,7 +1004,8 @@ with bosses, seven challenges, 41 achievements, difficulty tiers, the daily
 challenge, seeded runs, prestige, attract mode, accessibility settings and
 the packaged release. The per-milestone history is in
 [`CHANGELOG.md`](CHANGELOG.md) and the design in
-[`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md).
+[`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md). The Android port (M10) joined the
+same release after the tag, as the APK attached to it — see [Android](#android).
 
 Everything the first release deliberately leaves out — leaderboards, challenge
 sharing, mod packs, endless tiers, original art and audio packs, and the rest
