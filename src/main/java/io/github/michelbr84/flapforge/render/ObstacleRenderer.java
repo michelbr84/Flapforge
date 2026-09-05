@@ -94,10 +94,14 @@ public final class ObstacleRenderer {
         double gap = gate.gap();
 
         if (gate.layout() == PipeGate.Layout.STANDARD) {
-            double upperTop = -Playfield.TOP_PIPE_EXTRA + dy;
+            // Anchored to the visible edges rather than rows 0/640, so an extended view (tall
+            // windows) never shows a standard pipe ending in mid-air. At the default overscan
+            // both lines are exactly the former -TOP_PIPE_EXTRA / HEIGHT anchors; hitboxes are
+            // the simulation's either way.
+            double upperTop = Overscan.top() - Playfield.TOP_PIPE_EXTRA + dy;
             segment(g, palette, x, upperTop, gapTop - upperTop, false, true);
-            segment(g, palette, x, gapTop + gap, Playfield.HEIGHT - gate.baseGapTopY() - gap,
-                    true, false);
+            segment(g, palette, x, gapTop + gap,
+                    Overscan.bottom() - gate.baseGapTopY() - gap, true, false);
         } else {
             double upperTop = gate.floatY() + dy;
             segment(g, palette, x, upperTop, gate.floatH(), true, true);

@@ -2,6 +2,7 @@ package io.github.michelbr84.flapforge.render;
 
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 
@@ -29,6 +30,7 @@ public final class DarknessOverlay {
     public static final double MAX_ALPHA = 0.78;
 
     private BufferedImage mask;
+    private Color peakVeil;
     private double maskDarkness = -1;
 
     /** Creates an overlay with no veil until {@link #prepare(double)} is called. */
@@ -48,9 +50,12 @@ public final class DarknessOverlay {
         maskDarkness = d;
         if (d <= 0) {
             mask = null;
+            peakVeil = null;
             return;
         }
         double peak = Math.min(MAX_ALPHA, d);
+        // The exact colour of a mask row at t = 1, for visible rows the mask cannot cover.
+        peakVeil = new Color(0, 0, 0, (int) (255 * peak));
         BufferedImage image = new BufferedImage(Playfield.WIDTH, MASK_HEIGHT,
                 BufferedImage.TYPE_INT_ARGB);
         int[] row = new int[Playfield.WIDTH];
@@ -124,9 +129,23 @@ public final class DarknessOverlay {
         if (mask == null) {
             return;
         }
+        int top = Overscan.topInt();
+        int bottom = Overscan.bottomInt();
         int sy = sliceTop(birdY);
-        g.drawImage(mask, 0, 0, Playfield.WIDTH, Playfield.HEIGHT, 0, sy, Playfield.WIDTH,
-                sy + Playfield.HEIGHT, null);
+        int srcTop = Math.max(0, sy + top);
+        int srcBottom = Math.min(MASK_HEIGHT, sy + bottom);
+        g.drawImage(mask, 0, srcTop - sy, Playfield.WIDTH, srcBottom - sy, 0, srcTop,
+                Playfield.WIDTH, srcBottom, null);
+        // Visible rows the three-playfield mask cannot cover lie beyond FADE_RADIUS of the
+        // hole, where the veil is flat at its peak — a plain fill is exact there.
+        if (srcTop - sy > top) {
+            g.setColor(peakVeil);
+            g.fillRect(0, top, Playfield.WIDTH, srcTop - sy - top);
+        }
+        if (srcBottom - sy < bottom) {
+            g.setColor(peakVeil);
+            g.fillRect(0, srcBottom - sy, Playfield.WIDTH, bottom - (srcBottom - sy));
+        }
     }
 
     private static int sliceTop(double birdY) {

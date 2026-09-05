@@ -119,6 +119,12 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
         Shims.init(getApplicationContext());
         SavePaths.override(getFilesDir().toPath());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // Let the surface run under a display cutout: only cosmetic extended sky ever reaches
+        // that strip — the interactive 420x640 playfield sits centred, well clear of any notch.
+        WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        getWindow().setAttributes(attributes);
         surface = new GameSurfaceView(this);
         host = new AndroidHost(this, surface);
         surface.addSurfaceListener(this);

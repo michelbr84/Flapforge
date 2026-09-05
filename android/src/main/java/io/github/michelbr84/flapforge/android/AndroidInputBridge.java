@@ -61,8 +61,10 @@ import java.util.Objects;
  *       exists only while {@linkplain #isRunActive() a run is the active screen}: the tab bars
  *       of the shop, the upgrades and the achievements, the bird roster and the challenge list
  *       all begin inside that corner, and an unconditional zone would swallow their first item;
- *       the pause and game-over overlays, which resume or retry on any left click, sit on top
- *       of the run and switch the zone off too. The host samples the screen stack on the loop
+ *       the pause and game-over overlays sit on top of the run and switch the zone off too:
+ *       their buttons are hit-tested through {@code FocusRing}, so every tap on them must
+ *       arrive as a plain {@code BUTTON_LEFT} press at its true position (a tap outside the
+ *       buttons still resumes or retries). The host samples the screen stack on the loop
  *       thread and flips the flag through {@link #setRunActive(boolean)}. The viewport is the
  *       loop's, read here without a lock: at worst a press mapped through the size from one
  *       resize ago.</li>

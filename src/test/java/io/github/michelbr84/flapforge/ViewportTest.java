@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.geom.Aabb;
 import io.github.michelbr84.flapforge.core.geom.Vec2;
+import io.github.michelbr84.flapforge.render.Overscan;
 import io.github.michelbr84.flapforge.render.Viewport;
 import java.awt.Graphics2D;
 import java.awt.geom.AffineTransform;
@@ -117,6 +118,60 @@ class ViewportTest {
         assertEquals(1920, vp.windowHeight());
         vp.resize(0, 0);
         assertTrue(vp.scale() > 0, "degenerate sizes keep a positive scale");
+    }
+
+    @Test
+    void visibleBoundsOnATallPhone() {
+        Viewport vp = new Viewport(1080, 2400, false);
+        assertEquals(1080 / 420.0, vp.scale(), EPS);
+        assertEquals(0.0, vp.offsetX(), EPS);
+        assertEquals(377.0, vp.offsetY(), EPS);
+        assertEquals(-377 * 420.0 / 1080, vp.visibleTopY(), 1e-9);
+        assertEquals(2023 * 420.0 / 1080, vp.visibleBottomY(), 1e-9);
+        assertEquals(0.0, vp.visibleLeftX(), EPS);
+        assertEquals(420.0, vp.visibleRightX(), EPS);
+    }
+
+    @Test
+    void extendedApplyWidensOnlyTheVerticalClip() {
+        BufferedImage img = new BufferedImage(8, 8, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        try {
+            Viewport vp = new Viewport(420, 800, false);
+            vp.apply(g);
+            assertEquals(0, g.getClipBounds().x);
+            assertEquals(Playfield.WIDTH, g.getClipBounds().width);
+            assertEquals(-80, g.getClipBounds().y, "the clip reaches the visible top");
+            assertEquals(800, g.getClipBounds().height, "the clip reaches the visible bottom");
+        } finally {
+            g.dispose();
+        }
+        g = img.createGraphics();
+        try {
+            Viewport vp = new Viewport(420, 800, false);
+            vp.setExtendVertical(false);
+            vp.apply(g);
+            assertEquals(0, g.getClipBounds().y, "toggled off, the playfield clip returns");
+            assertEquals(Playfield.HEIGHT, g.getClipBounds().height);
+        } finally {
+            g.dispose();
+        }
+    }
+
+    @Test
+    void publishOverscanFollowsTheToggle() {
+        try {
+            Viewport vp = new Viewport(420, 800, false);
+            vp.publishOverscan();
+            assertEquals(-80.0, Overscan.top(), EPS);
+            assertEquals(720.0, Overscan.bottom(), EPS);
+            vp.setExtendVertical(false);
+            vp.publishOverscan();
+            assertEquals(0.0, Overscan.top(), EPS);
+            assertEquals(Playfield.HEIGHT, Overscan.bottom(), EPS);
+        } finally {
+            Overscan.reset();
+        }
     }
 
     @Test

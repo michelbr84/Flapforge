@@ -71,6 +71,7 @@ public final class NullPresenter implements FramePresenter {
         try {
             g.setColor(letterboxColor);
             g.fillRect(0, 0, width, height);
+            viewport.publishOverscan();
             viewport.apply(g);
             renderer.render(g, alpha);
         } finally {

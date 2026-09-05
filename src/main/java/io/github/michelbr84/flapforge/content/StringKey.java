@@ -81,6 +81,8 @@ public enum StringKey {
     SETTINGS_SECTION_GAME("settings.section.game"),
     /** Settings row: integer scaling. */
     SETTINGS_INTEGER_SCALING("settings.integer_scaling"),
+    /** Settings row: extend sky and earth over the vertical letterbox bars. */
+    SETTINGS_FILL_SCREEN("settings.fill_screen"),
     /** Settings row: fullscreen. */
     SETTINGS_FULLSCREEN("settings.fullscreen"),
     /** Settings row: frame-rate cap. */
@@ -169,15 +171,13 @@ public enum StringKey {
 
     /** Pause overlay title. */
     PAUSE_TITLE("pause.title"),
-    /** Pause overlay: how to resume. */
-    PAUSE_RESUME_HINT("pause.resume_hint"),
-    /** Pause overlay: how to quit. */
-    PAUSE_QUIT_HINT("pause.quit_hint"),
+    /** Pause overlay: the resume button. */
+    PAUSE_RESUME("pause.resume"),
 
     /** Game-over overlay title. */
     GAMEOVER_TITLE("gameover.title"),
-    /** Game-over overlay prompt. */
-    GAMEOVER_RETRY_HINT("gameover.retry_hint"),
+    /** Game-over overlay: the button that opens the run summary. */
+    GAMEOVER_SUMMARY("gameover.summary"),
     /** Game-over line shown after a personal best, {@code {0}} is the point total. */
     GAMEOVER_BEST_HINT("gameover.best_hint"),
     /** Result row: gates cleared. */

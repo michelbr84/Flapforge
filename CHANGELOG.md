@@ -12,6 +12,32 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+### Added
+
+- Buttons on the game-over strip (Retry / Summary / Menu) and on the pause
+  panel (Resume / Menu), hit-tested through `FocusRing`, so every action is
+  reachable by touch or mouse — on Android the summary and the menu used to
+  be unreachable, since any tap retried. `Space`, `Enter` and `Esc` keep
+  their old meanings, and a tap outside the buttons still retries (game
+  over) or resumes (pause).
+- The game fills tall screens (D3 revision): on windows taller than the
+  420:640 aspect — portrait phones foremost — the renderers now paint sky,
+  earth, extended pipes and full-frame fills over what used to be top and
+  bottom letterbox bars (`render.Overscan`, published by the presenters from
+  the viewport's widened clip). Scale, offsets, input mapping and gameplay
+  are untouched: the extension is purely cosmetic and everything interactive
+  stays inside the 420×640 playfield. A new `settings.fillScreen` toggle
+  ("Fill screen", default on) restores the full letterbox, and the Android
+  activity opts into `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES` so notched
+  screens show extended sky instead of a black strip.
+
+### Removed
+
+- The blinking `Space: retry   Enter: summary   Esc: menu` hint of the
+  game-over strip and the two pause hint lines, replaced by the buttons
+  (`gameover.retry_hint`, `pause.resume_hint` and `pause.quit_hint` left
+  the string tables; `gameover.summary` and `pause.resume` joined them).
+
 ## 0.1.0 — 2026-09-03
 
 ### Added — M0: skeleton, window, loop, input, menu shell

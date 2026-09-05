@@ -18,6 +18,7 @@ import io.github.michelbr84.flapforge.modifier.ModifierTag;
 import io.github.michelbr84.flapforge.modifier.Rarity;
 import io.github.michelbr84.flapforge.modifier.SynergyResolver;
 import io.github.michelbr84.flapforge.render.Fonts;
+import io.github.michelbr84.flapforge.render.Overscan;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.render.TextPainter.Align;
@@ -354,8 +355,7 @@ public final class ModifierChoiceOverlay implements Screen {
     @Override
     public void render(Graphics2D g, double alpha) {
         ProceduralArt.prepare(g);
-        g.setColor(DIM);
-        g.fillRect(0, 0, Playfield.WIDTH, Playfield.HEIGHT);
+        Overscan.fillVisible(g, DIM);
         if (run.phase() == RunPhase.CHOOSING_MODIFIER) {
             renderDraft(g);
         } else {

@@ -73,6 +73,8 @@ public final class Settings {
     public Map<String, List<Integer>> keyBindings = KeyBindings.defaults().toMap();
     /** Whether the viewport snaps to whole-pixel scales (D3). */
     public boolean integerScaling = false;
+    /** Whether the renderers extend sky and earth over the vertical letterbox bars (D3). */
+    public boolean fillScreen = true;
     /** Whether the window starts in borderless fullscreen. */
     public boolean fullscreen = false;
     /** Frame-rate cap in frames per second, in {@code [30, 240]}. */
@@ -142,6 +144,7 @@ public final class Settings {
         out.muted = muted;
         out.keyBindings = copyBindings(keyBindings);
         out.integerScaling = integerScaling;
+        out.fillScreen = fillScreen;
         out.fullscreen = fullscreen;
         out.maxFps = maxFps;
         out.smoothing = smoothing;
@@ -233,6 +236,7 @@ public final class Settings {
                 && Double.compare(musicVolume, other.musicVolume) == 0
                 && muted == other.muted
                 && integerScaling == other.integerScaling
+                && fillScreen == other.fillScreen
                 && fullscreen == other.fullscreen
                 && maxFps == other.maxFps
                 && smoothing == other.smoothing
@@ -249,8 +253,8 @@ public final class Settings {
     @Override
     public int hashCode() {
         return Objects.hash(version, language, masterVolume, sfxVolume, musicVolume, muted,
-                keyBindings, integerScaling, fullscreen, maxFps, smoothing, showFps, reduceFlashing,
-                highContrast, colorBlindPalette, textScale, holdToFlap);
+                keyBindings, integerScaling, fillScreen, fullscreen, maxFps, smoothing, showFps,
+                reduceFlashing, highContrast, colorBlindPalette, textScale, holdToFlap);
     }
 
     @Override

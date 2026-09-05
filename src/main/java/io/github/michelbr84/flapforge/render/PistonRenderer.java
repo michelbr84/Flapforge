@@ -122,6 +122,14 @@ public final class PistonRenderer {
             g.setColor(edge);
             g.draw(round);
         }
+        // A TOP piston anchors at row 0, which on tall windows sits below the visible top: a
+        // plain mount column up to the visible edge keeps it attached instead of floating in
+        // extended sky (BOTTOM pistons anchor at the ground, which the background extends).
+        if (top && Overscan.top() < 0) {
+            g.setColor(body);
+            rect.setFrame(x - 4, Overscan.top(), w + 8, -Overscan.top() + 2);
+            g.fill(rect);
+        }
         // Base plate on the anchored edge, drawn last so it covers the rod's end.
         double baseY = top ? 0 : Playfield.GROUND_Y - BASE_H;
         g.setColor(body);

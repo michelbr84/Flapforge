@@ -11,6 +11,7 @@ import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.render.Fonts;
+import io.github.michelbr84.flapforge.render.Overscan;
 import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
@@ -681,8 +682,7 @@ public final class MainMenuScreen implements Screen {
             // take an input the menu did not see first. The world renderer paints its own
             // background, which is why the menu's own sky fill is skipped while it is up.
             demo.render(g, alpha);
-            g.setColor(ATTRACT_DIM);
-            g.fillRect(0, 0, Playfield.WIDTH, Playfield.HEIGHT);
+            Overscan.fillVisible(g, ATTRACT_DIM);
         }
         ProceduralArt.prepare(g);
         if (!demoUp) {

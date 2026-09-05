@@ -15,6 +15,14 @@ import java.util.List;
  * remaining area is letterboxed. The viewport is owned by the game loop: it changes only when the
  * loop drains a {@code Resized} event (E30.a), so input mapping and rendering always agree.
  *
+ * <p>While vertical extension is on (the default, {@code settings.fillScreen}), the clip of
+ * {@link #apply(Graphics2D)} widens to the whole visible vertical range and the presenters
+ * publish that range through {@link #publishOverscan()}, so the renderers paint sky and earth
+ * where the top and bottom bars used to be — the fix for portrait phones, whose aspect is far
+ * taller than 420:640. Scale and offsets are untouched, so input mapping and every UI position
+ * are exactly the letterboxed ones; horizontal bars (wide desktop windows) keep the letterbox
+ * fill either way.
+ *
  * <p>Any HiDPI transform installed by the JDK on the graphics context composes underneath the
  * transform applied by {@link #apply(Graphics2D)}; this class works purely in window (device
  * independent) pixels.
@@ -24,6 +32,7 @@ public final class Viewport {
     private int windowWidth;
     private int windowHeight;
     private boolean integerScaling;
+    private boolean extendVertical = true;
     private double scale;
     private double offsetX;
     private double offsetY;
@@ -80,6 +89,73 @@ public final class Viewport {
      */
     public boolean isIntegerScaling() {
         return integerScaling;
+    }
+
+    /**
+     * Enables or disables the vertical extension of the clip and the published overscan.
+     *
+     * @param extendVertical {@code true} to let renderers paint the former top/bottom bars
+     */
+    public void setExtendVertical(boolean extendVertical) {
+        this.extendVertical = extendVertical;
+    }
+
+    /**
+     * Tells whether vertical extension is enabled.
+     *
+     * @return {@code true} when enabled
+     */
+    public boolean isExtendVertical() {
+        return extendVertical;
+    }
+
+    /**
+     * The topmost visible logical y — negative when the window is taller than the playfield.
+     *
+     * @return logical pixels
+     */
+    public double visibleTopY() {
+        return -offsetY / scale;
+    }
+
+    /**
+     * The bottommost visible logical y — beyond 640 when the window is taller than the
+     * playfield.
+     *
+     * @return logical pixels
+     */
+    public double visibleBottomY() {
+        return (windowHeight - offsetY) / scale;
+    }
+
+    /**
+     * The leftmost visible logical x — negative when the window is wider than the playfield.
+     *
+     * @return logical pixels
+     */
+    public double visibleLeftX() {
+        return -offsetX / scale;
+    }
+
+    /**
+     * The rightmost visible logical x — beyond 420 when the window is wider than the playfield.
+     *
+     * @return logical pixels
+     */
+    public double visibleRightX() {
+        return (windowWidth - offsetX) / scale;
+    }
+
+    /**
+     * Publishes the visible vertical range to {@link Overscan} — the presenters call this right
+     * before {@link #apply(Graphics2D)} — or resets it while vertical extension is off.
+     */
+    public void publishOverscan() {
+        if (extendVertical) {
+            Overscan.set(visibleTopY(), visibleBottomY());
+        } else {
+            Overscan.reset();
+        }
     }
 
     /**
@@ -205,13 +281,21 @@ public final class Viewport {
 
     /**
      * Applies translate, scale and clip so subsequent drawing happens in logical coordinates.
+     * While vertical extension is on the clip covers the whole visible vertical range instead
+     * of stopping at rows 0 and 640, so renderers can paint the former bars.
      *
      * @param g the graphics context in window coordinates
      */
     public void apply(Graphics2D g) {
         g.translate(offsetX, offsetY);
         g.scale(scale, scale);
-        g.clipRect(0, 0, Playfield.WIDTH, Playfield.HEIGHT);
+        int top = 0;
+        int bottom = Playfield.HEIGHT;
+        if (extendVertical) {
+            top = (int) Math.floor(Math.min(0, visibleTopY()));
+            bottom = (int) Math.ceil(Math.max(Playfield.HEIGHT, visibleBottomY()));
+        }
+        g.clipRect(0, top, Playfield.WIDTH, bottom - top);
     }
 
     @Override
