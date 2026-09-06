@@ -6,8 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import java.io.File;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -32,7 +35,19 @@ class StrictBinderDesugarTest {
                 continue;
             }
             List<StrictBinder.Component> viaRecord = StrictBinder.componentsOf(def);
-            List<StrictBinder.Component> viaFields = StrictBinder.structuralComponents(def);
+            // Hand the fields over in the order a device does: the dex format stores them
+            // sorted by name, so anything that trusted declaration order would swap
+            // same-typed components here (UpgradesDef's trees and nodes) or find no
+            // constructor at all (BirdDef).
+            List<Field> dexOrder = new ArrayList<>();
+            for (Field f : def.getDeclaredFields()) {
+                if (!Modifier.isStatic(f.getModifiers()) && !f.isSynthetic()) {
+                    dexOrder.add(f);
+                }
+            }
+            dexOrder.sort(Comparator.comparing(Field::getName));
+            List<StrictBinder.Component> viaFields =
+                    StrictBinder.structuralComponents(def, dexOrder);
             assertEquals(viaRecord, viaFields,
                     () -> "desugared binding differs for " + def.getName());
         }

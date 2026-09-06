@@ -8,6 +8,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
@@ -548,8 +549,8 @@ public final class StrictBinder {
 
     /**
      * One bindable component: the JSON key it reads, its declared type and its generic type.
-     * Sourced from the record components on a JVM, and from the declared instance fields where
-     * the runtime has no records (see {@link #isRecordLike}).
+     * Sourced from the record components on a JVM, and from the canonical constructor where the
+     * runtime has no records (see {@link #isRecordLike}).
      *
      * @param key the JSON key
      * @param type the declared type
@@ -564,9 +565,8 @@ public final class StrictBinder {
      * <p>{@code Class.isRecord()} is not the whole answer on Android: D8 desugars records into
      * plain classes that no longer extend {@code java.lang.Record}, so every def would fall
      * through to "unsupported target type" and the content would refuse to load. The desugared
-     * shape is still exact — a final class whose final instance fields are the components, in
-     * order, with a canonical constructor over precisely those types — so it is recognised
-     * structurally instead.
+     * shape is still exact — a final class whose final instance fields are the components, built
+     * by a canonical constructor over precisely those types — so it is recognised structurally.
      *
      * @param raw the candidate class
      * @return {@code true} when the class can be bound as a record
@@ -590,19 +590,12 @@ public final class StrictBinder {
         if (fields.isEmpty()) {
             return false;
         }
-        Class<?>[] types = new Class<?>[fields.size()];
-        for (int i = 0; i < fields.size(); i++) {
-            if (!Modifier.isFinal(fields.get(i).getModifiers())) {
+        for (Field f : fields) {
+            if (!Modifier.isFinal(f.getModifiers())) {
                 return false;
             }
-            types[i] = fields.get(i).getType();
         }
-        try {
-            raw.getDeclaredConstructor(types);
-            return true;
-        } catch (NoSuchMethodException e) {
-            return false;
-        }
+        return !structuralComponents(raw, fields).isEmpty();
     }
 
     /**
@@ -623,21 +616,101 @@ public final class StrictBinder {
     }
 
     /**
-     * The components read off the declared instance fields — what a desugared record leaves
-     * behind. {@link JsonName} targets {@code FIELD} as well as {@code RECORD_COMPONENT}, so the
-     * key survives desugaring with the field.
+     * The components of a desugared record, read off its canonical constructor.
      *
      * @param raw the class
-     * @return the components, in field-declaration (canonical-constructor) order
+     * @return the components in canonical-constructor order, empty when the class is not one
      */
     static List<Component> structuralComponents(Class<?> raw) {
+        return structuralComponents(raw, instanceFields(raw));
+    }
+
+    /**
+     * The components of a desugared record.
+     *
+     * <p>The order is the constructor's, never the fields': the dex format stores a class's
+     * fields sorted by name, so {@code getDeclaredFields()} on Android hands back alphabetical
+     * order. Trusting it swaps same-typed components — {@code UpgradesDef(trees, nodes)} would
+     * bind {@code nodes} into {@code trees} — and rejects the rest outright. The constructor's
+     * parameters are declaration order by definition; each one is matched to its field by name
+     * ({@code -parameters} is on for both builds) or, failing that, by a unique type.
+     *
+     * @param raw the class
+     * @param fields the instance fields, in any order
+     * @return the components in canonical-constructor order, empty when the class is not one
+     */
+    static List<Component> structuralComponents(Class<?> raw, List<Field> fields) {
+        Constructor<?> ctor = canonicalConstructor(raw, fields);
+        if (ctor == null) {
+            return List.of();
+        }
+        Map<String, Field> byName = new LinkedHashMap<>();
+        for (Field f : fields) {
+            byName.put(f.getName(), f);
+        }
+        Parameter[] params = ctor.getParameters();
+        Type[] generics = ctor.getGenericParameterTypes();
         List<Component> out = new ArrayList<>();
-        for (Field f : instanceFields(raw)) {
-            JsonName annotation = f.getAnnotation(JsonName.class);
-            out.add(new Component(annotation == null ? f.getName() : annotation.value(),
-                    f.getType(), f.getGenericType()));
+        List<Field> unclaimed = new ArrayList<>(fields);
+        for (int i = 0; i < params.length; i++) {
+            Field field = params[i].isNamePresent() ? byName.get(params[i].getName()) : null;
+            if (field == null) {
+                field = onlyFieldOfType(unclaimed, params[i].getType());
+            }
+            if (field == null) {
+                // Neither a name nor a unique type: the mapping would be a guess, and a guessed
+                // component silently binds the wrong JSON key onto the wrong slot.
+                return List.of();
+            }
+            unclaimed.remove(field);
+            JsonName annotation = field.getAnnotation(JsonName.class);
+            out.add(new Component(annotation == null ? field.getName() : annotation.value(),
+                    params[i].getType(), generics[i]));
         }
         return out;
+    }
+
+    /**
+     * The constructor that takes every component once: the canonical one. Matched on the
+     * multiset of parameter types, so it is found whatever order the fields arrive in.
+     *
+     * @param raw the class
+     * @param fields the instance fields
+     * @return the constructor, or {@code null} when no constructor covers exactly the fields
+     */
+    private static Constructor<?> canonicalConstructor(Class<?> raw, List<Field> fields) {
+        List<String> wanted = new ArrayList<>();
+        for (Field f : fields) {
+            wanted.add(f.getType().getName());
+        }
+        Collections.sort(wanted);
+        for (Constructor<?> candidate : raw.getDeclaredConstructors()) {
+            if (candidate.getParameterCount() != fields.size()) {
+                continue;
+            }
+            List<String> got = new ArrayList<>();
+            for (Class<?> t : candidate.getParameterTypes()) {
+                got.add(t.getName());
+            }
+            Collections.sort(got);
+            if (wanted.equals(got)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static Field onlyFieldOfType(List<Field> fields, Class<?> type) {
+        Field found = null;
+        for (Field f : fields) {
+            if (f.getType() == type) {
+                if (found != null) {
+                    return null;
+                }
+                found = f;
+            }
+        }
+        return found;
     }
 
     private static List<Field> instanceFields(Class<?> raw) {

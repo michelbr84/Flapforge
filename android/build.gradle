@@ -255,7 +255,7 @@ android {
         applicationId = 'io.github.michelbr84.flapforge'
         minSdk = 33          // onSpinWait / VarHandle setRelease are API 33+
         targetSdk = 36
-        versionCode = 5
+        versionCode = 6
         versionName = '0.1.1'
     }
 
@@ -299,7 +299,13 @@ android {
 // the whole variant task chain, javac (main and unit test) and the built-in Kotlin compile task
 // (AGP 9 feeds it the java srcDirs too) are wired explicitly so the order never depends on it.
 tasks.named('preBuild') { dependsOn(transformSources) }
-tasks.withType(JavaCompile).configureEach { dependsOn(transformSources) }
+tasks.withType(JavaCompile).configureEach {
+    dependsOn(transformSources)
+    // Same flag the desktop build uses. StrictBinder maps a desugared record's constructor
+    // parameters back to its fields by name; without the names it can only fall back to a
+    // unique type, which no multi-String record has.
+    options.compilerArgs << '-parameters'
+}
 tasks.configureEach { task ->
     if (task.name ==~ /compile\w*Kotlin/) {
         task.dependsOn(transformSources)
