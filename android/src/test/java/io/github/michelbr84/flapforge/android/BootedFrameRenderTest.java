@@ -1,6 +1,5 @@
 package io.github.michelbr84.flapforge.android;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -85,13 +84,12 @@ public class BootedFrameRenderTest {
             } finally {
                 g.dispose();
             }
-            // Fill-screen is off by default, so the ~377 px band above the playfield is the
-            // presenter's letterbox fill — one flat tone (the world palette's, not a constant)
-            // — while the playfield carries the menu.
-            int band = image.getRGB(WIDTH / 2, 20);
-            assertEquals("the letterbox band is one flat tone", band,
-                    image.getRGB(WIDTH / 2, 300));
-            assertNotEquals("the menu rendered into the playfield", band,
+            // Fill-screen is on by default: the ~377 px band above the playfield carries
+            // painted sky, not the letterbox tone the presenter lays down underneath.
+            int letterbox = 0xff000000 | context.screens().letterboxRgb();
+            assertNotEquals("the former top bar is painted sky", letterbox,
+                    image.getRGB(WIDTH / 2, 20));
+            assertNotEquals("the menu rendered into the playfield", letterbox,
                     image.getRGB(WIDTH / 2, HEIGHT / 2));
             assertTrue(image.getRGB(WIDTH / 2, HEIGHT / 2) != 0);
         } finally {

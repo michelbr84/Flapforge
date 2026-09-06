@@ -20,6 +20,16 @@ a sideloadable APK built by CI.
 
 ### Fixed
 
+- The Android APK closed instantly on launch: D8 desugars Java records, so
+  `Class.isRecord()` is `false` for every `content.defs` type on a device and
+  `StrictBinder` rejected all 17 content files with "unsupported target type",
+  aborting the boot. The binder now falls back to reading the components off the
+  declared instance fields — the shape a desugared record leaves behind, with
+  `@JsonName` still on the field — and only after every type it knows by name, so
+  boxed and platform classes are untouched. `StrictBinderDesugarTest` pins the two
+  readings together for every def; the JVM (and Robolectric) keep real records, which
+  is why no existing test could see this.
+
 - The Android APK crashed on launch and showed the default launcher icon:
   the `Rewrite (#13)` history that became `main` had dropped the M10 launcher
   icons and ~500 lines of `awt` shim parity/fidelity fixes, so the first real
@@ -45,8 +55,7 @@ a sideloadable APK built by CI.
   the viewport's widened clip). Scale, offsets, input mapping and gameplay
   are untouched: the extension is purely cosmetic and everything interactive
   stays inside the 420×640 playfield. A new `settings.fillScreen` toggle
-  ("Fill screen", off by default until the phone build is validated) enables
-  it, and the Android
+  ("Fill screen", default on) restores the full letterbox, and the Android
   activity opts into `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES` so notched
   screens show extended sky instead of a black strip.
 

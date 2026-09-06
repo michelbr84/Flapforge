@@ -73,12 +73,8 @@ public final class Settings {
     public Map<String, List<Integer>> keyBindings = KeyBindings.defaults().toMap();
     /** Whether the viewport snaps to whole-pixel scales (D3). */
     public boolean integerScaling = false;
-    /**
-     * Whether the renderers extend sky and earth over the vertical letterbox bars (D3). Off by
-     * default until the extension is validated on a phone: the letterboxed frame is the one
-     * every shipped build has drawn, so a launch never depends on the newer render path.
-     */
-    public boolean fillScreen = false;
+    /** Whether the renderers extend sky and earth over the vertical letterbox bars (D3). */
+    public boolean fillScreen = true;
     /** Whether the window starts in borderless fullscreen. */
     public boolean fullscreen = false;
     /** Frame-rate cap in frames per second, in {@code [30, 240]}. */
