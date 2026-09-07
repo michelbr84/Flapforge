@@ -143,6 +143,17 @@ public final class AndroidHost implements GameHost {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Android owns the activity's lifecycle: leaving the game is the Back gesture or the
+     * launcher, never a menu row, so the settings screen shows no Quit here (M10).
+     */
+    @Override
+    public boolean supportsQuit() {
+        return false;
+    }
+
     /** Loop thread, once per present: the one place the host reads the loop-owned stack. */
     private void sampleActiveScreen() {
         ScreenManager stack = screens;

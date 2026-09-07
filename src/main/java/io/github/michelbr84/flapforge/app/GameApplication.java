@@ -411,8 +411,8 @@ public final class GameApplication {
                 System.out.println("--world " + world + ": selected");
             } else {
                 System.out.println("--world " + world + ": not unlocked in this profile (world:"
-                        + world + "); playing it for this launch only, the selection stays "
-                        + profile.selected.worldId);
+                        + world + "); the selection stays " + profile.selected.worldId
+                        + " and START RUN plays the selection");
             }
         }
         return world;
@@ -856,6 +856,18 @@ public final class GameApplication {
         GameHost current = host;
         return current == null ? FrameLimiter.DEFAULT_FPS
                 : FrameLimiter.refreshRateOrDefault(current.displayRefreshRateHz());
+    }
+
+    /**
+     * Whether the platform expects an in-game Quit control (M10): the answer of the host of the
+     * last {@link #start(LaunchOptions, GameHost)}, and {@code true} when no application was
+     * started (tests and tools build screens without a host, and the desktop is the default).
+     *
+     * @return {@code true} when a Quit row belongs in the settings
+     */
+    public static boolean canQuit() {
+        GameHost current = host;
+        return current == null || current.supportsQuit();
     }
 
     /**

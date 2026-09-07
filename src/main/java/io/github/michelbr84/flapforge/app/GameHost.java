@@ -58,4 +58,16 @@ public interface GameHost {
      *     {@link FrameLimiter#DEFAULT_FPS} through {@link FrameLimiter#refreshRateOrDefault(int)})
      */
     int displayRefreshRateHz();
+
+    /**
+     * Whether the platform expects the game to offer a way to quit itself (M10). The desktop
+     * does: a window has a close box and a menu has a Quit. Android does not — the OS owns the
+     * activity's lifecycle and a "Quit" row would only duplicate the Back gesture — so its host
+     * answers {@code false} and the settings screen hides the row.
+     *
+     * @return {@code true} when an in-game Quit control belongs on this platform
+     */
+    default boolean supportsQuit() {
+        return true;
+    }
 }
