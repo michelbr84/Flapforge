@@ -83,6 +83,7 @@ import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
 import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
 import io.github.michelbr84.flapforge.ui.screens.StatisticsScreen;
 import io.github.michelbr84.flapforge.ui.screens.UpgradeTreeScreen;
+import io.github.michelbr84.flapforge.ui.screens.WorldSelectScreen;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
@@ -400,6 +401,12 @@ class ProceduralRenderTest {
                 assertTrue(distinctColours(shop, 2) >= 2, "shop is uniform in " + language);
                 byLanguage.put(language + "-shop", copy(shop));
 
+                // M10: the hub's world picker.
+                BufferedImage worldSelect = renderScreen(meta::worldSelect, 5);
+                assertTrue(distinctColours(worldSelect, 2) >= 2,
+                        "world select is uniform in " + language);
+                byLanguage.put(language + "-world-select", copy(worldSelect));
+
                 // M8: the two progression screens and the boss banner's three states.
                 Fixture played = Fixture.played();
                 BufferedImage challenges = renderScreen(sm -> new ChallengesScreen(sm,
@@ -602,6 +609,10 @@ class ProceduralRenderTest {
 
         Screen shop(ScreenManager sm) {
             return new ShopScreen(sm, Strings.active(), content, profile, unlocks, null);
+        }
+
+        Screen worldSelect(ScreenManager sm) {
+            return new WorldSelectScreen(sm, Strings.active(), content, profile, selection, null);
         }
     }
 
@@ -1154,6 +1165,8 @@ class ProceduralRenderTest {
                     "upgrade trees overflow at 1.5x text");
             assertTrue(distinctColours(renderScreen(meta::shop, 5), 2) >= 2,
                     "shop overflows at 1.5x text");
+            assertTrue(distinctColours(renderScreen(meta::worldSelect, 5), 2) >= 2,
+                    "world select overflows at 1.5x text");
             Fixture played = Fixture.played();
             assertTrue(distinctColours(renderScreen(played::summary, 5), 2) >= 2,
                     "run summary overflows at 1.5x text");
