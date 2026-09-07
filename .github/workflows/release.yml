@@ -3,7 +3,8 @@ name: Release
 # Runs on a v* tag only (M9): builds and tests once per OS, packages each OS
 # with jpackage through scripts/package.sh (per-OS icon, E9), builds the
 # sideloadable Android APK on the hosted runner's SDK, zips the app images
-# and attaches them — with the fat jar and the APK — to the GitHub release.
+# and attaches them — with the fat jar and the APK — to the GitHub release,
+# whose notes are the version's CHANGELOG.md section (scripts/release-notes.sh).
 on:
   push:
     tags: ['v*']
@@ -133,8 +134,13 @@ jobs:
     needs: [package, android]
     runs-on: ubuntu-latest
     steps:
+      # Full history with tags: the release notes link the compare view
+      # against the previous tag.
       - name: Check out
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Read the version
         id: version
@@ -147,6 +153,16 @@ jobs:
           pattern: flapforge-*
           path: bundles
           merge-multiple: true
+
+      # The notes are the version's CHANGELOG.md section plus the download
+      # table (scripts/release-notes.sh); a missing section fails the job
+      # before anything is published. release-notes.yml re-applies them later.
+      - name: Write the release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          mkdir -p build
+          bash scripts/release-notes.sh "${{ steps.version.outputs.version }}" > build/release-notes.md
+          cat build/release-notes.md
 
       # A manual re-dispatch republishes the same version after a fix: drop any
       # existing release and its tag first so the next step recreates the tag at
@@ -165,6 +181,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
           target_commitish: ${{ github.sha }}
+          body_path: build/release-notes.md
           files: bundles/*
           fail_on_unmatched_files: true

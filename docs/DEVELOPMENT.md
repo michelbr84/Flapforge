@@ -123,9 +123,14 @@ which is how `docs/BALANCING.md` §10 and §11 are produced.
    with the current OS's icon into `build/dist/` (Linux `.png`, macOS `.icns`, Windows `.ico`
    under Git Bash).
 4. **Tagging `v*` runs `.github/workflows/release.yml`**: build + test + package on
-   ubuntu/windows/macos, the app image zipped per OS, and the zips plus the fat jar attached to
-   the GitHub release. `build.yml` additionally re-verifies the cross-platform determinism hash
-   of the classic headless run, which a release must not move.
+   ubuntu/windows/macos, the app image zipped per OS, and the zips plus the fat jar and the
+   Android APK attached to the GitHub release. The release's name and notes come from the
+   version's `CHANGELOG.md` section through `scripts/release-notes.sh` (the section text, a
+   download table and the compare link against the previous tag), so the changelog entry must
+   exist before the tag is cut; a missing section fails the job before anything is published.
+   `Actions › Release notes › Run workflow` (`release-notes.yml`, input `tag`) re-applies the
+   notes to an existing release after a changelog fix. `build.yml` additionally re-verifies the
+   cross-platform determinism hash of the classic headless run, which a release must not move.
 5. **The `v0.1.0` tag freezes save v1** (see `docs/SAVE_SYSTEM.md` §8): from it on, every change
    to the persisted shape ships a migration.
 
