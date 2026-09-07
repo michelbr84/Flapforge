@@ -3,7 +3,6 @@ package io.github.michelbr84.flapforge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,6 +36,7 @@ import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.progression.SelectionManager;
+import io.github.michelbr84.flapforge.progression.Statistics;
 import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.Viewport;
@@ -299,7 +299,8 @@ class HomeHubTest {
         GameScreen standard = (GameScreen) screens.top();
         assertEquals(RunMode.STANDARD, standard.run().config().mode());
         assertEquals("iron_forge", standard.run().config().worldId());
-        assertNotNull(random);
+        assertSame(random, screens.screens().get(screens.depth() - 2),
+                "the run sits over the hub that started it");
     }
 
     // ------------------------------------------------------------------ live state
@@ -405,6 +406,56 @@ class HomeHubTest {
         assertTrue(menu.playerCard().xpFraction() > 0);
     }
 
+    @Test
+    void theHubNoticesARunOnceTheHistoryIsFullAndRestoresItsLetterboxAfterAPop() {
+        PlayerProfile profile = profile();
+        for (int i = 0; i < Statistics.RUN_HISTORY_LIMIT; i++) {
+            Statistics.RunHistoryEntry entry = new Statistics.RunHistoryEntry();
+            entry.gates = 5;
+            entry.coins = 2;
+            profile.statistics.runHistory.add(entry);
+        }
+        profile.statistics.totalRuns = Statistics.RUN_HISTORY_LIMIT;
+        profile.statistics.bestGates = 5;
+        profile.unlock("world:storm_sky");
+        assertTrue(new SelectionManager(progression, () -> { })
+                .selectWorld(profile, "storm_sky", content));
+        MainMenuScreen menu = open();
+        assertEquals(strings.format(StringKey.MENU_LAST_RUN, 5L, 2L, 5L), menu.lastRunLine());
+
+        // A quick death that pays nothing and falls off the capped history: only the lifetime
+        // count moves, and the hub still has to notice.
+        RunStats stats = new RunStats();
+        stats.setDeathCause(CollisionCause.GROUND);
+        for (int i = 0; i < 10; i++) {
+            stats.tickAlive();
+        }
+        long xpBefore = profile.xp;
+        Long coinsBefore = profile.wallet.get(PlayerProfile.CURRENCY_COINS);
+        // Without the achievement hook: the hundred runs above would otherwise fire a lifetime
+        // achievement whose coins are exactly the kind of change this test keeps out.
+        new ProgressionManager(new FixedTimeSource(NOW), ProgressionManager.AchievementHook.NONE,
+                UnlockEvaluator.of(content)).apply(profile,
+                        new RunResult(RunConfig.classic(1), stats, new LinkedHashMap<>()), rules);
+        assertEquals(Statistics.RUN_HISTORY_LIMIT, profile.statistics.runHistory.size(),
+                "the history stays capped");
+        assertEquals(xpBefore, profile.xp, "a three-second zero-gate death pays no XP");
+        assertEquals(coinsBefore, profile.wallet.get(PlayerProfile.CURRENCY_COINS),
+                "and no coins, so only the lifetime count moved");
+        ticks(1);
+        assertEquals(strings.format(StringKey.MENU_LAST_RUN, 0L,
+                profile.statistics.runHistory.get(Statistics.RUN_HISTORY_LIMIT - 1).coins, 5L),
+                menu.lastRunLine(), "the zero-gate run is the last run now");
+
+        // A sub-screen paints its own letterbox; the pop never re-enters the hub, so the hub
+        // puts its world's back on its first tick.
+        WorldPalette storm = WorldPalette.from(content.worlds().get("storm_sky").palette());
+        assertEquals(storm.letterbox(), screens.letterboxRgb());
+        opens(menu, menu.settingsButton(), SettingsScreen.class);
+        assertEquals(storm.letterbox(), screens.letterboxRgb(),
+                "the hub's letterbox is back after the settings screen popped");
+    }
+
     // ------------------------------------------------------------------ quit and render
 
     @Test
@@ -447,7 +498,6 @@ class HomeHubTest {
         ticks(2);
         presenter.present(0.5);
         assertTrue(distinctColours(presenter.image()) >= 4, "the hub is uniform at 1.5x");
-        assertNull(null);
     }
 
     private static int distinctColours(BufferedImage img) {

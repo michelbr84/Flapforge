@@ -38,6 +38,7 @@ import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
 import io.github.michelbr84.flapforge.support.ManualClock;
+import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.component.ProgressBar;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
@@ -313,6 +314,32 @@ class GoalsScreenTest {
         record.completed = true;
         assertTrue(screen.detailTexts().get(6).contains("completed"),
                 "the completed mark rides on the record line");
+    }
+
+    @Test
+    void aChallengeUnlockedUnderAnotherScreenShowsAfterThePop() {
+        GoalsScreen screen = open();
+        assertTrue(screen.challengeList().options().get(0).endsWith("(locked)"));
+        Screen cover = new Screen() {
+            @Override
+            public void tick(io.github.michelbr84.flapforge.input.InputFrame input) {
+            }
+
+            @Override
+            public void render(java.awt.Graphics2D g, double alpha) {
+            }
+        };
+        screens.push(cover);
+        screens.applyPending();
+        ticks(2);
+        profile.unlock("challenge:no_shield_1");
+        screens.pop();
+        screens.applyPending();
+        ticks(GRACE);
+        assertSame(screen, screens.top());
+        assertEquals("No Shield I", screen.challengeList().options().get(0),
+                "the pop never re-enters the screen, so the tick has to notice the unlock");
+        assertEquals(strings.get(StringKey.CHALLENGES_PLAY), screen.playButton().text());
     }
 
     @Test

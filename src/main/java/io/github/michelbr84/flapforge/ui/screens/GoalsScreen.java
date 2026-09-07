@@ -145,6 +145,7 @@ public final class GoalsScreen implements Screen {
     private double contentHeight;
     private double scroll;
     private String shownLanguage;
+    private int stackVersionSeen = -1;
 
     /**
      * Creates the screen for a wired application, opening on the Challenges tab.
@@ -686,6 +687,7 @@ public final class GoalsScreen implements Screen {
         ring.resetTransition();
         ring.focus(tabs);
         scroll = 0;
+        stackVersionSeen = screens.stackVersion();
         screens.setLetterboxRgb(PALETTE.letterbox());
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
@@ -702,6 +704,12 @@ public final class GoalsScreen implements Screen {
             scroll = MathUtil.clamp(scroll - input.wheel() * (double) WHEEL_STEP, 0, maxScroll());
         }
         if (!strings.language().equals(shownLanguage)) {
+            refreshTexts();
+        } else if (screens.stackVersion() != stackVersionSeen) {
+            // Back from a challenge run (a pop never re-enters, D17): what the run unlocked,
+            // completed or counted is what the tab shows now.
+            stackVersionSeen = screens.stackVersion();
+            screens.setLetterboxRgb(PALETTE.letterbox());
             refreshTexts();
         }
         if (input.isJustPressed(InputAction.BACK)) {

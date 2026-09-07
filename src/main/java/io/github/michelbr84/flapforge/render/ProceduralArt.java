@@ -1122,6 +1122,9 @@ public final class ProceduralArt {
      */
     public static void drawGear(Graphics2D g, double cx, double cy, double size, Color rim,
             Color hole) {
+        if (size <= 0) {
+            return;
+        }
         double r = size / 2;
         g.translate(cx, cy);
         g.scale(r, r);
@@ -1149,6 +1152,9 @@ public final class ProceduralArt {
      */
     public static void drawFlame(Graphics2D g, double cx, double baseY, double w, double h,
             Color edge, Color core) {
+        if (w <= 0 || h <= 0) {
+            return;
+        }
         g.translate(cx, baseY);
         g.scale(w, h);
         g.setColor(Accessibility.tone(edge, Accessibility.Role.COIN));
@@ -1169,6 +1175,9 @@ public final class ProceduralArt {
      * @param color the fill
      */
     public static void drawSpark(Graphics2D g, double cx, double cy, double r, Color color) {
+        if (r <= 0) {
+            return;
+        }
         g.translate(cx, cy);
         g.scale(r, r);
         g.setColor(color);
@@ -1190,6 +1199,9 @@ public final class ProceduralArt {
      */
     public static void drawHammer(Graphics2D g, double cx, double cy, double size, double angle,
             Color head, Color handle) {
+        if (size <= 0) {
+            return;
+        }
         g.translate(cx, cy);
         g.rotate(angle);
         g.scale(size, size);
@@ -1229,6 +1241,9 @@ public final class ProceduralArt {
      */
     public static void drawBarrel(Graphics2D g, double cx, double cy, double size, Color wood,
             Color band) {
+        if (size <= 0) {
+            return;
+        }
         g.translate(cx, cy);
         g.scale(size, size);
         g.setColor(wood);
@@ -1253,6 +1268,9 @@ public final class ProceduralArt {
      */
     public static void drawBanner(Graphics2D g, double x, double topY, double height,
             double wave, Color pole, Color cloth) {
+        if (height <= 0) {
+            return;
+        }
         g.translate(x, topY);
         g.scale(height, height);
         g.setColor(pole);
@@ -1281,6 +1299,9 @@ public final class ProceduralArt {
      */
     public static void drawAwning(Graphics2D g, double cx, double cy, double size, Color cloth,
             Color wall) {
+        if (size <= 0) {
+            return;
+        }
         g.translate(cx, cy);
         g.scale(size, size);
         g.setColor(wall);
@@ -1303,6 +1324,9 @@ public final class ProceduralArt {
      */
     public static void drawBirdSilhouette(Graphics2D g, double cx, double cy, double size,
             Color color) {
+        if (size <= 0) {
+            return;
+        }
         g.translate(cx, cy);
         g.scale(size, size);
         g.setColor(color);
@@ -1329,6 +1353,9 @@ public final class ProceduralArt {
      */
     public static void drawScroll(Graphics2D g, double cx, double cy, double size, Color paper,
             Color ink) {
+        if (size <= 0) {
+            return;
+        }
         g.translate(cx, cy);
         g.scale(size, size);
         g.setColor(paper);
@@ -1353,6 +1380,9 @@ public final class ProceduralArt {
      * @param color the fill
      */
     public static void drawCrown(Graphics2D g, double cx, double cy, double size, Color color) {
+        if (size <= 0) {
+            return;
+        }
         g.translate(cx, cy);
         g.scale(size, size);
         g.setColor(color);
@@ -1372,6 +1402,9 @@ public final class ProceduralArt {
      * @param color the stroke colour
      */
     public static void drawChevron(Graphics2D g, double cx, double cy, double size, Color color) {
+        if (size <= 0) {
+            return;
+        }
         Stroke old = g.getStroke();
         g.translate(cx, cy);
         g.scale(size, size);

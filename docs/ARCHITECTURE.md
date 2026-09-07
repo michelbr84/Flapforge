@@ -621,7 +621,7 @@ nearest measurable unlockable by `nearestBranch`, earnable branches before purch
 cosmetics and non-playable ids skipped; activation opens the screen of its kind), the
 `CtaButton` START RUN (gold plate, "world • tier" subtitle, a tick-driven glow capped under
 reduce flashing) and a `NavBar` of five `NavButton`s sharing one centre line (Shop · Birds ·
-PLAY · Forge · Goals; gold only through `isPrimary`, never hover). Every plate's focus is a white
+Play · Forge · Goals; gold only through `isPrimary`, never hover). Every plate's focus is a white
 ring, because gold is the resting colour of the call to action. The hub builds its own
 `ContentRunFactory` over the live profile for START RUN (`SEEDED` when the seed was explicit),
 so the plaque is what the run is; a bare stack (tests, headless) plays the injected source. A pop

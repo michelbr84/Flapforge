@@ -45,7 +45,7 @@ for attribution; those versions were never Flapforge releases.
   `nearestBranch`) that opens the screen where it is earned; a gold
   **START RUN** with "World • Difficulty" under it and a pulsing glow (capped
   under reduce flashing); a last-run / best line; and a five-item bottom
-  navigation — Shop · Birds · **PLAY** · Forge (the upgrade trees) · Goals.
+  navigation — Shop · Birds · **Play** · Forge (the upgrade trees) · Goals.
   START RUN plays the profile's selection through the hub's own run
   factory, seeded when `--seed` was given.
 - A **Goals** screen with four tabs — Challenges, Achievements, Milestones,

@@ -50,6 +50,10 @@ public class CtaButton extends Button {
     private IconPainter icon;
     private long ticks;
     private boolean reduceFlashing;
+    private Font titleFont;
+    private String titleFor;
+    private int titleRoom = -1;
+    private double titleScale;
 
     /**
      * Creates a call to action.
@@ -151,15 +155,22 @@ public class CtaButton extends Button {
         Color ink = ProceduralArt.ctaTextColor(state);
         String title = text();
         int room = bw - 2 * PADDING - (icon == null ? 0 : ICON_SIZE + ICON_GAP);
-        Font font = Fonts.bold(TITLE_SIZES[TITLE_SIZES.length - 1]);
-        for (int size : TITLE_SIZES) {
-            Font candidate = Fonts.bold(size);
-            if (TextPainter.width(g, candidate, title) <= room) {
-                font = candidate;
-                break;
+        double scale = Fonts.textScale();
+        if (titleFont == null || titleFor != title || titleRoom != room || titleScale != scale) {
+            // Measured only when the title, the room or the text scale changed.
+            titleFont = Fonts.bold(TITLE_SIZES[TITLE_SIZES.length - 1]);
+            for (int size : TITLE_SIZES) {
+                Font candidate = Fonts.bold(size);
+                if (TextPainter.width(g, candidate, title) <= room) {
+                    titleFont = candidate;
+                    break;
+                }
             }
+            titleFor = title;
+            titleRoom = room;
+            titleScale = scale;
         }
-        g.setFont(font);
+        g.setFont(titleFont);
         double cy = centerY();
         double titleBaseline = subtitle.isEmpty()
                 ? TextPainter.centeredBaseline(g, cy) : cy - TITLE_LIFT;

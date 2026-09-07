@@ -20,7 +20,6 @@ import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.progression.Statistics;
 import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
-import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.BackgroundRenderer;
 import io.github.michelbr84.flapforge.render.CloudLayer;
 import io.github.michelbr84.flapforge.render.Fonts;
@@ -156,6 +155,7 @@ public final class MainMenuScreen implements Screen {
     private UnlockEvaluator.NextUnlock next;
     private int forgeStage;
     private int quitArmedTicks;
+    private boolean reduceShown;
     private long ticks;
     private double prevBob;
     private double bob;
@@ -171,6 +171,7 @@ public final class MainMenuScreen implements Screen {
     private int shownUnlocked = -1;
     private int shownUpgrades = -1;
     private int shownRuns = -1;
+    private long shownTotalRuns = -1;
     private long shownBestGates = -1;
     private boolean shownProfile;
     /** The bot-driven demo shown behind the menu while the player idles (M9); null in headless. */
@@ -283,7 +284,8 @@ public final class MainMenuScreen implements Screen {
         nav.layoutRow(8, 44, 2, 56, 76, 84, 4, 8);
         nav.registerFocusables(ring);
 
-        backdrop.setReduceFlashing(ParticleSystem.defaultReduceFlashing());
+        reduceShown = !ParticleSystem.defaultReduceFlashing();
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
         refreshTexts();
         coins.display().setAmountNow(walletBalance());
     }
@@ -307,7 +309,27 @@ public final class MainMenuScreen implements Screen {
      */
     private long walletBalance() {
         PlayerProfile p = profile();
-        return p == null ? 0 : Wallet.of(p).balance(PlayerProfile.CURRENCY_COINS);
+        // Read the map directly: this runs every tick from hubStale(), and Wallet.of allocates.
+        Long coins = p == null ? null : p.wallet.get(PlayerProfile.CURRENCY_COINS);
+        return coins == null ? 0 : coins;
+    }
+
+    /**
+     * Forwards the reduce-flashing default to everything on the hub that pulses. Polled every
+     * tick because the setting is changed on the settings screen, and a pop back from there
+     * does not re-enter the hub (D17).
+     *
+     * @param reduce the default
+     */
+    private void applyReduceFlashing(boolean reduce) {
+        if (reduce == reduceShown) {
+            return;
+        }
+        reduceShown = reduce;
+        particles.setReduceFlashing(reduce);
+        forge.setReduceFlashing(reduce);
+        startRun.setReduceFlashing(reduce);
+        backdrop.setReduceFlashing(reduce);
     }
 
     private ProgressionRules rules() {
@@ -706,6 +728,8 @@ public final class MainMenuScreen implements Screen {
         shownUnlocked = p == null ? -1 : p.unlocked.size();
         shownUpgrades = p == null ? -1 : p.upgradeLevelsTotal();
         shownRuns = p == null ? -1 : p.statistics.runHistory.size();
+        // The history is capped, so its size stops moving; the lifetime count never does.
+        shownTotalRuns = p == null ? -1 : p.statistics.totalRuns;
         shownBestGates = p == null ? -1 : p.statistics.bestGates;
     }
 
@@ -727,6 +751,7 @@ public final class MainMenuScreen implements Screen {
                 || shownUnlocked != p.unlocked.size()
                 || shownUpgrades != p.upgradeLevelsTotal()
                 || shownRuns != p.statistics.runHistory.size()
+                || shownTotalRuns != p.statistics.totalRuns
                 || shownBestGates != p.statistics.bestGates;
     }
 
@@ -736,11 +761,7 @@ public final class MainMenuScreen implements Screen {
     public void onEnter() {
         ring.resetTransition();
         ring.focus(startRun);
-        boolean reduce = ParticleSystem.defaultReduceFlashing();
-        particles.setReduceFlashing(reduce);
-        forge.setReduceFlashing(reduce);
-        startRun.setReduceFlashing(reduce);
-        backdrop.setReduceFlashing(reduce);
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
         // The idle clock of the attract mode (M9) starts when the menu becomes visible, so the
         // first tick after the push counts as idle instead of being eaten by the transition.
         idleTicks = 0;
@@ -781,6 +802,7 @@ public final class MainMenuScreen implements Screen {
         bob = bobAt(ticks);
         toasts.tick();
         coins.tick();
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
         particles.update(1.0 / Playfield.TICK_RATE);
         startRun.setTicks(ticks);
         playerCard.setTicks(ticks);
@@ -788,8 +810,10 @@ public final class MainMenuScreen implements Screen {
             quitArmedTicks--;
         }
         if (screens.stackVersion() != stackVersionSeen) {
-            // A screen came and went: whatever Back meant before it is forgotten.
+            // A screen came and went: whatever Back meant before it is forgotten, and the
+            // letterbox the sub-screen set is the hub's world's again (a pop never re-enters).
             quitArmedTicks = 0;
+            screens.setLetterboxRgb(palette.letterbox());
         }
         boolean attractWasUp = attractActive;
         trackIdle(input);

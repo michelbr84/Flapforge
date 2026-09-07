@@ -209,9 +209,10 @@ challenge's world, tier, rules, forced cards and boss.
 
 Owning a world makes it selectable: the bird selection screen's world row shows the five worlds
 in `order`, the hazards each spawns and, for a locked one, the cheapest way in; selecting writes
-`profile.selected.worldId` through `SelectionManager.selectWorld` (owned worlds only). `--world
-<id>` pins a world for one launch: an owned world is selected as the picker would, a locked one
-is played for that launch with the profile untouched.
+`profile.selected.worldId` through `SelectionManager.selectWorld` (owned worlds only); the hub's
+World Select (M10) writes the same field. `--world <id>` selects an owned world for one launch as
+the picker would; a locked one is refused with a line on stdout and the hub keeps playing the
+owned selection (only `--headless-run` plays the flag's world).
 
 ### The loadout (M5)
 

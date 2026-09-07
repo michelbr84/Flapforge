@@ -101,6 +101,7 @@ public final class WorldSelectScreen implements Screen {
     private String description = "";
     private String descriptionShown = "";
     private String descriptionOf = "";
+    private UiNode describedFocus;
     private String shownLanguage;
 
     /**
@@ -399,6 +400,7 @@ public final class WorldSelectScreen implements Screen {
     }
 
     private void refreshDescription() {
+        describedFocus = ring.focused();
         String id = currentWorldId();
         String next = id == null ? "" : ProgressionText.description(strings, ContentKind.WORLD, id);
         if (!next.equals(description)) {
@@ -435,7 +437,10 @@ public final class WorldSelectScreen implements Screen {
         wallet.tick();
         ring.handle(input);
         tier.tick(input);
-        refreshDescription();
+        if (ring.focused() != describedFocus) {
+            // The description keys a string per call; only a focus move can change it.
+            refreshDescription();
+        }
         UiNode under = ring.nodeAt(input.mouseX(), input.mouseY());
         UiNode target = under != null ? under : ring.focused();
         tooltip.update(target, target instanceof CardGrid.Card card ? card.tooltip() : "");

@@ -547,8 +547,8 @@ A world can contain:
 - Different difficulty curves.
 
 Worlds unlock in order: clearing a world's boss opens the next one, or the
-next world can be bought in the shop. A launch can also pin any world with
-`--world <id>`.
+next world can be bought in the shop. An owned world can also be selected for
+one launch with `--world <id>`.
 
 ---
 
@@ -683,7 +683,7 @@ opens the **World Select** (one card per world with what it spawns, the way
 in while locked, and the difficulty row); the forge scene, which grows with
 your upgrades; the **Next unlock** card; the gold **START RUN** with the
 world and difficulty it will play; and a bottom navigation — **Shop**,
-**Birds**, **PLAY**, **Forge** (the upgrade trees) and **Goals** (the four
+**Birds**, **Play**, **Forge** (the upgrade trees) and **Goals** (the four
 tabs described under [Features](#features)). Every control takes the same
 keyboard focus ring and mouse or touch input as every other screen and
 honours the text scale and colour-blind settings. `Esc` on the hub asks
@@ -779,7 +779,7 @@ game through Gradle and forward every argument to it; `scripts/build.sh` /
 app image above.
 
 ```bash
-scripts/run.sh --seed 42 --world storm_sky --bird zephyr
+scripts/run.sh --seed 42 --world wind_valley --bird zephyr   # --world needs an owned world
 ```
 
 Release artefacts are built by CI: pushing a `v*` tag runs

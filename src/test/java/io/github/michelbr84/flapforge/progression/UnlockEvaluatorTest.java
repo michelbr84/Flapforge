@@ -364,6 +364,13 @@ class UnlockEvaluatorTest {
                 "140 of 150 coins is closer than 0 of 3 runs");
         assertEquals(UnlockType.RUNS, evaluator.nearestBranch(guardian, profile, true).type(),
                 "but the earnable branch wins when asked for");
+        UnlockConditionDef covered = new UnlockConditionDef(UnlockType.ANY_OF, 0, null, 0, null,
+                List.of(new UnlockConditionDef(UnlockType.PURCHASE, 0, null, 10, null, List.of()),
+                        threshold(UnlockType.RUNS, 3)));
+        assertEquals(UnlockType.RUNS, evaluator.nearestBranch(covered, profile, true).type(),
+                "a price the wallet already covers still ranks behind an untouched threshold");
+        assertEquals(UnlockType.PURCHASE, evaluator.nearestBranch(covered, profile, false).type(),
+                "unless the caller does not care how it opens");
         profile.statistics.totalRuns = 2;
         assertEquals(UnlockType.PURCHASE, evaluator.nearestBranch(guardian, profile, false).type(),
                 "140 of 150 coins is still closer than 2 of 3 runs");

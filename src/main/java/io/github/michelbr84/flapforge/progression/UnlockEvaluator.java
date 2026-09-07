@@ -54,6 +54,13 @@ import java.util.Set;
  */
 public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
 
+    /**
+     * What a purchase-only path adds to its distance when earnable paths are preferred: more than
+     * the whole earnable range, so even a price the wallet already covers ranks behind a
+     * threshold nothing has been done towards.
+     */
+    private static final double PURCHASE_OFFSET = 2.0;
+
     /** How many times {@link #evaluate(PlayerProfile)} re-runs while grants keep appearing. */
     public static final int MAX_PASSES = 8;
 
@@ -538,7 +545,7 @@ public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
             }
             double key = 1 - progressOf(branch, profile, collections).fraction();
             if (preferEarned && branch.type() == UnlockType.PURCHASE) {
-                key += 1;
+                key += PURCHASE_OFFSET;
             }
             if (key < bestKey) {
                 best = branch;
@@ -593,7 +600,7 @@ public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
             }
             double remaining = 1 - progress.fraction();
             if (branch.type() == UnlockType.PURCHASE) {
-                remaining += 1;
+                remaining += PURCHASE_OFFSET;
             }
             if (remaining < bestRemaining) {
                 best = new NextUnlock(id, kind, branch, progress);
