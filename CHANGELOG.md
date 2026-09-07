@@ -12,6 +12,14 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+### Added
+
+- The release workflow names the GitHub release and fills its notes from the
+  version's section of this changelog (`scripts/release-notes.sh`: the
+  section, a download table and the compare link against the previous tag),
+  and a dispatchable *Release notes* workflow (`release-notes.yml`) re-applies
+  them to an existing release.
+
 ## 0.2.0 — 2026-09-07
 
 The home-hub release: the main menu becomes a visual home hub with a player

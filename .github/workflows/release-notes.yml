@@ -1,0 +1,45 @@
+name: Release notes
+
+# (Re)applies a version's CHANGELOG section as the name and notes of an
+# existing GitHub release, through scripts/release-notes.sh. release.yml does
+# this itself when it cuts a release; run this one from Actions > Release
+# notes > Run workflow to refresh the notes after a changelog fix, or to fill
+# a release that was published without them.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to update, e.g. v0.2.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    name: Apply the notes to ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    steps:
+      # The changelog is read from the ref this workflow runs on (main by
+      # default); the tags are needed for the compare link.
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Write the notes from CHANGELOG.md
+        run: |
+          mkdir -p build
+          bash scripts/release-notes.sh "${{ inputs.tag }}" > build/release-notes.md
+          cat build/release-notes.md
+
+      - name: Update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag }}"
+          gh release view "$tag" --json tagName,name,isDraft --repo "$GITHUB_REPOSITORY"
+          gh release edit "$tag" --title "$tag" --notes-file build/release-notes.md --repo "$GITHUB_REPOSITORY"
+          echo "Updated https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
