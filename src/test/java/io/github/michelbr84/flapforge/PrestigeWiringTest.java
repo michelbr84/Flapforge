@@ -155,11 +155,10 @@ class PrestigeWiringTest {
         ticks(GRACE);
         assertEquals("", menu.prestigeBadge(), "the badge waits for the first prestige");
 
-        // The wired menu lists the meta screens before Statistics; walk down to it.
-        for (int i = 0; i < 10 && menu.focusRing().focused() != menu.statisticsButton(); i++) {
-            tap(Keys.DOWN);
-        }
-        assertSame(menu.statisticsButton(), menu.focusRing().focused());
+        // The Profile is behind the hub's player card.
+        menu.focusRing().focus(menu.playerCard());
+        ticks(1);
+        assertSame(menu.playerCard(), menu.focusRing().focused());
         tap(Keys.ENTER);
         ticks(GRACE);
         StatisticsScreen stats = (StatisticsScreen) screens.top();

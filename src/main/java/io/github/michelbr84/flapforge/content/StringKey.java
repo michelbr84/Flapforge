@@ -39,8 +39,6 @@ public enum StringKey {
 
     /** Main menu: start a run. */
     MENU_PLAY("menu.play"),
-    /** Main menu: open the statistics screen. */
-    MENU_STATISTICS("menu.statistics"),
     /** Main menu: open the settings screen. */
     MENU_SETTINGS("menu.settings"),
     /** Main menu: leave the game. */
@@ -363,12 +361,8 @@ public enum StringKey {
 
     /** Main menu: open the bird selection. */
     MENU_BIRDS("menu.birds"),
-    /** Main menu: open the upgrade trees. */
-    MENU_UPGRADES("menu.upgrades"),
     /** Main menu: open the shop. */
     MENU_SHOP("menu.shop"),
-    /** Main menu: the world the next run is played in, {@code {0}} its name (M7). */
-    MENU_WORLD("menu.world"),
 
     /** Make the focused entry the one the next run uses. */
     COMMON_SELECT("common.select"),
@@ -736,10 +730,6 @@ public enum StringKey {
     /** Statistics: synergies activated across every run. */
     STATS_SYNERGIES_ACTIVATED("stats.synergies_activated"),
 
-    /** Main menu: open the challenges (M8). */
-    MENU_CHALLENGES("menu.challenges"),
-    /** Main menu: open the achievements (M8). */
-    MENU_ACHIEVEMENTS("menu.achievements"),
     /** Challenges screen: title. */
     CHALLENGES_TITLE("challenges.title"),
     /** Challenges screen: the world a challenge is played in, {@code {0}} its name (E6). */

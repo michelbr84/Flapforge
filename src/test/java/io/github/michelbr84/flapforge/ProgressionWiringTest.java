@@ -349,17 +349,26 @@ class ProgressionWiringTest {
         loop.start();
         ticks(2);
         Strings strings = Strings.active();
-        assertEquals(strings.format(io.github.michelbr84.flapforge.content.StringKey.MENU_WORLD,
+        assertEquals(strings.format(
+                io.github.michelbr84.flapforge.content.StringKey.MENU_WORLD_PLAQUE, 1,
                 ProgressionText.name(strings, ContentKind.WORLD, "green_fields")),
                 menu.worldLine(), "a fresh profile flies the fields");
+        assertEquals(io.github.michelbr84.flapforge.render.WorldPalette.GREEN_FIELDS.letterbox(),
+                screens.letterboxRgb());
 
         PlayerProfile profile = save.profile();
         profile.unlock("world:iron_forge");
         SelectionManager selection = new SelectionManager(progression, () -> { });
         assertTrue(selection.selectWorld(profile, "iron_forge", content));
         ticks(1);
-        assertEquals(strings.format(io.github.michelbr84.flapforge.content.StringKey.MENU_WORLD,
+        assertEquals(strings.format(
+                io.github.michelbr84.flapforge.content.StringKey.MENU_WORLD_PLAQUE, 3,
                 ProgressionText.name(strings, ContentKind.WORLD, "iron_forge")),
-                menu.worldLine(), "the line followed the selection on the next tick");
+                menu.worldLine(), "the plaque followed the selection on the next tick");
+        io.github.michelbr84.flapforge.render.WorldPalette forge =
+                io.github.michelbr84.flapforge.render.WorldPalette.from(
+                        content.worlds().get("iron_forge").palette());
+        assertEquals(forge, menu.hubPalette(), "the hub took the world's palette");
+        assertEquals(forge.letterbox(), screens.letterboxRgb(), "and its letterbox");
     }
 }

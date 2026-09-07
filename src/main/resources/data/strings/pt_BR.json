@@ -11,13 +11,10 @@
   "boot.press_any": "Pressione qualquer tecla para continuar",
 
   "menu.play": "Jogar",
-  "menu.statistics": "Estatísticas",
   "menu.settings": "Configurações",
   "menu.quit": "Sair",
   "menu.birds": "Aves",
-  "menu.upgrades": "Melhorias",
   "menu.shop": "Loja",
-  "menu.world": "Mundo: {0}",
 
   "common.back": "Voltar",
   "common.on": "Ligado",
@@ -672,8 +669,6 @@
   "achievement.daily_week.name": "Sete Dias",
   "achievement.daily_week.desc": "Jogue sete desafios diários.",
 
-  "menu.challenges": "Desafios",
-  "menu.achievements": "Conquistas",
 
   "challenges.title": "Desafios",
   "challenges.world": "Mundo: {0}",

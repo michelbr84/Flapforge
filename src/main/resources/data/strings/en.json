@@ -11,13 +11,10 @@
   "boot.press_any": "Press any key to continue",
 
   "menu.play": "Play",
-  "menu.statistics": "Statistics",
   "menu.settings": "Settings",
   "menu.quit": "Quit",
   "menu.birds": "Birds",
-  "menu.upgrades": "Upgrades",
   "menu.shop": "Shop",
-  "menu.world": "World: {0}",
 
   "common.back": "Back",
   "common.on": "On",
@@ -672,8 +669,6 @@
   "achievement.daily_week.name": "Seven Days",
   "achievement.daily_week.desc": "Play seven daily challenges.",
 
-  "menu.challenges": "Challenges",
-  "menu.achievements": "Achievements",
 
   "challenges.title": "Challenges",
   "challenges.world": "World: {0}",

@@ -268,10 +268,10 @@ class StatisticsScreenTest {
         loop.start();
         ticks(GRACE);
 
-        tap(Keys.DOWN);
-        assertSame(menu.statisticsButton(), menu.focusRing().focused());
+        tap(Keys.UP);
+        assertSame(menu.playerCard(), menu.focusRing().focused());
         tap(Keys.ENTER);
-        assertTrue(screens.top() instanceof StatisticsScreen, "Enter opens the statistics");
+        assertTrue(screens.top() instanceof StatisticsScreen, "Enter opens the profile");
         ticks(GRACE);
 
         tap(Keys.ESCAPE);
@@ -288,7 +288,7 @@ class StatisticsScreenTest {
         screens.applyPending();
         loop.start();
         ticks(GRACE);
-        tap(Keys.DOWN);
+        tap(Keys.UP);
         tap(Keys.ENTER);
         StatisticsScreen screen = (StatisticsScreen) screens.top();
         ticks(GRACE);

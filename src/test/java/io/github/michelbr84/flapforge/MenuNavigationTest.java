@@ -133,16 +133,22 @@ class MenuNavigationTest {
 
     @Test
     void keyboardMovesFocusOpensTheGameAndEscapesBack() {
-        assertSame(menu.playButton(), menu.focusRing().focused(), "Play focused on entry");
+        assertSame(menu.playButton(), menu.focusRing().focused(), "START RUN focused on entry");
+        assertSame(menu.startRunButton(), menu.playButton());
         tap(Keys.DOWN);
-        assertSame(menu.statisticsButton(), menu.focusRing().focused(),
-                "Down moves to Statistics");
+        assertSame(menu.navButton(MainMenuScreen.NAV_PLAY), menu.focusRing().focused(),
+                "Down moves to the Play item of the navigation");
+        tap(Keys.UP);
+        assertSame(menu.playButton(), menu.focusRing().focused(), "Up moves back to START RUN");
+        tap(Keys.UP);
+        assertSame(menu.playerCard(), menu.focusRing().focused(),
+                "Up from START RUN reaches the player card in a bare menu");
+        tap(Keys.RIGHT);
+        assertSame(menu.settingsButton(), menu.focusRing().focused(), "Right moves to the gear");
+        tap(Keys.LEFT);
+        assertSame(menu.playerCard(), menu.focusRing().focused());
         tap(Keys.DOWN);
-        assertSame(menu.settingsButton(), menu.focusRing().focused(), "Down moves to Settings");
-        tap(Keys.UP);
-        assertSame(menu.statisticsButton(), menu.focusRing().focused());
-        tap(Keys.UP);
-        assertSame(menu.playButton(), menu.focusRing().focused(), "Up moves back to Play");
+        assertSame(menu.playButton(), menu.focusRing().focused(), "Down returns to START RUN");
         tap(Keys.ENTER);
         assertTrue(screens.top() instanceof GameScreen, "Enter on Play pushes the game");
         ticks(GRACE);
@@ -167,7 +173,7 @@ class MenuNavigationTest {
         // M2's "switch to pt_BR live": the settings screen reloads the shared table and pops back,
         // and the menu below has to notice on its own -- nothing tells it. This is exactly what
         // GameContext.applyLanguage does: reload the active instance, then re-publish it.
-        assertEquals(Strings.load("en").get(StringKey.MENU_PLAY), menu.playButton().text());
+        assertEquals(Strings.load("en").get(StringKey.MENU_START_RUN), menu.playButton().text());
 
         Strings active = Strings.active();
         active.reload("pt_BR");
@@ -175,24 +181,73 @@ class MenuNavigationTest {
         ticks(1);
 
         Strings pt = Strings.load("pt_BR");
-        assertEquals(pt.get(StringKey.MENU_PLAY), menu.playButton().text(), "Play was relabelled");
-        assertEquals(pt.get(StringKey.MENU_STATISTICS), menu.statisticsButton().text());
+        assertEquals(pt.get(StringKey.MENU_START_RUN), menu.playButton().text(),
+                "START RUN was relabelled");
+        assertEquals(pt.get(StringKey.MENU_PLAY), menu.navButton(MainMenuScreen.NAV_PLAY).text());
         assertEquals(pt.get(StringKey.MENU_SETTINGS), menu.settingsButton().text());
-        assertEquals(pt.get(StringKey.MENU_QUIT), menu.quitButton().text());
-        assertNotEquals(Strings.load("en").get(StringKey.MENU_PLAY), menu.playButton().text(),
+        assertEquals(pt.get(StringKey.MENU_NAV_GOALS),
+                menu.navButton(MainMenuScreen.NAV_GOALS).text());
+        assertEquals(pt.get(StringKey.MENU_NAV_FORGE),
+                menu.navButton(MainMenuScreen.NAV_FORGE).text());
+        assertEquals(pt.get(StringKey.MENU_PLAYER_NAME), menu.playerCard().name());
+        assertNotEquals(Strings.load("en").get(StringKey.MENU_START_RUN),
+                menu.playButton().text(),
                 "the two languages must actually differ for this to prove anything");
     }
 
     @Test
     void quitThroughTheMenuRequestsClose() {
-        tap(Keys.DOWN);
-        tap(Keys.DOWN);
-        tap(Keys.DOWN);
-        assertSame(menu.quitButton(), menu.focusRing().focused());
-        tap(Keys.ENTER);
-        assertTrue(closed, "Quit runs the close handler");
+        assertFalse(menu.quitArmed());
+        tap(Keys.ESCAPE);
+        assertTrue(menu.quitArmed(), "the first Back arms the quit");
+        assertEquals(1, menu.toasts().pushedCount(), "and says so");
+        assertFalse(closed, "one Back never quits");
+        tap(Keys.ESCAPE);
+        assertTrue(closed, "the second Back runs the close handler");
         assertTrue(screens.isCloseRequested());
         assertFalse(loop.isRunning());
+    }
+
+    @Test
+    void theQuitArmingExpires() {
+        tap(Keys.ESCAPE);
+        assertTrue(menu.quitArmed());
+        ticks(MainMenuScreen.QUIT_ARM_TICKS + 1);
+        assertFalse(menu.quitArmed(), "the arm lapses after its window");
+        tap(Keys.ESCAPE);
+        assertFalse(closed, "a late second Back only arms again");
+        assertTrue(menu.quitArmed());
+        assertEquals(2, menu.toasts().pushedCount());
+    }
+
+    @Test
+    void theProfileBoundControlsAreAbsentOrDisabledWithoutOne() {
+        assertFalse(menu.navButton(MainMenuScreen.NAV_SHOP).isEnabled());
+        assertFalse(menu.navButton(MainMenuScreen.NAV_BIRDS).isEnabled());
+        assertFalse(menu.navButton(MainMenuScreen.NAV_FORGE).isEnabled());
+        assertFalse(menu.navButton(MainMenuScreen.NAV_GOALS).isEnabled(),
+                "goals need content");
+        assertTrue(menu.navButton(MainMenuScreen.NAV_PLAY).isEnabled());
+        assertTrue(menu.navButton(MainMenuScreen.NAV_PLAY).isPrimary());
+        assertFalse(menu.coinsChip().isVisible());
+        assertFalse(menu.worldPlaque().isVisible());
+        assertFalse(menu.nextUnlockCard().isVisible());
+        assertEquals("", menu.lastRunLine());
+        assertEquals("", menu.worldLine());
+        assertEquals("", menu.startRunButton().subtitle());
+        assertEquals(0, menu.forgeStage());
+        assertEquals(Strings.load("en").format(StringKey.MENU_PLAYER_LEVEL, 1),
+                menu.playerCard().levelText());
+        assertEquals(0.0, menu.playerCard().xpFraction(), 1e-9);
+        assertTrue(menu.playerCard().isFocusable(), "the profile is always reachable");
+        assertTrue(menu.settingsButton().isFocusable());
+        menu.focusRing().focus(menu.navButton(MainMenuScreen.NAV_PLAY));
+        ticks(1);
+        tap(Keys.RIGHT);
+        assertSame(menu.settingsButton(), menu.focusRing().focused(),
+                "the arrows step over the disabled items; the gear is the next control right");
+        tap(Keys.LEFT);
+        assertSame(menu.playerCard(), menu.focusRing().focused());
     }
 
     @Test
