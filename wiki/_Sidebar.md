@@ -1,0 +1,33 @@
+**[[Flapforge|Home]]**
+
+**English**
+- [[Home]]
+- [[Getting Started]]
+- [[Home Hub]]
+- [[Controls]]
+- [[Playing a Run]]
+- [[Modifiers and Synergies]]
+- [[Birds and Abilities]]
+- [[Worlds and Bosses]]
+- [[Shop and Upgrades]]
+- [[Game Modes and Difficulty]]
+- [[Challenges and Goals]]
+- [[Settings and Accessibility]]
+- [[Building and Contributing]]
+- [[FAQ]]
+
+**Português (Brasil)**
+- [[Início|Inicio-(pt-BR)]]
+- [[Primeiros passos|Primeiros-Passos-(pt-BR)]]
+- [[Tela inicial|Tela-Inicial-(pt-BR)]]
+- [[Controles|Controles-(pt-BR)]]
+- [[Jogando uma partida|Jogando-uma-Partida-(pt-BR)]]
+- [[Modificadores e sinergias|Modificadores-e-Sinergias-(pt-BR)]]
+- [[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]]
+- [[Mundos e chefes|Mundos-e-Chefes-(pt-BR)]]
+- [[Loja e melhorias|Loja-e-Melhorias-(pt-BR)]]
+- [[Modos de jogo e dificuldade|Modos-de-Jogo-e-Dificuldade-(pt-BR)]]
+- [[Desafios e metas|Desafios-e-Metas-(pt-BR)]]
+- [[Configurações e acessibilidade|Configuracoes-e-Acessibilidade-(pt-BR)]]
+- [[Compilando e contribuindo|Compilando-e-Contribuindo-(pt-BR)]]
+- [[Perguntas frequentes|Perguntas-Frequentes-(pt-BR)]]

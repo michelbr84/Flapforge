@@ -1,0 +1,72 @@
+name: Wiki
+
+# The GitHub wiki (Flapforge.wiki.git) is a build output of this workflow:
+# its sources are wiki/ on main and are reviewed like any other change. Web
+# edits to the wiki are overwritten by the next sync, so wiki editing should
+# stay restricted to collaborators in the repository settings.
+on:
+  push:
+    branches: [main]
+    paths: ['wiki/**', 'scripts/check-wiki.sh', '.github/workflows/wiki.yml']
+  pull_request:
+    paths: ['wiki/**', 'scripts/check-wiki.sh', '.github/workflows/wiki.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check wiki links and images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Check wiki/
+        run: bash scripts/check-wiki.sh
+
+  publish:
+    name: Publish to the GitHub wiki
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      # GitHub creates a wiki's git repository only when its first page is saved
+      # in the web UI; until then the clone is refused and the error below says
+      # what to click. The sync replaces that first page.
+      - name: Clone the wiki repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
+          if ! git clone "$url" wiki-repo; then
+            echo "::error title=Wiki not initialised::${GITHUB_REPOSITORY}.wiki.git could not be cloned. Open https://github.com/${GITHUB_REPOSITORY}/wiki, press 'Create the first page', save it with any content, then re-run this workflow (Actions > Wiki > Run workflow). The sync replaces that page."
+            exit 1
+          fi
+
+      - name: Sync wiki/ into the clone
+        run: rsync -a --delete --exclude '.git' wiki/ wiki-repo/
+
+      - name: Commit and push
+        working-directory: wiki-repo
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Wiki already up to date.'
+            exit 0
+          fi
+          git commit -m "docs(wiki): sync from ${GITHUB_SHA::7}" \
+                     -m "Source: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          git push origin HEAD

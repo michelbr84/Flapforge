@@ -12,6 +12,16 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+## 0.2.0 — 2026-09-07
+
+The home-hub release: the main menu becomes a visual home hub with a player
+card, the world plaque, a forge that grows with your upgrades, a next-unlock
+card and one gold START RUN; Challenges and Achievements merge into Goals, the
+statistics become the Profile, and a bilingual player wiki ships with the
+repository. This release also carries the 0.1.1 Android line, whose tag was cut
+off `main` (see 0.1.1 below), so the desktop bundles and the APK build from one
+tree again.
+
 ### Added
 
 - The main menu is a **home hub** (M10): a HUD band with the player card
@@ -49,6 +59,10 @@ for attribution; those versions were never Flapforge releases.
   `menu.quit_confirm`, `menu.nav_forge`, `menu.nav_goals`, `goals.title`,
   `profile.title`, `profile.collections`, `world_select.title`,
   `world_select.card`, `world_select.tier`, `settings.section.about`.
+- A bilingual player wiki — English and Português (Brasil), fourteen pages each
+  with screenshots — generated from `wiki/` on `main` and published to the GitHub
+  wiki by `.github/workflows/wiki.yml`; `scripts/check-wiki.sh` validates links,
+  images and language pairs before every publish.
 
 ### Changed
 

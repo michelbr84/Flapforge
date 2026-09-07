@@ -26,6 +26,12 @@ The player-facing overview lives in the root [`README.md`](../README.md).
 | [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | Upstream attribution, dependencies, assets and fonts |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | Flapforge's changelog plus the inherited upstream history |
 
+## Player wiki
+
+| Location | Contents |
+| --- | --- |
+| [`../wiki/`](../wiki/) | Source of the [GitHub wiki](https://github.com/michelbr84/Flapforge/wiki): the player guide in English and Português (Brasil), one file per page (`Name.md` / `Nome-(pt-BR).md`), screenshots under `wiki/images/`. Published by [`wiki.yml`](../.github/workflows/wiki.yml) on every push to `main` that touches it; `scripts/check-wiki.sh` validates links, images and language pairs first. Never edit the wiki in the web UI: the next sync overwrites it. |
+
 ## Conventions
 
 - Documents are written in English, in Markdown, wrapped at roughly 80
