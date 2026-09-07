@@ -35,7 +35,7 @@ public final class GearRenderer {
     private static final Stroke TRACK = new BasicStroke(2f, BasicStroke.CAP_ROUND,
             BasicStroke.JOIN_ROUND);
     private static final Color TRACK_TINT = new Color(0, 0, 0, 0x48);
-    private static final Shape WHEEL = toothedWheel();
+    private static final Shape WHEEL = ProceduralArt.toothedWheel(TEETH, ROOT_RADIUS);
     private static final Shape HUB = new Ellipse2D.Double(-HUB_RADIUS, -HUB_RADIUS,
             2 * HUB_RADIUS, 2 * HUB_RADIUS);
     private static final Shape AXLE = new Ellipse2D.Double(-0.1, -0.1, 0.2, 0.2);
@@ -102,48 +102,6 @@ public final class GearRenderer {
         g.scale(1 / r, 1 / r);
         g.rotate(-angle);
         g.translate(-cx, -cy);
-    }
-
-    /** The unit wheel: {@value #TEETH} trapezoid teeth around a circle of radius 1. */
-    private static Shape toothedWheel() {
-        Path2D.Double path = new Path2D.Double();
-        int points = TEETH * 4;
-        for (int i = 0; i < points; i++) {
-            // Within each tooth: root, flank up, tip, flank down. The corners sit at the quarter
-            // turns of the tooth pitch; the tips are narrower than the roots.
-            int phase = i % 4;
-            double pitch = 2 * Math.PI / TEETH;
-            double base = (i / 4) * pitch;
-            double a;
-            double radius;
-            switch (phase) {
-                case 0:
-                    a = base;
-                    radius = ROOT_RADIUS;
-                    break;
-                case 1:
-                    a = base + pitch * 0.18;
-                    radius = 1.0;
-                    break;
-                case 2:
-                    a = base + pitch * 0.42;
-                    radius = 1.0;
-                    break;
-                default:
-                    a = base + pitch * 0.6;
-                    radius = ROOT_RADIUS;
-                    break;
-            }
-            double px = Math.cos(a) * radius;
-            double py = Math.sin(a) * radius;
-            if (i == 0) {
-                path.moveTo(px, py);
-            } else {
-                path.lineTo(px, py);
-            }
-        }
-        path.closePath();
-        return path;
     }
 
     /** Four thin spokes from the hub to the root circle, as filled quads. */

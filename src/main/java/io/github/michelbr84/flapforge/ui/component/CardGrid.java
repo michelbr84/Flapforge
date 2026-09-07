@@ -50,7 +50,7 @@ public class CardGrid extends UiNode {
     public static final int BADGE_SIZE = 12;
 
     /** What a card's text ends in when it does not fit. */
-    public static final String ELLIPSIS = "\u2026";
+    public static final String ELLIPSIS = TextPainter.ELLIPSIS;
 
     private static final Color LOCK_VEIL = new Color(0x10, 0x1C, 0x1E, 0x9C);
     private static final Color LOCK_BODY = new Color(0xD8, 0xE2, 0xE4);
@@ -522,22 +522,10 @@ public class CardGrid extends UiNode {
          * @param g the context, with the font already set
          * @param text the text
          * @param width the width available, in logical pixels
-         * @return the text, or a prefix of it followed by {@value #ELLIPSIS}
+         * @return the text, or a prefix of it followed by {@value TextPainter#ELLIPSIS}
          */
         private static String ellipsised(Graphics2D g, String text, int width) {
-            if (width <= 0 || TextPainter.width(g, text) <= width) {
-                return text;
-            }
-            int ellipsis = TextPainter.width(g, ELLIPSIS);
-            int end = text.length();
-            while (end > 0 && TextPainter.width(g, text.substring(0, end)) + ellipsis > width) {
-                end--;
-            }
-            // Trailing spaces and a dangling separator look like a typo next to the ellipsis.
-            while (end > 0 && (text.charAt(end - 1) == ' ' || text.charAt(end - 1) == '-')) {
-                end--;
-            }
-            return text.substring(0, end) + ELLIPSIS;
+            return TextPainter.ellipsise(g, text, width);
         }
 
         /**
@@ -549,17 +537,7 @@ public class CardGrid extends UiNode {
          * @param size the width of the lock body
          */
         private static void drawPadlock(Graphics2D g, double cx, double cy, double size) {
-            int w = (int) Math.round(size);
-            int h = (int) Math.round(size * 0.8);
-            int bodyX = (int) Math.round(cx - size / 2);
-            int bodyY = (int) Math.round(cy - size * 0.1);
-            g.setColor(LOCK_BODY);
-            g.fillRoundRect(bodyX, bodyY, w, h, 2, 2);
-            Stroke old = g.getStroke();
-            g.setStroke(new BasicStroke(1.6f));
-            g.drawArc((int) Math.round(cx - size * 0.3), (int) Math.round(cy - size * 0.65),
-                    (int) Math.round(size * 0.6), (int) Math.round(size * 0.7), 0, 180);
-            g.setStroke(old);
+            ProceduralArt.drawPadlock(g, cx, cy, size, LOCK_BODY);
         }
     }
 }

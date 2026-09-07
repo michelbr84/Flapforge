@@ -136,6 +136,50 @@ class ProceduralRenderTest {
     }
 
     @Test
+    void hubIconsRenderNonBlank() {
+        Map<String, java.util.function.Consumer<Graphics2D>> icons = new LinkedHashMap<>();
+        Color gold = ProceduralArt.COIN_GOLD;
+        Color dark = ProceduralArt.TEXT_DARK;
+        Color[] ramp = ProceduralArt.alphaRamp(gold, 16);
+        icons.put("gear", g -> ProceduralArt.drawGear(g, 24, 24, 30, gold, dark));
+        icons.put("flame", g -> ProceduralArt.drawFlame(g, 24, 40, 20, 30,
+                ProceduralArt.FLAME_EDGE, ProceduralArt.FLAME_CORE));
+        icons.put("spark", g -> ProceduralArt.drawSpark(g, 24, 24, 10, gold));
+        icons.put("hammer", g -> ProceduralArt.drawHammer(g, 24, 24, 30, 0.6, gold, dark));
+        icons.put("crossed", g -> ProceduralArt.drawCrossedHammers(g, 24, 24, 30, gold));
+        icons.put("barrel", g -> ProceduralArt.drawBarrel(g, 24, 24, 26, ProceduralArt.WOOD, gold));
+        icons.put("banner", g -> ProceduralArt.drawBanner(g, 24, 4, 40, 0.5, dark, gold));
+        icons.put("awning", g -> ProceduralArt.drawAwning(g, 24, 24, 30, gold, dark));
+        icons.put("bird", g -> ProceduralArt.drawBirdSilhouette(g, 24, 24, 30, gold));
+        icons.put("scroll", g -> ProceduralArt.drawScroll(g, 24, 24, 30, gold, dark));
+        icons.put("crown", g -> ProceduralArt.drawCrown(g, 24, 24, 24, gold));
+        icons.put("chevron", g -> ProceduralArt.drawChevron(g, 24, 24, 16, gold));
+        icons.put("padlock", g -> ProceduralArt.drawPadlock(g, 24, 24, 16, null));
+        icons.put("glow", g -> ProceduralArt.drawGlow(g, 24, 24, 20, ramp, 0.8));
+        for (ProceduralArt.ButtonState state : ProceduralArt.ButtonState.values()) {
+            icons.put("cta " + state, g -> ProceduralArt.ctaButton(g, 2, 8, 44, 32, state));
+            icons.put("nav " + state, g -> ProceduralArt.navButton(g, 2, 4, 44, 40, state, false));
+            icons.put("primary " + state,
+                    g -> ProceduralArt.navButton(g, 2, 4, 44, 40, state, true));
+            icons.put("chip " + state, g -> ProceduralArt.chip(g, 2, 8, 44, 32, state));
+            icons.put("plaque " + state, g -> ProceduralArt.plaque(g, 2, 8, 44, 32, state));
+        }
+        icons.put("cta glow", g -> ProceduralArt.ctaGlow(g, 8, 12, 32, 24, ramp, 0.5));
+        icons.put("nav band", g -> ProceduralArt.navBand(g, 16, 32));
+        for (Map.Entry<String, java.util.function.Consumer<Graphics2D>> icon : icons.entrySet()) {
+            BufferedImage img = new BufferedImage(48, 48, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                ProceduralArt.prepare(g);
+                icon.getValue().accept(g);
+            } finally {
+                g.dispose();
+            }
+            assertTrue(distinctColours(img, 1) >= 2, icon.getKey() + " is uniform");
+        }
+    }
+
+    @Test
     void mainMenuRendersNonBlank() {
         BufferedImage frame = renderScreen(MainMenuScreen::new, 30);
         assertTrue(distinctColours(frame, 2) >= 2, "main menu is uniform");

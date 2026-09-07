@@ -199,6 +199,89 @@ public final class ProceduralArt {
             0.62, 0.22, 0.66, 0.36, 0.84, 0.40, 0.84, 0.50, 0.16, 0.50, 0.16, 0.40, 0.34, 0.36,
             0.38, 0.22, 0.22, 0.20, 0.00, 0.12);
 
+    /* ----------------------------------------------------------------- hub art (M10) */
+
+    /** Edge colour of a flame (the streak flame of the HUD shares it). */
+    public static final Color FLAME_EDGE = new Color(0xFF8C2B);
+    /** Core colour of a flame. */
+    public static final Color FLAME_CORE = new Color(0xFFE18A);
+    /** Wood of the world plaque. */
+    public static final Color WOOD = new Color(0x6B4A2E);
+    /** Wood of a hovered plaque. */
+    private static final Color WOOD_HOVER = new Color(0x7E5A3A);
+    /** Edge of the plaque. */
+    private static final Color WOOD_EDGE = new Color(0x3E2A18);
+    /** Grain highlight along the top of the plaque. */
+    private static final Color WOOD_GRAIN = new Color(0xFF, 0xFF, 0xFF, 0x28);
+    /** The nails of the plaque. */
+    private static final Color NAIL = new Color(0x2A1A0E);
+    /** Hovered gold of the call-to-action plate. */
+    private static final Color CTA_HOVER = new Color(0xFFD866);
+    /** The highlight along the top of the call-to-action plate. */
+    private static final Color CTA_SHINE = new Color(0xFF, 0xFF, 0xFF, 0x40);
+    /** Idle plate of a navigation item. */
+    private static final Color NAV_IDLE = new Color(0x1C, 0x3A, 0x3E, 0xE6);
+    /** Hovered or focused plate of a navigation item. */
+    private static final Color NAV_HOVER = new Color(0x2E, 0x6B, 0x72, 0xF0);
+    /** Plate of a navigation item the session cannot open. */
+    private static final Color NAV_DISABLED = new Color(0x1A, 0x26, 0x28, 0xB0);
+    /** The band behind the navigation items. */
+    private static final Color NAV_BAND = new Color(0x10, 0x1C, 0x1E, 0xD8);
+    /** The line along the top of the band. */
+    private static final Color NAV_BAND_EDGE = new Color(0x4A, 0x6A, 0x6C, 0xC0);
+    /** Plate of a chip (the coin readout, the gear, the next-unlock card). */
+    private static final Color CHIP_FILL = new Color(0x10, 0x1C, 0x1E, 0xB4);
+    /** Hovered or focused chip. */
+    private static final Color CHIP_HOVER = new Color(0x2E, 0x6B, 0x72, 0xC8);
+    /** Border of a chip. */
+    private static final Color CHIP_BORDER = new Color(0x4A, 0x6A, 0x6C, 0xC0);
+    /** Body of a padlock. */
+    private static final Color LOCK = new Color(0xD8, 0xE2, 0xE4);
+    /** Corner radius of a chip. */
+    public static final int CHIP_RADIUS = 8;
+
+    private static final Stroke PADLOCK = new BasicStroke(1.6f);
+    /** Chevron stroke, in unit space (the chevron is 1 unit tall). */
+    private static final Stroke CHEVRON_STROKE = new BasicStroke(0.18f, BasicStroke.CAP_ROUND,
+            BasicStroke.JOIN_ROUND);
+    /** Outline of an icon in high contrast, in unit space. */
+
+    /* Unit-space icons; 1 unit = the icon size, origin at the centre unless noted. */
+    private static final Shape GEAR_WHEEL = toothedWheel(8, 0.78);
+    private static final Shape GEAR_HOLE = new Ellipse2D.Double(-0.32, -0.32, 0.64, 0.64);
+    /** Flame: origin at the base centre, 1 unit wide, 1 unit tall (upwards). */
+    private static final Shape FLAME_OUTER = polygon(0, -1, -0.5, 0, 0.5, 0);
+    private static final Shape FLAME_INNER = polygon(0, -0.55, -0.24, -0.05, 0.24, -0.05);
+    private static final Shape SPARK = polygon(0, -1, 0.42, 0, 0, 1, -0.42, 0);
+    private static final Shape HAMMER_HANDLE = polygon(-0.07, -0.2, 0.07, -0.2, 0.07, 0.5,
+            -0.07, 0.5);
+    private static final Shape HAMMER_HEAD = new RoundRectangle2D.Double(-0.34, -0.5, 0.68, 0.32,
+            0.08, 0.08);
+    private static final Shape BARREL_BODY = new RoundRectangle2D.Double(-0.35, -0.5, 0.7, 1.0,
+            0.3, 0.3);
+    private static final Shape BARREL_BAND_TOP = new Rectangle2D.Double(-0.35, -0.24, 0.7, 0.08);
+    private static final Shape BARREL_BAND_BOTTOM = new Rectangle2D.Double(-0.35, 0.14, 0.7, 0.08);
+    /** Banner: origin at the top of the pole, 1 unit tall. */
+    private static final Shape BANNER_POLE = new Rectangle2D.Double(-0.03, 0, 0.06, 1.0);
+    private static final Shape BANNER_CLOTH = polygon(0.03, 0.02, 0.62, 0.10, 0.48, 0.27, 0.62,
+            0.44, 0.03, 0.52);
+    private static final Shape AWNING_WALL = new Rectangle2D.Double(-0.42, -0.05, 0.84, 0.55);
+    private static final Shape AWNING_DOOR = new Rectangle2D.Double(-0.12, 0.15, 0.24, 0.35);
+    private static final Shape AWNING_ROOF = polygon(-0.55, -0.25, 0.55, -0.25, 0.55, 0.0, 0.44,
+            0.1, 0.33, 0.0, 0.22, 0.1, 0.11, 0.0, 0.0, 0.1, -0.11, 0.0, -0.22, 0.1, -0.33, 0.0,
+            -0.44, 0.1, -0.55, 0.0);
+    private static final Shape SCROLL_SHEET = new RoundRectangle2D.Double(-0.4, -0.5, 0.8, 1.0,
+            0.16, 0.16);
+    private static final Shape SCROLL_TOP = new Ellipse2D.Double(-0.46, -0.6, 0.92, 0.2);
+    private static final Shape SCROLL_BOTTOM = new Ellipse2D.Double(-0.46, 0.4, 0.92, 0.2);
+    private static final Shape SCROLL_LINE_A = new Rectangle2D.Double(-0.24, -0.22, 0.48, 0.06);
+    private static final Shape SCROLL_LINE_B = new Rectangle2D.Double(-0.24, -0.04, 0.48, 0.06);
+    private static final Shape SCROLL_LINE_C = new Rectangle2D.Double(-0.24, 0.14, 0.36, 0.06);
+    private static final Shape CROWN = polygon(-0.5, 0.35, -0.5, -0.15, -0.22, 0.05, 0, -0.4,
+            0.22, 0.05, 0.5, -0.15, 0.5, 0.35);
+    private static final Shape CHEVRON_UPPER = new Line2D.Double(-0.3, -0.5, 0.3, 0);
+    private static final Shape CHEVRON_LOWER = new Line2D.Double(0.3, 0, -0.3, 0.5);
+
     private static final Map<PaletteKey, Resolved> RESOLVED = new ConcurrentHashMap<>();
 
     /** Cache key: the palette plus the high-contrast flag, which changes the derived colours. */
@@ -916,6 +999,616 @@ public final class ProceduralArt {
             PORTRAIT_COLORS.put(value, cached);
         }
         return cached;
+    }
+
+    /* ----------------------------------------------------------------- hub art (M10) */
+
+    /**
+     * The unit toothed wheel the gear obstacle and the settings icon share: trapezoid teeth
+     * around a circle of radius 1, built once at class-initialisation time (the only place this
+     * package uses trigonometry).
+     *
+     * @param teeth the number of teeth
+     * @param rootRadius the radius between two teeth, in {@code (0, 1)}
+     * @return the wheel, facing the positive x axis
+     */
+    public static Shape toothedWheel(int teeth, double rootRadius) {
+        Path2D.Double path = new Path2D.Double();
+        int points = teeth * 4;
+        for (int i = 0; i < points; i++) {
+            // Within each tooth: root, flank up, tip, flank down. The corners sit at the quarter
+            // turns of the tooth pitch; the tips are narrower than the roots.
+            int phase = i % 4;
+            double pitch = 2 * Math.PI / teeth;
+            double base = (i / 4) * pitch;
+            double a;
+            double radius;
+            switch (phase) {
+                case 0:
+                    a = base;
+                    radius = rootRadius;
+                    break;
+                case 1:
+                    a = base + pitch * 0.18;
+                    radius = 1.0;
+                    break;
+                case 2:
+                    a = base + pitch * 0.42;
+                    radius = 1.0;
+                    break;
+                default:
+                    a = base + pitch * 0.6;
+                    radius = rootRadius;
+                    break;
+            }
+            double px = Math.cos(a) * radius;
+            double py = Math.sin(a) * radius;
+            if (i == 0) {
+                path.moveTo(px, py);
+            } else {
+                path.lineTo(px, py);
+            }
+        }
+        path.closePath();
+        return path;
+    }
+
+    /**
+     * A ramp of one colour at rising alphas, built once by a caller that fades or pulses it so a
+     * frame allocates no colour (D18): index 0 is fully transparent, the last index is opaque.
+     *
+     * @param base the opaque colour
+     * @param steps the number of entries, at least 2
+     * @return the ramp
+     */
+    public static Color[] alphaRamp(Color base, int steps) {
+        int count = Math.max(2, steps);
+        Color[] ramp = new Color[count];
+        for (int i = 0; i < count; i++) {
+            ramp[i] = new Color(base.getRed(), base.getGreen(), base.getBlue(),
+                    (int) Math.round(255.0 * i / (count - 1)));
+        }
+        return ramp;
+    }
+
+    /**
+     * The entry of a ramp for an alpha.
+     *
+     * @param ramp a ramp from {@link #alphaRamp(Color, int)}
+     * @param alpha the wanted alpha in {@code [0, 1]} (clamped)
+     * @return the colour
+     */
+    public static Color rampColor(Color[] ramp, double alpha) {
+        int index = (int) Math.round(Math.max(0, Math.min(1, alpha)) * (ramp.length - 1));
+        return ramp[index];
+    }
+
+    /**
+     * A soft glow: three stacked discs whose alpha rises towards the centre, from a ramp the
+     * caller owns (no composites, no radial paints — the Android shim has neither).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param radius the outer radius
+     * @param ramp the colour ramp
+     * @param alpha the peak alpha in {@code [0, 1]}
+     */
+    public static void drawGlow(Graphics2D g, double cx, double cy, double radius, Color[] ramp,
+            double alpha) {
+        if (alpha <= 0 || radius <= 0) {
+            return;
+        }
+        disc(g, cx, cy, radius, rampColor(ramp, alpha * 0.35));
+        disc(g, cx, cy, radius * 0.66, rampColor(ramp, alpha * 0.6));
+        disc(g, cx, cy, radius * 0.33, rampColor(ramp, alpha));
+    }
+
+    private static void disc(Graphics2D g, double cx, double cy, double r, Color color) {
+        g.setColor(color);
+        g.fillOval((int) Math.round(cx - r), (int) Math.round(cy - r), (int) Math.round(2 * r),
+                (int) Math.round(2 * r));
+    }
+
+    /**
+     * Draws a cog (the settings icon).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the outer diameter
+     * @param rim the wheel colour
+     * @param hole the colour of the hole, or {@code null} for none
+     */
+    public static void drawGear(Graphics2D g, double cx, double cy, double size, Color rim,
+            Color hole) {
+        double r = size / 2;
+        g.translate(cx, cy);
+        g.scale(r, r);
+        g.setColor(rim);
+        g.fill(GEAR_WHEEL);
+        if (hole != null) {
+            g.setColor(hole);
+            g.fill(GEAR_HOLE);
+        }
+        g.scale(1 / r, 1 / r);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a flame rising from a base point: two stacked triangles, the recipe of the HUD's
+     * streak flame, toned for the colour-blind palettes.
+     *
+     * @param g the context
+     * @param cx the centre x of the base
+     * @param baseY the y of the base
+     * @param w the width
+     * @param h the height
+     * @param edge the outer colour
+     * @param core the inner colour
+     */
+    public static void drawFlame(Graphics2D g, double cx, double baseY, double w, double h,
+            Color edge, Color core) {
+        g.translate(cx, baseY);
+        g.scale(w, h);
+        g.setColor(Accessibility.tone(edge, Accessibility.Role.COIN));
+        g.fill(FLAME_OUTER);
+        g.setColor(Accessibility.tone(core, Accessibility.Role.COIN));
+        g.fill(FLAME_INNER);
+        g.scale(1 / w, 1 / h);
+        g.translate(-cx, -baseY);
+    }
+
+    /**
+     * Draws a four-point spark.
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param r the half-height
+     * @param color the fill
+     */
+    public static void drawSpark(Graphics2D g, double cx, double cy, double r, Color color) {
+        g.translate(cx, cy);
+        g.scale(r, r);
+        g.setColor(color);
+        g.fill(SPARK);
+        g.scale(1 / r, 1 / r);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a hammer, head up, rotated about its centre.
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the height
+     * @param angle the rotation in radians (positive leans the head to the right)
+     * @param head the head colour
+     * @param handle the handle colour
+     */
+    public static void drawHammer(Graphics2D g, double cx, double cy, double size, double angle,
+            Color head, Color handle) {
+        g.translate(cx, cy);
+        g.rotate(angle);
+        g.scale(size, size);
+        g.setColor(handle);
+        g.fill(HAMMER_HANDLE);
+        g.setColor(head);
+        g.fill(HAMMER_HEAD);
+        g.scale(1 / size, 1 / size);
+        g.rotate(-angle);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws two crossed hammers (the Play emblem).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the height of each hammer
+     * @param color the colour of both
+     */
+    public static void drawCrossedHammers(Graphics2D g, double cx, double cy, double size,
+            Color color) {
+        drawHammer(g, cx, cy, size, -0.6, color, color);
+        drawHammer(g, cx, cy, size, 0.6, color, color);
+    }
+
+    /**
+     * Draws a barrel.
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the height (the barrel is {@code 0.7 * size} wide)
+     * @param wood the wood colour
+     * @param band the colour of the two hoops
+     */
+    public static void drawBarrel(Graphics2D g, double cx, double cy, double size, Color wood,
+            Color band) {
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(wood);
+        g.fill(BARREL_BODY);
+        g.setColor(band);
+        g.fill(BARREL_BAND_TOP);
+        g.fill(BARREL_BAND_BOTTOM);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a banner on a pole: a swallow-tailed cloth flying to the right of the pole top.
+     *
+     * @param g the context
+     * @param x the pole x
+     * @param topY the top of the pole
+     * @param height the pole height (the cloth is about half as wide)
+     * @param wave a small rotation of the cloth in radians, for a breeze; 0 for none
+     * @param pole the pole colour
+     * @param cloth the cloth colour
+     */
+    public static void drawBanner(Graphics2D g, double x, double topY, double height,
+            double wave, Color pole, Color cloth) {
+        g.translate(x, topY);
+        g.scale(height, height);
+        g.setColor(pole);
+        g.fill(BANNER_POLE);
+        g.setColor(cloth);
+        if (wave != 0) {
+            g.rotate(wave);
+        }
+        g.fill(BANNER_CLOTH);
+        if (wave != 0) {
+            g.rotate(-wave);
+        }
+        g.scale(1 / height, 1 / height);
+        g.translate(-x, -topY);
+    }
+
+    /**
+     * Draws a shop front: a wall with a door under a scalloped awning.
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the height
+     * @param cloth the awning colour
+     * @param wall the wall colour
+     */
+    public static void drawAwning(Graphics2D g, double cx, double cy, double size, Color cloth,
+            Color wall) {
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(wall);
+        g.fill(AWNING_WALL);
+        g.setColor(cloth);
+        g.fill(AWNING_DOOR);
+        g.fill(AWNING_ROOF);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws the bird as a flat silhouette in one colour (the Birds icon).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the body width
+     * @param color the fill
+     */
+    public static void drawBirdSilhouette(Graphics2D g, double cx, double cy, double size,
+            Color color) {
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(color);
+        g.fill(BIRD_TAIL);
+        g.fill(BIRD_BODY);
+        double angle = wingAngle(0.25);
+        g.rotate(angle, WING_PIVOT_X, WING_PIVOT_Y);
+        g.fill(BIRD_WING);
+        g.rotate(-angle, WING_PIVOT_X, WING_PIVOT_Y);
+        g.fill(BIRD_BEAK);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a scroll with three lines of writing (the Goals icon).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the height
+     * @param paper the sheet colour
+     * @param ink the colour of the curls and the writing
+     */
+    public static void drawScroll(Graphics2D g, double cx, double cy, double size, Color paper,
+            Color ink) {
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(paper);
+        g.fill(SCROLL_SHEET);
+        g.setColor(ink);
+        g.fill(SCROLL_TOP);
+        g.fill(SCROLL_BOTTOM);
+        g.fill(SCROLL_LINE_A);
+        g.fill(SCROLL_LINE_B);
+        g.fill(SCROLL_LINE_C);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a crown (the player level mark).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the width
+     * @param color the fill
+     */
+    public static void drawCrown(Graphics2D g, double cx, double cy, double size, Color color) {
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(color);
+        g.fill(CROWN);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a chevron pointing right (a "there is more" affordance, drawn rather than a glyph
+     * the bundled font lacks).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the height
+     * @param color the stroke colour
+     */
+    public static void drawChevron(Graphics2D g, double cx, double cy, double size, Color color) {
+        Stroke old = g.getStroke();
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setStroke(CHEVRON_STROKE);
+        g.setColor(color);
+        g.draw(CHEVRON_UPPER);
+        g.draw(CHEVRON_LOWER);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+        g.setStroke(old);
+    }
+
+    /**
+     * Draws a padlock (a locked card, a locked world).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the width of the lock body
+     * @param color the colour, or {@code null} for the default light body
+     */
+    public static void drawPadlock(Graphics2D g, double cx, double cy, double size, Color color) {
+        int w = (int) Math.round(size);
+        int h = (int) Math.round(size * 0.8);
+        int bodyX = (int) Math.round(cx - size / 2);
+        int bodyY = (int) Math.round(cy - size * 0.1);
+        g.setColor(color == null ? LOCK : color);
+        g.fillRoundRect(bodyX, bodyY, w, h, 2, 2);
+        Stroke old = g.getStroke();
+        g.setStroke(PADLOCK);
+        g.drawArc((int) Math.round(cx - size * 0.3), (int) Math.round(cy - size * 0.65),
+                (int) Math.round(size * 0.6), (int) Math.round(size * 0.7), 0, 180);
+        g.setStroke(old);
+    }
+
+    /**
+     * Draws the gold call-to-action plate (START RUN, the Play item of the navigation). Gold is
+     * this plate's resting colour, so focus is a white ring rather than the gold fill
+     * {@link #button} uses.
+     *
+     * @param g the context
+     * @param x the left edge
+     * @param y the top edge
+     * @param w the width
+     * @param h the height
+     * @param state the visual state
+     */
+    public static void ctaButton(Graphics2D g, int x, int y, int w, int h, ButtonState state) {
+        boolean highContrast = Accessibility.isHighContrast();
+        Stroke old = g.getStroke();
+        if (state != ButtonState.DISABLED) {
+            g.setColor(SHADOW);
+            g.fillRoundRect(x, y + 3, w, h, BUTTON_RADIUS, BUTTON_RADIUS);
+        }
+        Color fill = state == ButtonState.DISABLED ? BUTTON_DISABLED
+                : state == ButtonState.HOVER ? CTA_HOVER : COIN_GOLD;
+        g.setColor(Accessibility.tone(fill, Accessibility.Role.COIN));
+        g.fillRoundRect(x, y, w, h, BUTTON_RADIUS, BUTTON_RADIUS);
+        if (state != ButtonState.DISABLED && !highContrast) {
+            g.setColor(CTA_SHINE);
+            g.fillRoundRect(x + 3, y + 3, w - 6, (int) Math.round(h * 0.42), BUTTON_RADIUS - 2,
+                    BUTTON_RADIUS - 2);
+        }
+        if (state == ButtonState.FOCUSED) {
+            g.setStroke(THICK);
+            g.setColor(FOCUS_RING);
+            g.drawRoundRect(x - 3, y - 3, w + 5, h + 5, BUTTON_RADIUS + 3, BUTTON_RADIUS + 3);
+        }
+        g.setStroke(highContrast ? THICK : THIN);
+        g.setColor(highContrast ? TEXT_DARK : Accessibility.tone(COIN_RIM,
+                Accessibility.Role.COIN));
+        g.drawRoundRect(x, y, w - 1, h - 1, BUTTON_RADIUS, BUTTON_RADIUS);
+        g.setStroke(old);
+    }
+
+    /**
+     * Label colour matching {@link #ctaButton}.
+     *
+     * @param state the visual state
+     * @return the colour
+     */
+    public static Color ctaTextColor(ButtonState state) {
+        return state == ButtonState.DISABLED ? TEXT_MUTED : TEXT_DARK;
+    }
+
+    /**
+     * Draws the glow around a call-to-action plate: two rounded rings outside the plate whose
+     * alpha the caller pulses.
+     *
+     * @param g the context
+     * @param x the left edge of the plate
+     * @param y the top edge of the plate
+     * @param w the plate width
+     * @param h the plate height
+     * @param ramp the colour ramp of the glow
+     * @param alpha the peak alpha in {@code [0, 1]}
+     */
+    public static void ctaGlow(Graphics2D g, int x, int y, int w, int h, Color[] ramp,
+            double alpha) {
+        if (alpha <= 0) {
+            return;
+        }
+        g.setColor(rampColor(ramp, alpha * 0.5));
+        g.fillRoundRect(x - 8, y - 8, w + 16, h + 16, BUTTON_RADIUS + 8, BUTTON_RADIUS + 8);
+        g.setColor(rampColor(ramp, alpha));
+        g.fillRoundRect(x - 4, y - 4, w + 8, h + 8, BUTTON_RADIUS + 4, BUTTON_RADIUS + 4);
+    }
+
+    /**
+     * Draws the plate of a navigation item: the gold call-to-action plate for the primary item,
+     * a teal plate with a white focus ring for the others.
+     *
+     * @param g the context
+     * @param x the left edge
+     * @param y the top edge
+     * @param w the width
+     * @param h the height
+     * @param state the visual state
+     * @param primary whether this is the primary (gold) item
+     */
+    public static void navButton(Graphics2D g, int x, int y, int w, int h, ButtonState state,
+            boolean primary) {
+        if (primary) {
+            ctaButton(g, x, y, w, h, state);
+            return;
+        }
+        boolean highContrast = Accessibility.isHighContrast();
+        Stroke old = g.getStroke();
+        Color fill;
+        switch (state) {
+            case DISABLED:
+                fill = NAV_DISABLED;
+                break;
+            case HOVER:
+            case FOCUSED:
+                fill = NAV_HOVER;
+                break;
+            default:
+                fill = NAV_IDLE;
+                break;
+        }
+        g.setColor(highContrast ? PANEL_FILL_HC : fill);
+        g.fillRoundRect(x, y, w, h, BUTTON_RADIUS, BUTTON_RADIUS);
+        if (state == ButtonState.FOCUSED) {
+            g.setStroke(THICK);
+            g.setColor(FOCUS_RING);
+            g.drawRoundRect(x - 3, y - 3, w + 5, h + 5, BUTTON_RADIUS + 3, BUTTON_RADIUS + 3);
+        }
+        g.setStroke(highContrast ? THICK : THIN);
+        g.setColor(highContrast ? PANEL_BORDER_HC
+                : (state == ButtonState.DISABLED ? BUTTON_BORDER_DISABLED : BUTTON_BORDER));
+        g.drawRoundRect(x, y, w - 1, h - 1, BUTTON_RADIUS, BUTTON_RADIUS);
+        g.setStroke(old);
+    }
+
+    /**
+     * Draws the band behind the navigation items: from its top down to the bottom of the visible
+     * frame, so on a tall phone the bar reaches the screen edge (cosmetic only, D3).
+     *
+     * @param g the context
+     * @param y the top of the band
+     * @param h the height of the band inside the playfield
+     */
+    public static void navBand(Graphics2D g, int y, int h) {
+        boolean highContrast = Accessibility.isHighContrast();
+        int bottom = Math.max(y + h, Overscan.bottomInt());
+        g.setColor(highContrast ? PANEL_FILL_HC : NAV_BAND);
+        g.fillRect(0, y, Playfield.WIDTH, bottom - y);
+        g.setColor(highContrast ? PANEL_BORDER_HC : NAV_BAND_EDGE);
+        g.fillRect(0, y, Playfield.WIDTH, 1);
+    }
+
+    /**
+     * Draws a chip: the small dark plate under the coin readout, the gear and the cards of the
+     * hub. Focus is a white ring; the fill never turns gold, which the hub keeps for its
+     * call to action.
+     *
+     * @param g the context
+     * @param x the left edge
+     * @param y the top edge
+     * @param w the width
+     * @param h the height
+     * @param state the visual state
+     */
+    public static void chip(Graphics2D g, int x, int y, int w, int h, ButtonState state) {
+        boolean highContrast = Accessibility.isHighContrast();
+        Stroke old = g.getStroke();
+        Color fill = state == ButtonState.HOVER || state == ButtonState.FOCUSED ? CHIP_HOVER
+                : CHIP_FILL;
+        g.setColor(highContrast ? PANEL_FILL_HC : fill);
+        g.fillRoundRect(x, y, w, h, CHIP_RADIUS, CHIP_RADIUS);
+        if (state == ButtonState.FOCUSED) {
+            g.setStroke(THICK);
+            g.setColor(FOCUS_RING);
+            g.drawRoundRect(x - 2, y - 2, w + 3, h + 3, CHIP_RADIUS + 2, CHIP_RADIUS + 2);
+        }
+        g.setStroke(highContrast ? THICK : THIN);
+        g.setColor(highContrast ? PANEL_BORDER_HC : CHIP_BORDER);
+        g.drawRoundRect(x, y, w - 1, h - 1, CHIP_RADIUS, CHIP_RADIUS);
+        g.setStroke(old);
+    }
+
+    /**
+     * Draws a wooden sign (the world plaque): a plank with a grain highlight, a dark edge and two
+     * nails, a white ring when focused.
+     *
+     * @param g the context
+     * @param x the left edge
+     * @param y the top edge
+     * @param w the width
+     * @param h the height
+     * @param state the visual state
+     */
+    public static void plaque(Graphics2D g, int x, int y, int w, int h, ButtonState state) {
+        boolean highContrast = Accessibility.isHighContrast();
+        Stroke old = g.getStroke();
+        g.setColor(SHADOW);
+        g.fillRoundRect(x, y + 3, w, h, CHIP_RADIUS, CHIP_RADIUS);
+        g.setColor(state == ButtonState.HOVER || state == ButtonState.FOCUSED ? WOOD_HOVER : WOOD);
+        g.fillRoundRect(x, y, w, h, CHIP_RADIUS, CHIP_RADIUS);
+        if (!highContrast) {
+            g.setColor(WOOD_GRAIN);
+            g.fillRoundRect(x + 4, y + 3, w - 8, (int) Math.round(h * 0.4), CHIP_RADIUS - 2,
+                    CHIP_RADIUS - 2);
+        }
+        g.setColor(NAIL);
+        g.fillOval(x + 6, y + h / 2 - 2, 4, 4);
+        g.fillOval(x + w - 10, y + h / 2 - 2, 4, 4);
+        if (state == ButtonState.FOCUSED) {
+            g.setStroke(THICK);
+            g.setColor(FOCUS_RING);
+            g.drawRoundRect(x - 2, y - 2, w + 3, h + 3, CHIP_RADIUS + 2, CHIP_RADIUS + 2);
+        }
+        g.setStroke(highContrast ? THICK : THIN);
+        g.setColor(highContrast ? PANEL_BORDER_HC : WOOD_EDGE);
+        g.drawRoundRect(x, y, w - 1, h - 1, CHIP_RADIUS, CHIP_RADIUS);
+        g.setStroke(old);
     }
 
     private static Shape polygon(double... xy) {
