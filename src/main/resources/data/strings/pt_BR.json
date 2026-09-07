@@ -778,5 +778,25 @@
 
   "menu.prestige_badge": "Prestígio ×{0}",
 
+  "menu.start_run": "INICIAR PARTIDA",
+  "menu.run_subtitle": "{0} • {1}",
+  "menu.world_plaque": "Mundo {0} · {1}",
+  "menu.player_name": "Jogador",
+  "menu.player_level": "Nv. {0}",
+  "menu.next_unlock": "Próximo desbloqueio: {0}",
+  "menu.next_unlock_none": "Tudo desbloqueado",
+  "menu.last_run": "Última partida: {0} portões · +{1} moedas   Recorde: {2}",
+  "menu.last_run_none": "Nenhuma partida ainda — toque em INICIAR PARTIDA",
+  "menu.quit_confirm": "Pressione de novo para sair",
+  "menu.nav_forge": "Forja",
+  "menu.nav_goals": "Metas",
+  "goals.title": "Metas",
+  "profile.title": "Perfil",
+  "profile.collections": "Aves {0}/{1} · Mundos {2}/{3} · Conquistas {4}/{5}",
+  "world_select.title": "Escolha um mundo",
+  "world_select.card": "Mundo {0} · {1}",
+  "world_select.tier": "Dificuldade",
+  "settings.section.about": "Sobre",
+
   "toast.prestige": "Prestígio {0} feito — a escalada recomeça"
 }

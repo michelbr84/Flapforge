@@ -778,5 +778,25 @@
 
   "menu.prestige_badge": "Prestige ×{0}",
 
+  "menu.start_run": "START RUN",
+  "menu.run_subtitle": "{0} • {1}",
+  "menu.world_plaque": "World {0} · {1}",
+  "menu.player_name": "Player",
+  "menu.player_level": "Lv. {0}",
+  "menu.next_unlock": "Next unlock: {0}",
+  "menu.next_unlock_none": "Everything unlocked",
+  "menu.last_run": "Last run: {0} gates · +{1} coins   Best: {2}",
+  "menu.last_run_none": "No run yet — press START RUN",
+  "menu.quit_confirm": "Press again to quit",
+  "menu.nav_forge": "Forge",
+  "menu.nav_goals": "Goals",
+  "goals.title": "Goals",
+  "profile.title": "Profile",
+  "profile.collections": "Birds {0}/{1} · Worlds {2}/{3} · Achievements {4}/{5}",
+  "world_select.title": "Choose a world",
+  "world_select.card": "World {0} · {1}",
+  "world_select.tier": "Difficulty",
+  "settings.section.about": "About",
+
   "toast.prestige": "Prestige {0} performed — the climb starts over"
 }
