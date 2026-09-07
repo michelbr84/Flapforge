@@ -347,16 +347,18 @@ consequences worth knowing:
 
 ## 6. The screens
 
-Five screens spend what the sections above earn (D17). All five read the same evaluators, so
-the words the player reads and the arithmetic the run uses cannot drift apart.
+Six screens spend what the sections above earn (D17), and the home hub shows where it is going.
+All of them read the same evaluators, so the words the player reads and the arithmetic the run
+uses cannot drift apart.
 
 | Screen | What it shows | What it writes |
 | --- | --- | --- |
 | `BirdSelectionScreen` | the seven birds as a `CardGrid` with a procedural portrait in the selected palette, the archetype, and — for a locked one — the **cheapest** way to open it in words; the palette swatches with their conditions; the tier picker with the locked tiers marked (E19); the run-mode row (§8) — Standard, Seeded and, when the screen has a clock, Daily, each saying what it would play; the loadout row — one active chip, one chip per passive slot the bird and the `passive_slot` grant give, and a fixed chip per innate passive — with the ability panel beside it (level, next level's price, and what each level does); and the stat breakdown of the run that would start right now | `SelectionManager` (bird, palette, tier, loadout), `UnlockManager` (Buy), `UpgradeManager.buyAbilityLevel`, and the mode row's write of the daily pick (E27) |
 | `UpgradeTreeScreen` | one tab per tree, nodes laid out by tier with a line from every prerequisite, each card carrying level/maximum, what one level does in words, the price of the next level and its state (tree locked / prerequisite missing / affordable / maxed / already unlocked); a locked tree shows its condition instead | `UpgradeManager.buy` |
 | `ShopScreen` | everything with a `purchase` branch the profile does not own, grouped into four tabs (birds, abilities, worlds, features), cheapest first, each with its price and whether the wallet covers it; an offer that is not playable yet says which milestone it arrives in | `UnlockManager.purchase` |
-| `ChallengesScreen` (M8) | the seven challenges in content order with a detail block — the world (labelled, never checked for unlocks, E6), the tier, the objective in words, the rewards, the forced modifiers and the challenge's own boss when it has one; each row carries the record `challenges.<id>` holds (attempted/completed) | pushes a `GameScreen` over itself through `ChallengeRunSource` (`RunLoadout.challengeConfigFor`), the profile's bird, palette and loadout under the challenge's world, tier, rules, forced cards and boss |
-| `AchievementsScreen` (M8) | the three D13 tabs: *Achievements* — every definition in content order, unlocked ones with their unlock date, locked ones dimmed, hidden ones a `???` until they fire, header counting them; *Milestones* — the level progress bar, then the next five thresholds among unclaimed level rewards and not-yet-fired lifetime-threshold achievements, nearest first, each with a `progressOf` bar (hidden achievements stay out of the list); *Collections* — one bar per category of `CollectionProgress`, owned over total with the floored percentage, `all` last | nothing — a read-only view, like `StatisticsScreen` |
+| `WorldSelectScreen` (M10) | one card per world in content order, the palette as its art, the hazards (owned) or the **cheapest** way in (locked) as its subtitle and the price as its badge while locked; the difficulty row under the cards; a description line for the focused world. Opened from the hub's world plaque | `SelectionManager.selectWorld` on an owned card (then pops), `selectTier` from the row; a locked card is refused with a toast — worlds are bought in the shop's Worlds tab |
+| `GoalsScreen` (M8, M10) | four tabs behind the hub's **Goals** item. *Challenges* — the seven challenges in content order with a detail block: the world (labelled, never checked for unlocks, E6), the tier, the objective in words, the rewards, the forced modifiers and the challenge's own boss when it has one, and the record `challenges.<id>` holds (attempted/completed). *Achievements* — every definition in content order, unlocked ones with their unlock date, locked ones dimmed, hidden ones a `???` until they fire, header counting them. *Milestones* — the level progress bar, then the next five thresholds among unclaimed level rewards and not-yet-fired lifetime-threshold achievements, nearest first, each with a `progressOf` bar (hidden achievements stay out of the list). *Collections* — one bar per category of `CollectionProgress`, owned over total with the floored percentage, `all` last | the Challenges tab pushes a `GameScreen` over itself through `ChallengeRunSource` (`RunLoadout.challengeConfigFor`), the profile's bird, palette and loadout under the challenge's world, tier, rules, forced cards and boss; the other tabs write nothing |
+| `MainMenuScreen` — the home hub (M10) | the player card (level from `PlayerLevel.progressWithin`, the prestige badge), the coin chip, the world plaque, the forge scene whose stage is `upgradeLevelsTotal()` over the thresholds 1/6/14/22/36, the **Next unlock** card — `UnlockEvaluator.nextUnlock`: the unowned playable non-cosmetic id whose `nearestBranch` (earnable branches before purchase-only ones) is closest to done, with `progressOf`'s current/target — START RUN with "world • tier" and the last run / best line | START RUN builds a `ContentRunFactory` over the live profile (`SEEDED` when the seed was explicit); the Next unlock card only opens the screen of its kind (Birds, World Select, Forge, Goals, Shop) |
 
 **Nothing pretends to work (E19).** Three places carry a milestone note instead:
 
@@ -422,10 +424,16 @@ The cumulative conditions themselves live in `UnlockEvaluator` (§2): `runs`, `t
 neither dead-locks the progression nor re-grants anything already earned. `PrestigeSystemTest`
 asserts exactly that: nothing condition-derived is granted again on the next evaluation.
 
-The player-facing half is a panel in the statistics screen: what the profile has banked, what a
-prestige would reset, and an action button with a two-step confirm (press, then press again to
-arm it). The write goes straight back to the save, and the main menu grows the
-"Prestige ×{0}" badge while the count is above zero.
+The player-facing half is a panel in the Profile screen (`StatisticsScreen`, behind the hub's
+player card): what the profile has banked, what a prestige would reset, and an action button
+with a two-step confirm (press, then press again to arm it). The write goes straight back to the
+save, and the hub's player card and the Profile header carry the "Prestige ×{0}" badge while the
+count is above zero; the forge scene shows gold trim on the anvil from the first prestige on.
+
+A note on the word **Forge**: the hub's *Forge* item opens the whole upgrade workshop
+(`UpgradeTreeScreen`, the flight, economy and forge trees). It is not the `forge` tree alone, the
+Iron Forge world, the `forge` bird archetype (Cinder) or the `master_forge_1` node; the screen it
+opens keeps its own title, "Upgrades".
 
 ---
 
@@ -479,7 +487,7 @@ shield run 5, `feature:modifiers` run 7) all hold.
 
 | Test | Covers |
 | --- | --- |
-| `UnlockEvaluatorTest` | every condition type, the "since prestige" reading, the purchase and cosmetic rules, collection counters |
+| `UnlockEvaluatorTest` | every condition type, the "since prestige" reading, the purchase and cosmetic rules, collection counters; `progressOf` per condition type, `nearestBranch` preferring an earnable branch, and `nextUnlock` (a fresh profile → `tree:economy` 1/3, two runs later → `bird:guardian` 2/3, cosmetics never, everything owned → none) |
 | `UnlockManagerTest` | the shop: debit, grant, account, propagate, save; every refusal leaves the profile untouched |
 | `UpgradeManagerTest` | costs, prerequisites, level scaling (`GRAVITY` 1746, `MULTIPLY` compounding), grants and their E3 caps, a node whose grant is already owned refused before the debit, and a refund paid only to the profile that owned the removed node |
 | `SelectionManagerTest` | a selection is owned, playable and written now |
@@ -496,11 +504,13 @@ shield run 5, `feature:modifiers` run 7) all hold.
 | `AchievementEvaluatorTest` (M8) | the three scopes, every counter shape (scalar, map entry, list size, profile root), the compare ops, a `RUN` achievement never granted by the purchase pass, `progressOf`'s lifetime bests for `RUN` conditions and the full bar for an already-held id |
 | `CollectionProgressTest` (M8) | per-category owned/total and the floored percentage, `all` last, agreement with `UnlockEvaluator`'s counter arithmetic |
 | `ProgressionManagerTest`, `UnlockChainTest` (M8) | a first world clear granting `boss.reward` and paying the boss term (E26: a challenge boss grants neither), a first challenge completion paying `challenge.rewards` (E11) and repeats paying the bonus alone, hidden achievements evaluating like any other, and E17's purchase-fired achievements |
-| `AchievementsScreenTest`, `ChallengesScreenTest` (M8) | the three tabs (unlock dates, `???` rows, the five milestone bars, the collection bars), and the challenge list's detail block, records and locked state with E6's no-unlock-check rule |
+| `GoalsScreenTest` (M8, M10) | the four tabs stepped with the arrows and the ring rebuilt per tab, the challenge list's detail block, records and locked state with E6's no-unlock-check rule, Play through a wired context, unlock dates, `???` rows, the five milestone bars and the collection bars |
+| `HomeHubTest`, `MenuNavigationTest` (M10) | the hub's focus graph (the HUD, the plaque, the next-unlock card, START RUN and the navigation, with its wrap past the gear), every control pushing its screen, START RUN playing the selection through its own factory (seeded on an explicit seed), the plaque, backdrop, letterbox and subtitle following a selection without re-entry, the next unlock, the last-run line, the forge stage and the player card, the two-press quit and its expiry, the profile-less hub, and a non-blank render in both languages and at 1.5× text |
+| `WorldSelectScreenTest`, `ForgeSceneTest`, `NavBarTest`, `HubComponentsTest` (M10) | the world cards in content order, a locked card refused with a toast, an owned card written once and popped, the tier row's snap-back; the forge stages and the capped glow; the navigation row's layout, stepping, wrapping and disabled items; the call to action's glow, subtitle and icon, the icon button and the coin chip |
 | `DailyChallengeTest` (M9) | the same UTC date picking the same configuration, the pick drawn only from unlocked content, the forced pair's compatibility, the stored pick surviving a new unlock (E27), the once-only rebuild when content can no longer play it, and `attempts`/`bestGates` recorded per attempt |
 | `PrestigeSystemTest` (M9) | the E23 reset to the letter — the baseline snapshot, what is reset and what is kept, the cap at 5, the golden palette, the `PRESTIGE` layer — and that nothing condition-derived is re-granted on the next evaluation |
 | `MetaSimTest` (`@sim`, M9) | the E25 thresholds of §8 and `docs/BALANCING.md` §13.1: the saver cells, the spender's completion cells, the E17 journey and the synergy rate |
-| `DailyModeUiTest`, `PrestigeWiringTest`, `PrestigeUiTest` (M9) | the mode row listing Daily only with a clock and marking the unlock condition, the run the mode starts, the two-step prestige confirm writing the save, and the menu badge |
+| `DailyModeUiTest`, `PrestigeWiringTest`, `PrestigeUiTest` (M9) | the mode row listing Daily only with a clock and marking the unlock condition, the run the mode starts, the two-step prestige confirm writing the save, and the hub's badge |
 | `ProceduralRenderTest`, `SmokeWindowTest` | the three screens headless in both languages, and through a real window with the Robot buying the cheapest bird |
 
 Run them with `./gradlew test` and `./gradlew simTest`.

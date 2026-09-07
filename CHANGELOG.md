@@ -30,8 +30,59 @@ for attribution; those versions were never Flapforge releases.
   ("Fill screen", default on) restores the full letterbox, and the Android
   activity opts into `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES` so notched
   screens show extended sky instead of a black strip.
+- The main menu is a **home hub** (M10): a HUD band with the player card
+  (the selected bird as avatar, "Player", a crown with the level, the XP
+  track and the prestige badge — opens the Profile), the coin chip (opens
+  the Shop) and the settings gear; the bird-on-anvil emblem over the title;
+  a wooden **world plaque** ("World 1 · Green Fields ›") that opens the new
+  **World Select** screen (one card per world with its palette, hazards or
+  way in, price while locked, and the difficulty row); a **forge scene** —
+  the anvil and the selected bird on a floating island in the selected
+  world's palette over that world's backdrop, dressed with a lit hearth, a
+  hammer, barrels and a banner as the upgrade trees are built and gold trim
+  after a prestige; a **Next unlock** card naming the nearest measurable
+  unlockable with its counter (`UnlockEvaluator.nextUnlock`, `progressOf`,
+  `nearestBranch`) that opens the screen where it is earned; a gold
+  **START RUN** with "World • Difficulty" under it and a pulsing glow (capped
+  under reduce flashing); a last-run / best line; and a five-item bottom
+  navigation — Shop · Birds · **PLAY** · Forge (the upgrade trees) · Goals.
+  START RUN plays the profile's selection through the hub's own run
+  factory, seeded when `--seed` was given.
+- A **Goals** screen with four tabs — Challenges, Achievements, Milestones,
+  Collections — merging the former Challenges and Achievements screens.
+- The statistics screen is the **Profile**: a fixed header with the selected
+  bird, the name, the level and its progress bar, the prestige badge and a
+  "Birds x/7 · Worlds x/5 · Achievements x/41" line, over the statistics.
+- Settings gained an **About** section (version, build, global keys) and a
+  **Quit** row on the desktop (`GameHost.supportsQuit`; never on Android).
+- New components: `NavBar`/`NavButton`, `IconButton`, `CtaButton`,
+  `CurrencyChip`, `IconPainter`; new procedural art (gear, flame, hammer,
+  barrel, banner, awning, scroll, crown, chevron, padlock, glow, the gold
+  call-to-action, navigation, chip and plaque plates); `TextPainter.ellipsise`.
+- Strings: `menu.start_run`, `menu.run_subtitle`, `menu.world_plaque`,
+  `menu.player_name`, `menu.player_level`, `menu.next_unlock`,
+  `menu.next_unlock_none`, `menu.last_run`, `menu.last_run_none`,
+  `menu.quit_confirm`, `menu.nav_forge`, `menu.nav_goals`, `goals.title`,
+  `profile.title`, `profile.collections`, `world_select.title`,
+  `world_select.card`, `world_select.tier`, `settings.section.about`.
+
+### Changed
+
+- Quitting from the home: `Esc`/Back on the hub arms a "Press again to quit"
+  toast for three seconds and a second press closes the game; the old Quit
+  button is gone from the menu (it lives in Settings › About on the desktop).
+- `--world <id>` no longer pins the hub's runs to a world the profile has
+  not unlocked: START RUN always plays the profile's selection (an owned
+  `--world` is written to the selection as before, and the log line says
+  what happened). The headless run still plays the flag's world.
+- The tab bar clips each label to its own cell, so the four Goals tabs stay
+  legible in Portuguese at the largest text scale.
 
 ### Removed
+
+- `ChallengesScreen` and `AchievementsScreen` (merged into `GoalsScreen`),
+  and the string keys `menu.statistics`, `menu.upgrades`, `menu.challenges`,
+  `menu.achievements`, `menu.world` and `achievements.title`.
 
 - The blinking `Space: retry   Enter: summary   Esc: menu` hint of the
   game-over strip and the two pause hint lines, replaced by the buttons

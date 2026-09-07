@@ -234,7 +234,9 @@ row, the level bar the XP moved, the seed with its mode, Retry / Menu) and
 `statistics.runHistory` paged newest first in a `ListView`). Both keep their
 rows in a content space scrolled under a clip, the way the settings screen
 does, and neither writes anything: they read the profile the run was already
-written into (D14, D29).
+written into (D14, D29). M10 rebuilt `MainMenuScreen` as the home hub and
+merged the challenge and achievement screens into `GoalsScreen` — see
+"Home hub" under [Run modes, daily, prestige and attract](#run-modes-daily-prestige-and-attract-m9).
 
 Three keys belong to no screen and are handled by the manager: `F11`
 (fullscreen), `F3` (the debug overlay) and `M` (mute). All three change a
@@ -593,7 +595,8 @@ statistics, raises `prestigeCount` (max 5), grants `cosmetic:<selectedBird>:pres
 `bonusPerPrestige × prestigeCount` into the `PRESTIGE` stat layer via `effectsOf`. The
 "since prestige" reading of the cumulative conditions lives where it always has, in
 `UnlockEvaluator`, which subtracts the baseline — so the reset grants nothing twice. The
-statistics screen owns the two-step confirm and writes the save; the menu draws the badge.
+Profile screen (`StatisticsScreen`) owns the two-step confirm and writes the save; the hub's
+player card and the Profile header draw the badge.
 
 **Attract mode (M9).** `ui/screens.DemoScreen` plays a real `Run` with the `average` bot on a
 fixed attract seed, drawn from the named `attract` stream, behind the main menu: the menu starts
@@ -601,7 +604,36 @@ it after twenty seconds without input (20 × tick-rate ticks), dims it under its
 any input — a key, a click, a focus change that reaches the menu — cancels the demo and resets
 the idle timer; a focus loss or iconify freezes it. The demo runs profile-less (the content
 path of `ContentRunFactory`, boss off, no drafts, no banked rewards), so it can never depend on
-or mutate a save.
+or mutate a save. Under the hub only the chrome is drawn over the veil: the backdrop and the
+forge scene are skipped while the demo is up.
+
+**Home hub (M10).** `MainMenuScreen` is composed of hub nodes on one `FocusRing` in the order
+`startRun, playerCard, coins, gear, plaque, nextUnlock, nav…`: a `PlayerCard` (the selected bird
+through `BirdPortrait`, the name, a crown with `PlayerLevel.progressWithin`'s level, the XP
+track and the prestige badge — opens the Profile), a `CurrencyChip` around the `CurrencyDisplay`
+(opens the Shop), an `IconButton` gear (Settings), the `WorldPlaque` (opens `WorldSelectScreen`:
+a `CardGrid` of the worlds with the palette as art, hazards or the way in as subtitle, the price
+while locked, and the tier `ListView` — activation writes through `SelectionManager` and pops),
+the `ForgeScene` (island, anvil and bird in the selected world's palette over
+`BackgroundRenderer`/`CloudLayer` in that world's style; its stage is `stageOf(upgradeLevelsTotal)`
+over the thresholds 1/6/14/22/36), the `NextUnlockCard` (`UnlockEvaluator.nextUnlock`: the
+nearest measurable unlockable by `nearestBranch`, earnable branches before purchase-only ones,
+cosmetics and non-playable ids skipped; activation opens the screen of its kind), the
+`CtaButton` START RUN (gold plate, "world • tier" subtitle, a tick-driven glow capped under
+reduce flashing) and a `NavBar` of five `NavButton`s sharing one centre line (Shop · Birds ·
+PLAY · Forge · Goals; gold only through `isPrimary`, never hover). Every plate's focus is a white
+ring, because gold is the resting colour of the call to action. The hub builds its own
+`ContentRunFactory` over the live profile for START RUN (`SEEDED` when the seed was explicit),
+so the plaque is what the run is; a bare stack (tests, headless) plays the injected source. A pop
+never re-enters the hub, so `tick` compares the selection, level, XP, prestige, wallet, unlock
+count, upgrade total, run count and best gates against what it drew and refreshes on a change.
+Back arms a `menu.quit_confirm` toast for 180 ticks and a second Back calls
+`ScreenManager.requestClose`; a stack change disarms it, and the press that cancels the attract
+demo never arms it. The old Quit lives in Settings › About as a row shown only when
+`GameApplication.canQuit()` (`GameHost.supportsQuit`, false on Android). `GoalsScreen` carries
+the former `ChallengesScreen` as its first tab and rebuilds its ring per tab (the list and Play
+exist only on Challenges); `StatisticsScreen` is the Profile, with a fixed header (portrait,
+level bar, prestige, collections) above the scrolled groups.
 
 **MetaSim (E25).** `gameplay.harness.MetaSim` is the career-scale harness: a fresh profile plays
 run after run through the real progression stack under one of two purchase policies
@@ -671,10 +703,10 @@ Flapforge/
     │   │               AssetManager AssetResolver Sprite SpriteSheet Animation Camera ParticleSystem [M2]  PickupRenderer [M3]  ObstacleRendererRegistry [M7]
     │   ├── audio/      AudioBackend SoftwareMixer NullAudio Voice SoundBank ToneSynth AudioManager [M2]  MusicSequencer [M8]
     │   └── ui/         Screen ScreenManager UiNode FocusRing [M0]
-    │       ├── component/  Button Label Panel [M0]  Slider Toggle ListView Toast [M2]  ProgressBar CurrencyDisplay [M3]  Tooltip CardGrid TabBar [M4]
+    │       ├── component/  Button Label Panel [M0]  Slider Toggle ListView Toast [M2]  ProgressBar CurrencyDisplay [M3]  Tooltip CardGrid TabBar [M4]  IconPainter IconButton NavButton NavBar CtaButton CurrencyChip [M10]
     │       └── screens/    MainMenuScreen (minimal) SettingsScreen (stub) [M0]  GameScreen PauseOverlay GameOverOverlay SeededRunSource ClassicRunFactory ContentRunFactory SeedSequence [M1]  BootScreen [M2; MainMenu/Settings completed]
     │                       RunSummaryScreen StatisticsScreen [M3]  BirdSelectionScreen UpgradeTreeScreen ShopScreen [M4]  ModifierChoiceOverlay [M6]
-    │                       RuleShiftBanner [M7]  ChallengesScreen AchievementsScreen BossBanner [M8]
+    │                       RuleShiftBanner [M7]  BossBanner [M8]  GoalsScreen (Challenges+Achievements merged) WorldSelectScreen PlayerCard WorldPlaque NextUnlockCard ForgeScene BirdPortrait [M10; MainMenuScreen = home hub, StatisticsScreen = Profile]
     ├── main/resources/
     │   ├── assets/manifest.json [M2, empty asset list]  assets/sprites/{birds,obstacles,worlds,ui}/.gitkeep assets/audio/{sfx,music}/.gitkeep [M2]  assets/fonts/{<ofl-font>.ttf,LICENSE} [M8]
     │   ├── data/birds.json difficulty.json [M1]  economy.json [M3]  upgrades.json aliases.json [M4]  abilities.json [M5]  modifiers.json [M6]  worlds.json patterns.json [M7]  challenges.json achievements.json [M8]
@@ -788,7 +820,7 @@ removed from the tree once this table superseded it.
 | audio/SoundEffect | merged | `SoundBank` + `Voice` + `ToneSynth` |
 | audio/MusicManager | renamed | `MusicSequencer` |
 | ui/Screen, ScreenManager | kept | `ui` (+`UiNode`, `FocusRing`) |
-| screens/MainMenu, Game, RunSummary, BirdSelection, UpgradeTree, Shop, Challenges, Achievements, Settings | kept | `ui.screens` |
+| screens/MainMenu, Game, RunSummary, BirdSelection, UpgradeTree, Shop, Challenges, Achievements, Settings | kept | `ui.screens` (M10: MainMenu is the home hub; Challenges and Achievements merged into `GoalsScreen`) |
 | screens/GameOverScreen | merged | `GameOverOverlay` (overlay, instant retry) |
 | component/Button, Panel, ProgressBar, Tooltip, CurrencyDisplay | kept (+7) | `ui.component` |
 | event/GameEvent, EventBus | kept | `event` |
