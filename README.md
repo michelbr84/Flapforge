@@ -8,7 +8,7 @@
 [![Gradle](https://img.shields.io/badge/Gradle-9.7-02303A?logo=gradle&logoColor=white)](https://gradle.org/)
 ![Genre](https://img.shields.io/badge/Genre-Arcade%20Roguelite-blueviolet)
 ![Meta Progression](https://img.shields.io/badge/Progression-Persistent-success)
-![Release](https://img.shields.io/badge/Release-v0.1.0-blue)
+![Release](https://img.shields.io/badge/Release-v0.2.0-blue)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **Flapforge** reimagines the classic Flappy Bird formula as a **Skill-Based Arcade Roguelite with Persistent Meta-Progression**.
@@ -22,6 +22,8 @@ But dying is no longer the complete end of the journey.
 Every run can earn resources, unlock new birds, abilities, modifiers, challenges, environments, and permanent upgrades that expand what becomes possible in future runs.
 
 The result is a game that preserves the instant accessibility and mechanical precision of Flappy Bird while introducing a long-term progression loop inspired by modern roguelites.
+
+**Player guide:** the [Flapforge wiki](https://github.com/michelbr84/Flapforge/wiki) — in English and in [Português (Brasil)](https://github.com/michelbr84/Flapforge/wiki/Inicio-(pt-BR)) — walks through the home hub, birds, worlds, upgrades and settings with screenshots; this README is the overview and [`docs/`](docs/README.md) holds the engineering documents.
 
 ---
 
@@ -755,9 +757,9 @@ if you want to send a change.
 
 ```bash
 ./gradlew fatJar
-java -jar build/libs/flapforge-0.1.0-all.jar
-java -jar build/libs/flapforge-0.1.0-all.jar --fullscreen --no-audio
-java -jar build/libs/flapforge-0.1.0-all.jar --lang pt_BR
+java -jar build/libs/flapforge-0.2.0-all.jar
+java -jar build/libs/flapforge-0.2.0-all.jar --fullscreen --no-audio
+java -jar build/libs/flapforge-0.2.0-all.jar --lang pt_BR
 ```
 
 The jar bundles Gson and needs only a JRE/JDK 17+.
@@ -937,7 +939,7 @@ It is:
 
 ## Roadmap
 
-Version 0.1.0 ships the complete first pass of the design: the classic core,
+Version 0.1.0 shipped the complete first pass of the design, and 0.2.0 adds the home hub, the Goals screen, the Profile, the World Select and the player wiki: the classic core,
 the meta-progression (coins, XP, seven birds, eight abilities, three upgrade
 trees, shops), the roguelite layer (modifier drafts, synergies), five worlds
 with bosses, seven challenges, 41 achievements, difficulty tiers, the daily

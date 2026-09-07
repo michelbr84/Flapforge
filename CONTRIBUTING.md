@@ -23,6 +23,9 @@ engineering notes live in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) and
   data-driven JSON; many additions need no Java at all).
 - Balancing: run the simulation tools, report the numbers, propose data changes.
 - Bug fixes, performance work, accessibility, tests and documentation.
+- Translations and the player wiki: the pages under `wiki/` (English and
+  Português (Brasil)) are published to the GitHub wiki from `main`, so a wiki
+  change is a normal pull request; run `bash scripts/check-wiki.sh` first.
 - Original artwork, sound effects and music, delivered through the asset
   manifest (see `THIRD_PARTY_NOTICES.md` for the licensing expectations).
 

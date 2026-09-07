@@ -20,6 +20,15 @@ M0–M9, one commit each on `rewrite/flapforge` (tagged `v0.1.0`):
 Also in 0.1.0: `speed_run_1` retuned 40 → 30 gates (BALANCING.md §11.1) and the `glide_1`
 retune (§12) — both measured, both recorded.
 
+## What shipped in 0.2.0
+
+The home-hub release (2026-09-07): the main menu as a visual hub (player card,
+coin chip, world plaque, forge scene, next-unlock card, START RUN, bottom
+navigation), the four-tab Goals screen, the Profile header, the World Select,
+Settings › About with Quit, the bilingual player wiki under `wiki/`, and the
+0.1.1 Android line (launch-crash fixes, the APK in every release) merged back
+into `main`. See `CHANGELOG.md`.
+
 ## Deferred, with next-step anchors
 
 * **Leaderboards** — needs online infrastructure 1.0 does not have. `runHistory` (capped
