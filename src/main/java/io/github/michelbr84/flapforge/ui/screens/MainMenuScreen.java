@@ -269,11 +269,11 @@ public final class MainMenuScreen implements Screen {
     }
 
     private void openChallenges() {
-        screens.push(new ChallengesScreen(context));
+        screens.push(new GoalsScreen(context, GoalsScreen.TAB_CHALLENGES));
     }
 
     private void openAchievements() {
-        screens.push(new AchievementsScreen(context));
+        screens.push(new GoalsScreen(context, GoalsScreen.TAB_ACHIEVEMENTS));
     }
 
     /**

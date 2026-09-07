@@ -65,14 +65,13 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Toggle;
-import io.github.michelbr84.flapforge.ui.screens.AchievementsScreen;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.BossBanner;
-import io.github.michelbr84.flapforge.ui.screens.ChallengesScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
+import io.github.michelbr84.flapforge.ui.screens.GoalsScreen;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.ProgressionText;
 import io.github.michelbr84.flapforge.ui.screens.RuleShiftBanner;
@@ -1374,21 +1373,25 @@ class SmokeWindowTest {
             focusCanvasOrAbort(rig);
             Driver driver = new Driver(rig);
 
-            // Menu -> Challenges; step the list to the corridor challenge with real arrow keys,
-            // one Right per challenge like the world picker is stepped.
+            // Menu -> Goals (Challenges tab); step the list to the corridor challenge with real
+            // arrow keys, one Right per challenge like the world picker is stepped.
             driver.click(menu.challengesButton(),
-                    () -> rig.screens.top() instanceof ChallengesScreen);
-            ChallengesScreen challenges = (ChallengesScreen) rig.screens.top();
+                    () -> rig.screens.top() instanceof GoalsScreen);
+            GoalsScreen challenges = (GoalsScreen) rig.screens.top();
             rig.frames(GRACE);
             driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
+            assertEquals(GoalsScreen.TAB_CHALLENGES, challenges.tabBar().selectedId());
+            challenges.focusRing().focus(challenges.challengeList());
+            rig.frames(3);
             List<String> challengeIds = GameContent.load().challenges().ids();
-            while (!"boss_corridor_1".equals(challenges.selected().id())) {
-                String next = challengeIds.get(challengeIds.indexOf(challenges.selected().id())
-                        + 1);
-                driver.tap(KeyEvent.VK_RIGHT, () -> next.equals(challenges.selected().id()));
+            while (!"boss_corridor_1".equals(challenges.selectedChallenge().id())) {
+                String next = challengeIds.get(
+                        challengeIds.indexOf(challenges.selectedChallenge().id()) + 1);
+                driver.tap(KeyEvent.VK_RIGHT,
+                        () -> next.equals(challenges.selectedChallenge().id()));
             }
             assertNotNull(challenges.playSource(), "the granted challenge offers a run");
-            assertTrue(saveShot("challenges", rig) >= 2, "the challenges frame is uniform");
+            assertTrue(saveShot("goals-challenges", rig) >= 2, "the challenges frame is uniform");
 
             // A real click on Play starts the challenge's own run.
             driver.click(challenges.playButton(), () -> rig.screens.top() instanceof GameScreen);
@@ -1428,21 +1431,22 @@ class SmokeWindowTest {
 
             leaveRun(rig, driver, menu);
 
-            // Menu -> Achievements: the three tabs stepped with real arrow keys.
+            // Menu -> Goals (Achievements tab): the remaining tabs stepped with real arrow keys.
             driver.click(menu.achievementsButton(),
-                    () -> rig.screens.top() instanceof AchievementsScreen);
-            AchievementsScreen achievements = (AchievementsScreen) rig.screens.top();
+                    () -> rig.screens.top() instanceof GoalsScreen);
+            GoalsScreen achievements = (GoalsScreen) rig.screens.top();
             rig.frames(GRACE);
             driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
-            assertEquals(AchievementsScreen.TAB_ACHIEVEMENTS, achievements.tabBar().selectedId());
-            assertTrue(saveShot("achievements", rig) >= 2, "the achievements frame is uniform");
+            assertEquals(GoalsScreen.TAB_ACHIEVEMENTS, achievements.tabBar().selectedId());
+            assertTrue(saveShot("goals-achievements", rig) >= 2,
+                    "the achievements frame is uniform");
             driver.tap(KeyEvent.VK_RIGHT, () -> achievements.tabBar().selectedId()
-                    .equals(AchievementsScreen.TAB_MILESTONES));
-            assertTrue(saveShot("achievements-milestones", rig) >= 2,
+                    .equals(GoalsScreen.TAB_MILESTONES));
+            assertTrue(saveShot("goals-milestones", rig) >= 2,
                     "the milestones frame is uniform");
             driver.tap(KeyEvent.VK_RIGHT, () -> achievements.tabBar().selectedId()
-                    .equals(AchievementsScreen.TAB_COLLECTIONS));
-            assertTrue(saveShot("achievements-collections", rig) >= 2,
+                    .equals(GoalsScreen.TAB_COLLECTIONS));
+            assertTrue(saveShot("goals-collections", rig) >= 2,
                     "the collections frame is uniform");
             assertEquals(8, achievements.bars().size(), "one bar per collection category");
 

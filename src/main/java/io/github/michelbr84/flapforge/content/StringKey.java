@@ -788,8 +788,6 @@ public enum StringKey {
     OBJECTIVE_REACH_POINTS("objective.reach_points"),
     /** Objective in words: survive the challenge's boss. */
     OBJECTIVE_BOSS_CLEARED("objective.boss_cleared"),
-    /** Achievements screen: title. */
-    ACHIEVEMENTS_TITLE("achievements.title"),
     /** Achievements screen: the achievements tab. */
     ACHIEVEMENTS_TAB_ACHIEVEMENTS("achievements.tab.achievements"),
     /** Achievements screen: the milestones tab (D13). */

@@ -64,13 +64,12 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
-import io.github.michelbr84.flapforge.ui.screens.AchievementsScreen;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.BootScreen;
 import io.github.michelbr84.flapforge.ui.screens.BossBanner;
-import io.github.michelbr84.flapforge.ui.screens.ChallengesScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
+import io.github.michelbr84.flapforge.ui.screens.GoalsScreen;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.ModifierChoiceOverlay;
@@ -407,25 +406,19 @@ class ProceduralRenderTest {
                         "world select is uniform in " + language);
                 byLanguage.put(language + "-world-select", copy(worldSelect));
 
-                // M8: the two progression screens and the boss banner's three states.
+                // M8/M10: the four Goals tabs and the boss banner's three states.
                 Fixture played = Fixture.played();
-                BufferedImage challenges = renderScreen(sm -> new ChallengesScreen(sm,
-                        Strings.active(), GameContent.load(), played.profile), 5);
-                assertTrue(distinctColours(challenges, 2) >= 2,
-                        "challenges is uniform in " + language);
-                byLanguage.put(language + "-challenges", copy(challenges));
-
-                for (int tab = 0; tab < 3; tab++) {
+                for (int tab = 0; tab < 4; tab++) {
                     final int tabIndex = tab;
-                    BufferedImage achievements = renderScreen(sm -> {
-                        AchievementsScreen screen = new AchievementsScreen(sm, Strings.active(),
+                    BufferedImage goals = renderScreen(sm -> {
+                        GoalsScreen screen = new GoalsScreen(sm, Strings.active(),
                                 GameContent.load(), played.profile, played.rules);
                         screen.tabBar().select(tabIndex);
                         return screen;
                     }, 5);
-                    assertTrue(distinctColours(achievements, 2) >= 2,
-                            "achievements tab " + tab + " is uniform in " + language);
-                    byLanguage.put(language + "-achievements-" + tab, copy(achievements));
+                    assertTrue(distinctColours(goals, 2) >= 2,
+                            "goals tab " + tab + " is uniform in " + language);
+                    byLanguage.put(language + "-goals-" + tab, copy(goals));
                 }
 
                 for (BossBanner.Phase state : new BossBanner.Phase[] {
@@ -477,17 +470,16 @@ class ProceduralRenderTest {
                 "the shop must look different in the two languages");
         assertFalse(identical(byLanguage.get("en-draft"), byLanguage.get("pt_BR-draft")),
                 "the modifier draft must look different in the two languages");
-        assertFalse(identical(byLanguage.get("en-challenges"),
-                        byLanguage.get("pt_BR-challenges")),
-                "the challenges screen must look different in the two languages");
-        assertFalse(identical(byLanguage.get("en-achievements-0"),
-                        byLanguage.get("pt_BR-achievements-0")),
-                "the achievements grid must look different in the two languages");
-        assertFalse(identical(byLanguage.get("en-achievements-1"),
-                        byLanguage.get("pt_BR-achievements-1")),
+        assertFalse(identical(byLanguage.get("en-world-select"),
+                        byLanguage.get("pt_BR-world-select")),
+                "the world select must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-goals-0"), byLanguage.get("pt_BR-goals-0")),
+                "the challenges tab must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-goals-1"), byLanguage.get("pt_BR-goals-1")),
+                "the achievements tab must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-goals-2"), byLanguage.get("pt_BR-goals-2")),
                 "the milestones tab must look different in the two languages");
-        assertFalse(identical(byLanguage.get("en-achievements-2"),
-                        byLanguage.get("pt_BR-achievements-2")),
+        assertFalse(identical(byLanguage.get("en-goals-3"), byLanguage.get("pt_BR-goals-3")),
                 "the collections tab must look different in the two languages");
         assertFalse(identical(byLanguage.get("en-boss-WARNING"),
                         byLanguage.get("pt_BR-boss-WARNING")),
@@ -1172,12 +1164,15 @@ class ProceduralRenderTest {
                     "run summary overflows at 1.5x text");
             assertTrue(distinctColours(renderScreen(played::statistics, 5), 2) >= 2,
                     "statistics overflows at 1.5x text");
-            assertTrue(distinctColours(renderScreen(sm -> new ChallengesScreen(sm,
-                    Strings.active(), GameContent.load(), played.profile), 5), 2) >= 2,
-                    "challenges overflows at 1.5x text");
-            assertTrue(distinctColours(renderScreen(sm -> new AchievementsScreen(sm,
-                    Strings.active(), GameContent.load(), played.profile, played.rules), 5), 2)
-                    >= 2, "achievements overflows at 1.5x text");
+            for (int tab = 0; tab < 4; tab++) {
+                final int tabIndex = tab;
+                assertTrue(distinctColours(renderScreen(sm -> {
+                    GoalsScreen screen = new GoalsScreen(sm, Strings.active(),
+                            GameContent.load(), played.profile, played.rules);
+                    screen.tabBar().select(tabIndex);
+                    return screen;
+                }, 5), 2) >= 2, "goals tab " + tab + " overflows at 1.5x text");
+            }
             assertTrue(distinctColours(new Rig().frame(1.0), 2) >= 2,
                     "the run HUD overflows at 1.5x text");
         } finally {

@@ -6,6 +6,7 @@ import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.content.defs.AchievementDef;
+import io.github.michelbr84.flapforge.content.defs.ChallengeDef;
 import io.github.michelbr84.flapforge.content.defs.CounterScope;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
@@ -26,6 +27,7 @@ import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiCues;
 import io.github.michelbr84.flapforge.ui.component.Button;
+import io.github.michelbr84.flapforge.ui.component.ListView;
 import io.github.michelbr84.flapforge.ui.component.ProgressBar;
 import io.github.michelbr84.flapforge.ui.component.TabBar;
 import java.awt.Graphics2D;
@@ -36,7 +38,18 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * The achievements of a profile (D13, D17, M8), reachable from the main menu, in three tabs.
+ * The goals of a profile (D13, D17, M8, M10): what the player can work towards, in four tabs
+ * behind the hub's Goals item.
+ *
+ * <p><b>Challenges</b> — the seven challenges in file order, in a list, and a detail block for
+ * the selection: the name and description the content ships, the world the run takes place in
+ * (E6 — the world is <em>labelled</em> here, it is never an unlock requirement), the tier, the
+ * special rules in words (the flags via {@link ProgressionText#ruleName}, the starting
+ * modifiers, a fixed corridor, a boss), the objective, the player's record and the rewards the
+ * first completion pays. A challenge the profile has not unlocked shows its unlock condition
+ * instead of a Play prompt. Play builds a {@link ChallengeRunSource} — the challenge's own
+ * world, tier, curve, rules, forced pattern and boss, played with the profile's current
+ * loadout — and pushes a {@link GameScreen} over this one.
  *
  * <p><b>Achievements</b> — every definition in content order, unlocked ones with their unlock
  * date, locked ones dimmed, hidden ones a "{@code ???}" until they fire. The header counts them
@@ -54,10 +67,11 @@ import java.util.Objects;
  * owned over total with the floored percentage, {@code all} last. The numbers are the same
  * arithmetic the evaluators act on, so the tab cannot disagree with them.
  *
- * <p>Nothing here writes: it is a read-only view of the profile the save layer holds, like
- * {@link StatisticsScreen}. A session without a profile shows the empty state of every tab.
+ * <p>Only the Challenges tab starts anything; the other three are read-only views of the profile
+ * the save layer holds, like {@link StatisticsScreen}. A session without a profile (a bare screen
+ * stack in a test) shows every challenge locked and the empty state of the other tabs.
  */
-public final class AchievementsScreen implements Screen {
+public final class GoalsScreen implements Screen {
 
     /** Top of the tab bar. */
     public static final int TAB_TOP = 48;
@@ -83,14 +97,29 @@ public final class AchievementsScreen implements Screen {
     public static final int WHEEL_STEP = 28;
     /** How many milestone bars the tab shows. */
     public static final int MILESTONE_COUNT = 5;
+    /** Top of the challenge list. */
+    public static final int CHALLENGE_LIST_TOP = 92;
+    /** Height of the challenge list. */
+    public static final int CHALLENGE_LIST_H = 132;
+    /** Top of the challenge detail block. */
+    public static final int DETAIL_TOP = 236;
+    /** Height of one challenge detail row. */
+    public static final int DETAIL_ROW_H = 18;
+    /** Top of the challenge Play button. */
+    public static final int PLAY_TOP = 536;
+    /** Height of the challenge Play button. */
+    public static final int PLAY_H = 40;
 
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
     private static final int TITLE_BASELINE = 40;
     private static final int PANEL_X = 12;
     private static final int PANEL_PAD = 6;
+    private static final int NAME_BASELINE = DETAIL_TOP + 16;
     private static final long MS_PER_DAY = 86_400_000L;
 
     /** The tab ids, the stable names a test addresses them by. */
+    public static final String TAB_CHALLENGES = "challenges";
+    /** The tab ids. */
     public static final String TAB_ACHIEVEMENTS = "achievements";
     /** The tab ids. */
     public static final String TAB_MILESTONES = "milestones";
@@ -98,14 +127,19 @@ public final class AchievementsScreen implements Screen {
     public static final String TAB_COLLECTIONS = "collections";
 
     private final ScreenManager screens;
+    private final GameContext context;
     private final Strings strings;
     private final GameContent content;
     private final PlayerProfile profile;
+    private final boolean hasProfile;
     private final AchievementEvaluator evaluator;
     private final ProgressionRules rules;
     private final FocusRing ring = new FocusRing();
     private final TabBar tabs = new TabBar();
     private final Button back;
+    private final List<ChallengeDef> challenges;
+    private final ListView list;
+    private final Button play;
     private final List<Line> lines = new ArrayList<>();
     private final List<ProgressBar> bars = new ArrayList<>();
     private double contentHeight;
@@ -113,18 +147,30 @@ public final class AchievementsScreen implements Screen {
     private String shownLanguage;
 
     /**
-     * Creates the screen for a wired application.
+     * Creates the screen for a wired application, opening on the Challenges tab.
      *
      * @param context the application services
      */
-    public AchievementsScreen(GameContext context) {
-        this(Objects.requireNonNull(context, "context").screens(),
-                context.strings() != null ? context.strings() : Strings.active(),
-                context.content(), context.profile(), context.progressionRules());
+    public GoalsScreen(GameContext context) {
+        this(context, TAB_CHALLENGES);
     }
 
     /**
-     * Creates a stand-alone screen (tests and tools).
+     * Creates the screen for a wired application on a given tab.
+     *
+     * @param context the application services
+     * @param initialTabId the tab to open on ({@link #TAB_CHALLENGES}, ...)
+     */
+    public GoalsScreen(GameContext context, String initialTabId) {
+        this(Objects.requireNonNull(context, "context").screens(), context,
+                context.strings() != null ? context.strings() : Strings.active(),
+                context.content(), context.profile(), context.progressionRules());
+        tabs.select(initialTabId);
+    }
+
+    /**
+     * Creates a stand-alone screen (tests and tools): it can describe every goal but cannot
+     * start a challenge, because it has no application services behind it.
      *
      * @param screens the screen stack
      * @param strings the string table its labels come from
@@ -132,29 +178,68 @@ public final class AchievementsScreen implements Screen {
      * @param profile the profile to show, or {@code null} for an empty one
      * @param rules the economy numbers the level bar reads, or {@code null} for defaults
      */
-    public AchievementsScreen(ScreenManager screens, Strings strings, GameContent content,
+    public GoalsScreen(ScreenManager screens, Strings strings, GameContent content,
             PlayerProfile profile, ProgressionRules rules) {
+        this(screens, null, strings, content, profile, rules);
+    }
+
+    private GoalsScreen(ScreenManager screens, GameContext context, Strings strings,
+            GameContent content, PlayerProfile profile, ProgressionRules rules) {
         this.screens = Objects.requireNonNull(screens, "screens");
+        this.context = context;
         this.strings = Objects.requireNonNull(strings, "strings");
         this.content = Objects.requireNonNull(content, "content");
+        this.hasProfile = profile != null;
         this.profile = profile == null ? new PlayerProfile() : profile;
         this.rules = rules == null ? ProgressionRules.none() : rules;
         this.evaluator = AchievementEvaluator.of(content);
+        this.challenges = List.copyOf(content.challenges().all());
         this.back = new Button(strings.get(StringKey.COMMON_BACK), screens::pop);
         this.back.setFontSize(16);
         this.back.setBounds(CONTENT_X, FOOTER_TOP, CONTENT_W, FOOTER_BUTTON_H);
+        this.list = new ListView(strings.get(StringKey.CHALLENGES_TITLE), listOptions(), 0);
+        this.list.setFontSize(14);
+        this.list.setBounds(CONTENT_X, CHALLENGE_LIST_TOP, CONTENT_W, CHALLENGE_LIST_H);
+        this.list.setOnChange(index -> refreshPlay());
+        this.play = new Button("", this::startChallenge);
+        this.play.setFontSize(16);
+        this.play.setBounds(CONTENT_X, PLAY_TOP, CONTENT_W, PLAY_H);
         tabs.setBounds(CONTENT_X, TAB_TOP, CONTENT_W, TAB_H);
+        tabs.add(TAB_CHALLENGES, strings.get(StringKey.CHALLENGES_TITLE));
         tabs.add(TAB_ACHIEVEMENTS, strings.get(StringKey.ACHIEVEMENTS_TAB_ACHIEVEMENTS));
         tabs.add(TAB_MILESTONES, strings.get(StringKey.ACHIEVEMENTS_TAB_MILESTONES));
         tabs.add(TAB_COLLECTIONS, strings.get(StringKey.ACHIEVEMENTS_TAB_COLLECTIONS));
-        tabs.setOnChange(index -> rebuild());
-        ring.add(tabs);
-        ring.add(back);
+        tabs.setOnChange(index -> {
+            scroll = 0;
+            rebuild();
+            rebuildRing();
+        });
+        refreshPlay();
         rebuild();
+        rebuildRing();
         shownLanguage = strings.language();
     }
 
     // ------------------------------------------------------------------ building
+
+    private boolean onChallenges() {
+        return tabs.selectedIndex() == 0;
+    }
+
+    /**
+     * Puts the nodes of the current tab on the ring: the tabs, the challenge list and Play on
+     * the Challenges tab, and Back, in that order, with the tabs focused.
+     */
+    private void rebuildRing() {
+        ring.clear();
+        ring.add(tabs);
+        if (onChallenges()) {
+            ring.add(list);
+            ring.add(play);
+        }
+        ring.add(back);
+        ring.focus(tabs);
+    }
 
     private void rebuild() {
         lines.clear();
@@ -162,14 +247,16 @@ public final class AchievementsScreen implements Screen {
         contentHeight = 0;
         switch (tabs.selectedIndex()) {
             case 1:
-                buildMilestones();
+                buildAchievements();
                 break;
             case 2:
+                buildMilestones();
+                break;
+            case 3:
                 buildCollections();
                 break;
             case 0:
             default:
-                buildAchievements();
                 break;
         }
         scroll = MathUtil.clamp(scroll, 0, maxScroll());
@@ -309,6 +396,177 @@ public final class AchievementsScreen implements Screen {
         return LocalDate.ofEpochDay(Math.max(0, epochMs) / MS_PER_DAY).toString();
     }
 
+    // ------------------------------------------------------------------ challenges
+
+    private List<String> listOptions() {
+        List<String> out = new ArrayList<>(challenges.size());
+        for (int i = 0; i < challenges.size(); i++) {
+            ChallengeDef def = challenges.get(i);
+            String name = ProgressionText.name(strings, ContentKind.CHALLENGE, def.id());
+            out.add(isUnlocked(def) ? name
+                    : strings.format(StringKey.CHALLENGES_LOCKED_ENTRY, name));
+        }
+        return out;
+    }
+
+    private boolean isUnlocked(ChallengeDef def) {
+        return hasProfile && profile.isUnlocked(def.unlockableId());
+    }
+
+    /**
+     * The challenge the list currently points at.
+     *
+     * @return the definition
+     */
+    public ChallengeDef selectedChallenge() {
+        int index = Math.max(0, Math.min(list.selectedIndex(), challenges.size() - 1));
+        return challenges.get(index);
+    }
+
+    /**
+     * The run source Play would start, built for the current selection with the live profile —
+     * the challenge's own configuration with the loadout the player has selected and bought.
+     *
+     * @return the source, or {@code null} when the session cannot play (no context, no profile,
+     *     or a locked challenge)
+     */
+    public ChallengeRunSource playSource() {
+        if (context == null || !hasProfile || !isUnlocked(selectedChallenge())) {
+            return null;
+        }
+        return new ChallengeRunSource(content, context::profile, selectedChallenge().id());
+    }
+
+    private void startChallenge() {
+        ChallengeRunSource source = playSource();
+        if (source == null) {
+            return;
+        }
+        UiCues.select();
+        screens.push(new GameScreen(context, source, SeedSequence.random()));
+    }
+
+    private void refreshPlay() {
+        play.setText(strings.get(isUnlocked(selectedChallenge())
+                ? StringKey.CHALLENGES_PLAY : StringKey.CHALLENGES_LOCKED_TITLE));
+    }
+
+    /**
+     * The detail rows the Challenges tab draws for the selection ("label value" lines,
+     * screenshots and assertions), name and description first, unlock line last when locked.
+     *
+     * @return the lines in display order
+     */
+    public List<String> detailTexts() {
+        ChallengeDef def = selectedChallenge();
+        List<String> out = new ArrayList<>(9);
+        out.add(ProgressionText.name(strings, ContentKind.CHALLENGE, def.id()));
+        out.add(ProgressionText.description(strings, ContentKind.CHALLENGE, def.id()));
+        out.add(strings.format(StringKey.CHALLENGES_WORLD,
+                ProgressionText.name(strings, ContentKind.WORLD, def.world())));
+        out.add(strings.format(StringKey.CHALLENGES_TIER,
+                ProgressionText.name(strings, ContentKind.TIER, def.tier())));
+        out.add(strings.format(StringKey.CHALLENGES_RULES, rulesLine(def)));
+        out.add(strings.format(StringKey.CHALLENGES_OBJECTIVE, objectiveText(def)));
+        out.add(recordLine(def));
+        out.add(strings.format(StringKey.CHALLENGES_REWARDS, rewardsLine(def)));
+        if (!isUnlocked(def)) {
+            out.add(strings.format(StringKey.CHALLENGES_LOCKED,
+                    ProgressionText.unlockText(strings, content, def.unlock(),
+                            hasProfile ? profile : null)));
+        }
+        return out;
+    }
+
+    /**
+     * The challenge's special rules in words: its flags, its starting modifiers, a fixed
+     * corridor and its boss, in that order; the standard-rules line when none apply.
+     *
+     * @param def the challenge
+     * @return the line
+     */
+    private String rulesLine(ChallengeDef def) {
+        List<String> parts = new ArrayList<>(4);
+        for (int i = 0; i < def.flags().size(); i++) {
+            parts.add(ProgressionText.ruleName(strings, def.flags().get(i)));
+        }
+        for (int i = 0; i < def.forcedModifiers().size(); i++) {
+            parts.add(strings.format(StringKey.CHALLENGES_RULE_MODIFIER,
+                    ProgressionText.name(strings, ContentKind.MODIFIER,
+                            def.forcedModifiers().get(i))));
+        }
+        if (def.forcedPattern() != null) {
+            parts.add(strings.get(StringKey.CHALLENGES_RULE_PATTERN));
+        }
+        if (def.boss() != null) {
+            parts.add(strings.format(StringKey.CHALLENGES_RULE_BOSS, def.boss().atGate()));
+        }
+        if (parts.isEmpty()) {
+            return strings.get(StringKey.CHALLENGES_RULES_NONE);
+        }
+        return join(parts);
+    }
+
+    /**
+     * The objective in words with its number substituted ("Survive 30 gates").
+     *
+     * @param def the challenge
+     * @return the text
+     */
+    private String objectiveText(ChallengeDef def) {
+        long value = def.objective().value();
+        switch (def.objective().type()) {
+            case SURVIVE_GATES:
+                return strings.format(StringKey.OBJECTIVE_SURVIVE_GATES, value);
+            case SURVIVE_TICKS:
+                return strings.format(StringKey.OBJECTIVE_SURVIVE_TICKS, value);
+            case COLLECT_COINS:
+                return strings.format(StringKey.OBJECTIVE_COLLECT_COINS, value);
+            case REACH_POINTS:
+                return strings.format(StringKey.OBJECTIVE_REACH_POINTS, value);
+            case BOSS_CLEARED:
+            default:
+                return strings.get(StringKey.OBJECTIVE_BOSS_CLEARED);
+        }
+    }
+
+    private String recordLine(ChallengeDef def) {
+        PlayerProfile.ChallengeRecord record = hasProfile
+                ? profile.challenges.get(def.id()) : null;
+        if (record == null || (!record.completed && record.attempts == 0)) {
+            return strings.get(StringKey.CHALLENGES_RECORD_NONE);
+        }
+        String text = strings.format(StringKey.CHALLENGES_RECORD, record.bestGates,
+                record.attempts);
+        return record.completed
+                ? strings.format(StringKey.CHALLENGES_COMPLETED_ENTRY, text) : text;
+    }
+
+    private String rewardsLine(ChallengeDef def) {
+        List<String> parts = new ArrayList<>(3);
+        if (def.rewardsOrNone().coins() > 0) {
+            parts.add(strings.format(StringKey.CHALLENGES_REWARD_COINS,
+                    def.rewardsOrNone().coins()));
+        }
+        List<String> unlocks = def.rewardsOrNone().unlocks();
+        for (int i = 0; i < unlocks.size(); i++) {
+            parts.add(ProgressionText.unlockableName(strings, content, unlocks.get(i)));
+        }
+        return parts.isEmpty() ? strings.get(StringKey.COMMON_NONE) : join(parts);
+    }
+
+    /** Comma-joined parts, with the plain comma neither string table translates. */
+    private static String join(List<String> parts) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) {
+                out.append(", ");
+            }
+            out.append(parts.get(i));
+        }
+        return out.toString();
+    }
+
     // ------------------------------------------------------------------ accessors
 
     /**
@@ -327,6 +585,24 @@ public final class AchievementsScreen implements Screen {
      */
     public Button backButton() {
         return back;
+    }
+
+    /**
+     * The challenge list of the Challenges tab.
+     *
+     * @return the list
+     */
+    public ListView challengeList() {
+        return list;
+    }
+
+    /**
+     * The Play button of the Challenges tab.
+     *
+     * @return the button
+     */
+    public Button playButton() {
+        return play;
     }
 
     /**
@@ -387,12 +663,18 @@ public final class AchievementsScreen implements Screen {
     /** Re-reads every visible label from the string table (a language switch, D25). */
     public void refreshTexts() {
         back.setText(strings.get(StringKey.COMMON_BACK));
-        List<String> labels = List.of(strings.get(StringKey.ACHIEVEMENTS_TAB_ACHIEVEMENTS),
+        List<String> labels = List.of(strings.get(StringKey.CHALLENGES_TITLE),
+                strings.get(StringKey.ACHIEVEMENTS_TAB_ACHIEVEMENTS),
                 strings.get(StringKey.ACHIEVEMENTS_TAB_MILESTONES),
                 strings.get(StringKey.ACHIEVEMENTS_TAB_COLLECTIONS));
         for (int i = 0; i < tabs.tabs().size() && i < labels.size(); i++) {
             tabs.tabs().get(i).setLabel(labels.get(i));
         }
+        int selected = list.selectedIndex();
+        list.setLabel(strings.get(StringKey.CHALLENGES_TITLE));
+        list.setOptions(listOptions());
+        list.selectQuietly(selected);
+        refreshPlay();
         rebuild();
         shownLanguage = strings.language();
     }
@@ -414,7 +696,9 @@ public final class AchievementsScreen implements Screen {
     public void tick(InputFrame input) {
         ring.handle(input);
         tabs.tick(input);
-        if (input.wheel() != 0) {
+        if (onChallenges()) {
+            list.tick(input);
+        } else if (input.wheel() != 0) {
             scroll = MathUtil.clamp(scroll - input.wheel() * (double) WHEEL_STEP, 0, maxScroll());
         }
         if (!strings.language().equals(shownLanguage)) {
@@ -435,10 +719,19 @@ public final class AchievementsScreen implements Screen {
         ProceduralArt.prepare(g);
         ProceduralArt.fillBackground(g, PALETTE);
         g.setFont(Fonts.bold(26));
-        TextPainter.drawOutlined(g, strings.get(StringKey.ACHIEVEMENTS_TITLE), CONTENT_X,
+        TextPainter.drawOutlined(g, strings.get(StringKey.GOALS_TITLE), CONTENT_X,
                 TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.letterboxColor(PALETTE), 2);
         tabs.render(g);
+        if (onChallenges()) {
+            ProceduralArt.panel(g, PANEL_X, VIEW_TOP - PANEL_PAD,
+                    Playfield.WIDTH - 2 * PANEL_X, PLAY_TOP - VIEW_TOP - PANEL_PAD);
+            list.render(g);
+            renderDetail(g);
+            play.render(g);
+            back.render(g);
+            return;
+        }
         ProceduralArt.panel(g, PANEL_X, VIEW_TOP - PANEL_PAD,
                 Playfield.WIDTH - 2 * PANEL_X, VIEW_BOTTOM - VIEW_TOP + 2 * PANEL_PAD);
 
@@ -454,7 +747,22 @@ public final class AchievementsScreen implements Screen {
         g.translate(0.0, -(VIEW_TOP - scroll));
         g.setClip(oldClip);
         back.render(g);
-        ring.render(g);
+    }
+
+    private void renderDetail(Graphics2D g) {
+        List<String> texts = detailTexts();
+        double y = NAME_BASELINE;
+        for (int i = 0; i < texts.size(); i++) {
+            if (i == 0) {
+                g.setFont(Fonts.bold(17));
+                g.setColor(ProceduralArt.accentColor(PALETTE));
+            } else {
+                g.setFont(Fonts.regular(13));
+                g.setColor(i == 1 ? ProceduralArt.TEXT_MUTED : ProceduralArt.TEXT_LIGHT);
+            }
+            TextPainter.draw(g, texts.get(i), CONTENT_X, y);
+            y += i == 0 ? DETAIL_ROW_H + 4 : DETAIL_ROW_H;
+        }
     }
 
     private void renderLine(Graphics2D g, Line line) {

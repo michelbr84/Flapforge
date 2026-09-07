@@ -126,7 +126,7 @@ public final class ContentRunFactory implements SeededRunSource {
      * world (E6).
      *
      * @param challengeId the challenge
-     * @return the source the {@code ChallengesScreen} hands a {@code GameScreen}
+     * @return the source the {@code GoalsScreen} hands a {@code GameScreen}
      * @throws io.github.michelbr84.flapforge.content.UnknownIdException when no challenge
      *     carries the id
      */
