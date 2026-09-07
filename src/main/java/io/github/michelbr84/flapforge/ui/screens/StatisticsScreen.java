@@ -10,8 +10,11 @@ import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
+import io.github.michelbr84.flapforge.progression.CollectionProgress;
+import io.github.michelbr84.flapforge.progression.PlayerLevel;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.PrestigeSystem;
+import io.github.michelbr84.flapforge.progression.ProgressionRules;
 import io.github.michelbr84.flapforge.progression.Statistics;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
@@ -25,6 +28,7 @@ import io.github.michelbr84.flapforge.ui.UiCues;
 import io.github.michelbr84.flapforge.ui.component.Button;
 import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
 import io.github.michelbr84.flapforge.ui.component.ListView;
+import io.github.michelbr84.flapforge.ui.component.ProgressBar;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Shape;
@@ -34,7 +38,9 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * The lifetime statistics of a profile (D13, M3), reachable from the main menu.
+ * The player's profile (D13, M3, M10), reachable from the hub's player card: a fixed header with
+ * the selected bird, the level and its progress bar, the prestige badge and the collections
+ * line, over the lifetime statistics.
  *
  * <p>The counters are grouped the way a player thinks about them rather than the way
  * {@link Statistics} stores them: how much has been flown, how far the flights got, what the
@@ -60,8 +66,12 @@ import java.util.Objects;
  */
 public final class StatisticsScreen implements Screen {
 
-    /** Top of the scrolling area. */
-    public static final int VIEW_TOP = 58;
+    /** Top of the profile header. */
+    public static final int PROFILE_HEADER_TOP = 50;
+    /** Height of the profile header. */
+    public static final int PROFILE_HEADER_H = 82;
+    /** Top of the scrolling area, under the profile header. */
+    public static final int VIEW_TOP = 140;
     /** Bottom of the scrolling area. */
     public static final int VIEW_BOTTOM = 496;
     /** Top of the run-history row. */
@@ -92,6 +102,17 @@ public final class StatisticsScreen implements Screen {
     private static final int PANEL_X = 12;
     private static final int PANEL_PAD = 6;
     private static final Color SCROLLBAR = new Color(0xF4, 0xF8, 0xF8, 0x50);
+    private static final int PORTRAIT_CX = 52;
+    private static final int PORTRAIT_CY = 91;
+    private static final int PORTRAIT_SIZE = 44;
+    private static final int HEADER_TEXT_X = 84;
+    private static final int NAME_BASELINE = 70;
+    private static final int LEVEL_BAR_TOP = 78;
+    private static final int LEVEL_BAR_H = 24;
+    private static final int LEVEL_BAR_W = 300;
+    private static final int COLLECTIONS_BASELINE = 122;
+    private static final int CROWN_SIZE = 10;
+    private static final int WING_PERIOD_TICKS = 48;
 
     private final ScreenManager screens;
     private final GameContext context;
@@ -103,6 +124,14 @@ public final class StatisticsScreen implements Screen {
     private final Button back;
     private final Button prestige;
     private final ListView history;
+    private final ProgressionRules rules;
+    private final ProgressBar levelBar = new ProgressBar("");
+    private String levelText = "";
+    private String prestigeLine = "";
+    private String collectionsLine = "";
+    private String collectionsShown = "";
+    private String collectionsOf = "";
+    private long ticks;
     private String shownLanguage;
     private boolean prestigeArmed;
     private double contentHeight;
@@ -117,7 +146,7 @@ public final class StatisticsScreen implements Screen {
     public StatisticsScreen(GameContext context) {
         this(Objects.requireNonNull(context, "context").screens(),
                 context.strings() != null ? context.strings() : Strings.active(),
-                context.profile(), context);
+                context.profile(), context.progressionRules(), context);
     }
 
     /**
@@ -137,15 +166,30 @@ public final class StatisticsScreen implements Screen {
      * @param profile the profile to show, or {@code null} for an empty one
      */
     public StatisticsScreen(ScreenManager screens, Strings strings, PlayerProfile profile) {
-        this(screens, strings, profile, null);
+        this(screens, strings, profile, null, null);
+    }
+
+    /**
+     * Creates the screen with the economy numbers the level bar reads.
+     *
+     * @param screens the screen stack
+     * @param strings the string table its labels come from
+     * @param profile the profile to show, or {@code null} for an empty one
+     * @param rules the economy numbers the level bar reads, or {@code null} for defaults
+     */
+    public StatisticsScreen(ScreenManager screens, Strings strings, PlayerProfile profile,
+            ProgressionRules rules) {
+        this(screens, strings, profile, rules, null);
     }
 
     private StatisticsScreen(ScreenManager screens, Strings strings, PlayerProfile profile,
-            GameContext context) {
+            ProgressionRules rules, GameContext context) {
         this.screens = Objects.requireNonNull(screens, "screens");
         this.context = context;
         this.strings = Objects.requireNonNull(strings, "strings");
         this.profile = profile == null ? new PlayerProfile() : profile;
+        this.rules = rules == null ? ProgressionRules.none() : rules;
+        this.levelBar.setBounds(HEADER_TEXT_X, LEVEL_BAR_TOP, LEVEL_BAR_W, LEVEL_BAR_H);
         this.back = new Button(strings.get(StringKey.COMMON_BACK), screens::pop);
         this.back.setFontSize(16);
         this.back.setBounds(CONTENT_X, FOOTER_TOP, CONTENT_W, FOOTER_BUTTON_H);
@@ -168,6 +212,35 @@ public final class StatisticsScreen implements Screen {
         build();
     }
 
+    /**
+     * Rebuilds the header from the profile: the level and its bar, the prestige badge and the
+     * collections line. Called with every {@link #build()}, so a prestige or a purchase made
+     * elsewhere is what the header shows on the next entry.
+     */
+    private void refreshHeader() {
+        PlayerLevel.Progress progress = rules.levels().progressWithin(profile.xp);
+        levelText = strings.format(StringKey.MENU_PLAYER_LEVEL, progress.level());
+        levelBar.setLabel(strings.format(StringKey.SUMMARY_LEVEL, progress.level()));
+        levelBar.setValue(progress.maxed() ? 1 : progress.fraction());
+        levelBar.setValueText(progress.maxed() ? strings.get(StringKey.SUMMARY_LEVEL_MAX)
+                : strings.format(StringKey.SUMMARY_LEVEL_PROGRESS, progress.xpIntoLevel(),
+                        progress.xpForNextLevel()));
+        prestigeLine = profile.prestigeCount > 0
+                ? strings.format(StringKey.MENU_PRESTIGE_BADGE, profile.prestigeCount) : "";
+        GameContent content = content();
+        if (content == null) {
+            collectionsLine = "";
+            return;
+        }
+        CollectionProgress collections = CollectionProgress.of(content);
+        CollectionProgress.Entry birds = collections.of("birds", profile);
+        CollectionProgress.Entry worlds = collections.of("worlds", profile);
+        CollectionProgress.Entry achievements = collections.of("achievements", profile);
+        collectionsLine = strings.format(StringKey.PROFILE_COLLECTIONS, birds.owned(),
+                birds.total(), worlds.owned(), worlds.total(), achievements.owned(),
+                achievements.total());
+    }
+
     // ------------------------------------------------------------------ building
 
     private void build() {
@@ -175,6 +248,7 @@ public final class StatisticsScreen implements Screen {
         contentHeight = 0;
         Statistics stats = profile.statistics;
 
+        header(StringKey.STATS_TITLE);
         header(StringKey.STATS_GROUP_FLIGHTS);
         row("totalRuns", StringKey.STATS_RUNS, Long.toString(stats.totalRuns));
         row("playtimeSeconds", StringKey.STATS_PLAYTIME, playtime(stats.playtimeSeconds));
@@ -242,6 +316,7 @@ public final class StatisticsScreen implements Screen {
         row("prestigeKeeps", StringKey.PRESTIGE_KEEPS, keepsText(content));
         row("prestigeResets", StringKey.PRESTIGE_RESETS,
                 strings.get(StringKey.PRESTIGE_RESETS_LIST));
+        refreshHeader();
     }
 
     /**
@@ -449,6 +524,35 @@ public final class StatisticsScreen implements Screen {
     }
 
     /**
+     * The level bar of the profile header (never focusable).
+     *
+     * @return the bar
+     */
+    public ProgressBar levelBar() {
+        return levelBar;
+    }
+
+    /**
+     * The texts of the profile header in display order: the player name, the level, the
+     * prestige badge when the profile has one, and the collections line when the screen has
+     * content to count.
+     *
+     * @return the texts
+     */
+    public List<String> headerTexts() {
+        List<String> out = new ArrayList<>(4);
+        out.add(strings.get(StringKey.MENU_PLAYER_NAME));
+        out.add(levelText);
+        if (!prestigeLine.isEmpty()) {
+            out.add(prestigeLine);
+        }
+        if (!collectionsLine.isEmpty()) {
+            out.add(collectionsLine);
+        }
+        return out;
+    }
+
+    /**
      * Current scroll offset of the groups.
      *
      * @return logical pixels from the top of the content
@@ -565,6 +669,7 @@ public final class StatisticsScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        ticks++;
         wallet.tick();
         ring.handle(input);
         history.tick(input);
@@ -596,10 +701,11 @@ public final class StatisticsScreen implements Screen {
         ProceduralArt.prepare(g);
         ProceduralArt.fillBackground(g, PALETTE);
         g.setFont(Fonts.bold(26));
-        TextPainter.drawOutlined(g, strings.get(StringKey.STATS_TITLE), CONTENT_X,
+        TextPainter.drawOutlined(g, strings.get(StringKey.PROFILE_TITLE), CONTENT_X,
                 TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.letterboxColor(PALETTE), 2);
         wallet.render(g);
+        renderHeader(g);
         ProceduralArt.panel(g, PANEL_X, VIEW_TOP - PANEL_PAD, Playfield.WIDTH - 2 * PANEL_X,
                 VIEW_BOTTOM - VIEW_TOP + 2 * PANEL_PAD);
 
@@ -620,6 +726,41 @@ public final class StatisticsScreen implements Screen {
                 Playfield.WIDTH - 2 * PANEL_X, HISTORY_H + 2 * PANEL_PAD);
         prestige.render(g);
         ring.render(g);
+    }
+
+    /** The profile header: portrait, name, crown and level, prestige, level bar, collections. */
+    private void renderHeader(Graphics2D g) {
+        ProceduralArt.panel(g, PANEL_X, PROFILE_HEADER_TOP, Playfield.WIDTH - 2 * PANEL_X,
+                PROFILE_HEADER_H);
+        double phase = (ticks % WING_PERIOD_TICKS) / (double) WING_PERIOD_TICKS;
+        BirdPortrait.draw(g, content(), profile, PORTRAIT_CX, PORTRAIT_CY, PORTRAIT_SIZE, phase);
+        g.setFont(Fonts.bold(15));
+        g.setColor(ProceduralArt.TEXT_LIGHT);
+        String name = strings.get(StringKey.MENU_PLAYER_NAME);
+        TextPainter.draw(g, name, HEADER_TEXT_X, NAME_BASELINE);
+        double x = HEADER_TEXT_X + TextPainter.width(g, name) + 12;
+        ProceduralArt.drawCrown(g, x + CROWN_SIZE / 2.0, NAME_BASELINE - 5, CROWN_SIZE,
+                ProceduralArt.COIN_GOLD);
+        x += CROWN_SIZE + 5;
+        g.setFont(Fonts.bold(12));
+        TextPainter.draw(g, levelText, x, NAME_BASELINE);
+        if (!prestigeLine.isEmpty()) {
+            x += TextPainter.width(g, levelText) + 10;
+            g.setColor(ProceduralArt.accentColor(PALETTE));
+            TextPainter.draw(g, prestigeLine, x, NAME_BASELINE);
+        }
+        levelBar.render(g);
+        if (!collectionsLine.isEmpty()) {
+            g.setFont(Fonts.regular(11));
+            g.setColor(ProceduralArt.TEXT_MUTED);
+            if (!collectionsLine.equals(collectionsOf)) {
+                // Measured only when the line or the language changed.
+                collectionsShown = TextPainter.ellipsise(g, collectionsLine,
+                        Playfield.WIDTH - PANEL_X - 8 - HEADER_TEXT_X);
+                collectionsOf = collectionsLine;
+            }
+            TextPainter.draw(g, collectionsShown, HEADER_TEXT_X, COLLECTIONS_BASELINE);
+        }
     }
 
     private void renderRow(Graphics2D g, Row row) {

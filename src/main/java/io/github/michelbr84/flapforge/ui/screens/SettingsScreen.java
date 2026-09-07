@@ -1,5 +1,7 @@
 package io.github.michelbr84.flapforge.ui.screens;
 
+import io.github.michelbr84.flapforge.app.AppVersion;
+import io.github.michelbr84.flapforge.app.GameApplication;
 import io.github.michelbr84.flapforge.app.GameContext;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
@@ -94,6 +96,8 @@ public final class SettingsScreen implements Screen {
     public static final int ROW_GAP = 6;
     /** Height of a section header. */
     public static final int HEADER_H = 28;
+    /** Height of an information line of the About section. */
+    public static final int INFO_H = 18;
     /** Left edge of the content. */
     public static final int CONTENT_X = 26;
     /** Width of the content. */
@@ -134,6 +138,7 @@ public final class SettingsScreen implements Screen {
     private final FocusRing footerRing = new FocusRing();
     private final List<UiNode> rows = new ArrayList<>();
     private final List<Label> headers = new ArrayList<>();
+    private final List<Label> about = new ArrayList<>();
     private final Map<StringKey, Label> headerByKey = new LinkedHashMap<>();
     private final Map<InputAction, Button> rebinds = new EnumMap<>(InputAction.class);
     private final Map<String, Slider> sliders = new LinkedHashMap<>();
@@ -146,6 +151,7 @@ public final class SettingsScreen implements Screen {
     private ListView colorBlindList;
     private Button restore;
     private Button back;
+    private Button quit;
     private String shownLanguage;
     private InputAction capturing;
     private double scroll;
@@ -241,6 +247,22 @@ public final class SettingsScreen implements Screen {
             button.setOnAction(() -> startCapture(action));
             rebinds.put(action, button);
             y = addRow(button, y);
+        }
+
+        // The About section (M10): the version, build and global keys the old menu footer
+        // carried, and the way out of the game where the host allows one (the desktop; the
+        // Android activity is left through the system's own Back).
+        y = addHeader(StringKey.SETTINGS_SECTION_ABOUT, y);
+        for (int i = 0; i < 3; i++) {
+            Label info = new Label("");
+            info.setFont(Fonts.regular(12));
+            info.setColor(ProceduralArt.TEXT_MUTED);
+            y = addInfo(info, y);
+        }
+        if (GameApplication.canQuit()) {
+            quit = new Button("", context != null ? context::requestQuit : screens::requestClose);
+            quit.setFontSize(14);
+            y = addRow(quit, y);
         }
 
         contentHeight = y;
@@ -372,6 +394,21 @@ public final class SettingsScreen implements Screen {
         return addRow(node, y, ROW_H);
     }
 
+    /**
+     * Adds a read-only line to the band: drawn with the headers, never in the rows or on the
+     * ring, so the arrows step over it.
+     *
+     * @param label the line
+     * @param y the top edge in content space
+     * @return the top edge of the next row
+     */
+    private double addInfo(Label label, double y) {
+        label.setBounds(CONTENT_X, y, CONTENT_W, INFO_H);
+        headers.add(label);
+        about.add(label);
+        return y + INFO_H + ROW_GAP;
+    }
+
     private double addRow(UiNode node, double y, double height) {
         node.setBounds(CONTENT_X, y, CONTENT_W, height);
         rows.add(node);
@@ -425,7 +462,29 @@ public final class SettingsScreen implements Screen {
     }
 
     /**
-     * The "restore defaults" button.
+     * The Quit row of the About section (M10).
+     *
+     * @return the button, or {@code null} when the host does not support quitting (Android)
+     */
+    public Button quitButton() {
+        return quit;
+    }
+
+    /**
+     * The information lines of the About section, in display order: version, build, keys.
+     *
+     * @return the texts
+     */
+    public List<String> aboutTexts() {
+        List<String> out = new ArrayList<>(about.size());
+        for (int i = 0; i < about.size(); i++) {
+            out.add(about.get(i).text());
+        }
+        return out;
+    }
+
+    /**
+     * The Restore defaults button.
      *
      * @return the button
      */
@@ -724,6 +783,13 @@ public final class SettingsScreen implements Screen {
         }
         restore.setText(strings.get(StringKey.SETTINGS_RESTORE_DEFAULTS));
         back.setText(strings.get(StringKey.COMMON_BACK));
+        about.get(0).setText(strings.format(StringKey.FOOTER_VERSION, AppVersion.version()));
+        about.get(1).setText(strings.format(StringKey.FOOTER_BUILD,
+                System.getProperty("java.version", "17")));
+        about.get(2).setText(strings.get(StringKey.FOOTER_KEYS));
+        if (quit != null) {
+            quit.setText(strings.get(StringKey.MENU_QUIT));
+        }
         refreshBindingLabels();
         shownLanguage = strings.language();
     }
