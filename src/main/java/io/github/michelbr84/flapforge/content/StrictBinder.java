@@ -5,7 +5,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
@@ -208,6 +211,11 @@ public final class StrictBinder {
         if (raw == Object.class) {
             return genericValue(el, pointer);
         }
+        // Last resort, after every type the binder knows by name: on Android D8 desugars
+        // records, so a def arrives here as a plain class and is recognised by its shape.
+        if (isRecordLike(raw)) {
+            return recordValue(raw, el, pointer);
+        }
         error(pointer, "unsupported target type " + raw.getName());
         return null;
     }
@@ -294,10 +302,10 @@ public final class StrictBinder {
             return null;
         }
         JsonObject obj = el.getAsJsonObject();
-        RecordComponent[] components = raw.getRecordComponents();
-        Map<String, RecordComponent> byKey = new LinkedHashMap<>();
-        for (RecordComponent rc : components) {
-            byKey.put(jsonName(rc), rc);
+        List<Component> components = componentsOf(raw);
+        Map<String, Component> byKey = new LinkedHashMap<>();
+        for (Component rc : components) {
+            byKey.put(rc.key(), rc);
         }
         for (String key : obj.keySet()) {
             if (key.startsWith(COMMENT_PREFIX)) {
@@ -308,15 +316,15 @@ public final class StrictBinder {
                         + raw.getSimpleName() + " (known keys: " + byKey.keySet() + ")");
             }
         }
-        Object[] args = new Object[components.length];
-        Class<?>[] paramTypes = new Class<?>[components.length];
+        Object[] args = new Object[components.size()];
+        Class<?>[] paramTypes = new Class<?>[components.size()];
         int before = errors.size();
-        for (int i = 0; i < components.length; i++) {
-            RecordComponent rc = components[i];
-            paramTypes[i] = rc.getType();
-            String key = jsonName(rc);
+        for (int i = 0; i < components.size(); i++) {
+            Component rc = components.get(i);
+            paramTypes[i] = rc.type();
+            String key = rc.key();
             JsonElement child = obj.has(key) ? obj.get(key) : null;
-            args[i] = value(rc.getGenericType(), child, pointer + "/" + key);
+            args[i] = value(rc.genericType(), child, pointer + "/" + key);
         }
         if (errors.size() > before) {
             // A component already failed; constructing would only add a cascading complaint.
@@ -537,5 +545,181 @@ public final class StrictBinder {
     private static String jsonName(RecordComponent rc) {
         JsonName annotation = rc.getAnnotation(JsonName.class);
         return annotation == null ? rc.getName() : annotation.value();
+    }
+
+    /**
+     * One bindable component: the JSON key it reads, its declared type and its generic type.
+     * Sourced from the record components on a JVM, and from the canonical constructor where the
+     * runtime has no records (see {@link #isRecordLike}).
+     *
+     * @param key the JSON key
+     * @param type the declared type
+     * @param genericType the generic type, for {@code List}/{@code Map} components
+     */
+    record Component(String key, Class<?> type, Type genericType) {
+    }
+
+    /**
+     * Whether a class binds like a record.
+     *
+     * <p>{@code Class.isRecord()} is not the whole answer on Android: D8 desugars records into
+     * plain classes that no longer extend {@code java.lang.Record}, so every def would fall
+     * through to "unsupported target type" and the content would refuse to load. The desugared
+     * shape is still exact — a final class whose final instance fields are the components, built
+     * by a canonical constructor over precisely those types — so it is recognised structurally.
+     *
+     * @param raw the candidate class
+     * @return {@code true} when the class can be bound as a record
+     */
+    private static boolean isRecordLike(Class<?> raw) {
+        if (raw.isRecord()) {
+            return true;
+        }
+        if (raw.isInterface() || raw.isEnum() || raw.isPrimitive() || raw.isArray()
+                || raw.isAnnotation() || !Modifier.isFinal(raw.getModifiers())) {
+            return false;
+        }
+        // A platform class is never content: Double and friends are final, one-field and
+        // constructible, so they would otherwise pass the shape test if one reached this far.
+        // The "java" prefix covers the java and jakarta-era javax trees alike.
+        String pkg = raw.getPackageName();
+        if (pkg.startsWith("java") || pkg.startsWith("android.") || pkg.startsWith("kotlin.")) {
+            return false;
+        }
+        List<Field> fields = instanceFields(raw);
+        if (fields.isEmpty()) {
+            return false;
+        }
+        for (Field f : fields) {
+            if (!Modifier.isFinal(f.getModifiers())) {
+                return false;
+            }
+        }
+        return !structuralComponents(raw, fields).isEmpty();
+    }
+
+    /**
+     * The components of a record-like class, in canonical-constructor order.
+     *
+     * @param raw the class
+     * @return the components
+     */
+    static List<Component> componentsOf(Class<?> raw) {
+        if (!raw.isRecord()) {
+            return structuralComponents(raw);
+        }
+        List<Component> out = new ArrayList<>();
+        for (RecordComponent rc : raw.getRecordComponents()) {
+            out.add(new Component(jsonName(rc), rc.getType(), rc.getGenericType()));
+        }
+        return out;
+    }
+
+    /**
+     * The components of a desugared record, read off its canonical constructor.
+     *
+     * @param raw the class
+     * @return the components in canonical-constructor order, empty when the class is not one
+     */
+    static List<Component> structuralComponents(Class<?> raw) {
+        return structuralComponents(raw, instanceFields(raw));
+    }
+
+    /**
+     * The components of a desugared record.
+     *
+     * <p>The order is the constructor's, never the fields': the dex format stores a class's
+     * fields sorted by name, so {@code getDeclaredFields()} on Android hands back alphabetical
+     * order. Trusting it swaps same-typed components — {@code UpgradesDef(trees, nodes)} would
+     * bind {@code nodes} into {@code trees} — and rejects the rest outright. The constructor's
+     * parameters are declaration order by definition; each one is matched to its field by name
+     * ({@code -parameters} is on for both builds) or, failing that, by a unique type.
+     *
+     * @param raw the class
+     * @param fields the instance fields, in any order
+     * @return the components in canonical-constructor order, empty when the class is not one
+     */
+    static List<Component> structuralComponents(Class<?> raw, List<Field> fields) {
+        Constructor<?> ctor = canonicalConstructor(raw, fields);
+        if (ctor == null) {
+            return List.of();
+        }
+        Map<String, Field> byName = new LinkedHashMap<>();
+        for (Field f : fields) {
+            byName.put(f.getName(), f);
+        }
+        Parameter[] params = ctor.getParameters();
+        Type[] generics = ctor.getGenericParameterTypes();
+        List<Component> out = new ArrayList<>();
+        List<Field> unclaimed = new ArrayList<>(fields);
+        for (int i = 0; i < params.length; i++) {
+            Field field = params[i].isNamePresent() ? byName.get(params[i].getName()) : null;
+            if (field == null) {
+                field = onlyFieldOfType(unclaimed, params[i].getType());
+            }
+            if (field == null) {
+                // Neither a name nor a unique type: the mapping would be a guess, and a guessed
+                // component silently binds the wrong JSON key onto the wrong slot.
+                return List.of();
+            }
+            unclaimed.remove(field);
+            JsonName annotation = field.getAnnotation(JsonName.class);
+            out.add(new Component(annotation == null ? field.getName() : annotation.value(),
+                    params[i].getType(), generics[i]));
+        }
+        return out;
+    }
+
+    /**
+     * The constructor that takes every component once: the canonical one. Matched on the
+     * multiset of parameter types, so it is found whatever order the fields arrive in.
+     *
+     * @param raw the class
+     * @param fields the instance fields
+     * @return the constructor, or {@code null} when no constructor covers exactly the fields
+     */
+    private static Constructor<?> canonicalConstructor(Class<?> raw, List<Field> fields) {
+        List<String> wanted = new ArrayList<>();
+        for (Field f : fields) {
+            wanted.add(f.getType().getName());
+        }
+        Collections.sort(wanted);
+        for (Constructor<?> candidate : raw.getDeclaredConstructors()) {
+            if (candidate.getParameterCount() != fields.size()) {
+                continue;
+            }
+            List<String> got = new ArrayList<>();
+            for (Class<?> t : candidate.getParameterTypes()) {
+                got.add(t.getName());
+            }
+            Collections.sort(got);
+            if (wanted.equals(got)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static Field onlyFieldOfType(List<Field> fields, Class<?> type) {
+        Field found = null;
+        for (Field f : fields) {
+            if (f.getType() == type) {
+                if (found != null) {
+                    return null;
+                }
+                found = f;
+            }
+        }
+        return found;
+    }
+
+    private static List<Field> instanceFields(Class<?> raw) {
+        List<Field> out = new ArrayList<>();
+        for (Field f : raw.getDeclaredFields()) {
+            if (!Modifier.isStatic(f.getModifiers()) && !f.isSynthetic()) {
+                out.add(f);
+            }
+        }
+        return out;
     }
 }

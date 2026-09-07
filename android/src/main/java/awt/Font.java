@@ -59,7 +59,11 @@ public class Font {
     private final float size;
     private final String family;
 
-    private android.graphics.Paint coveragePaint;
+    // Lazily built, then never mutated: the one measuring paint (typeface + size) shared by
+    // canDisplayUpTo and the cached FontMetrics. A Font may be shared across threads; both
+    // caches are guarded by this font's monitor and published through volatile reads.
+    private volatile android.graphics.Paint measurePaint;
+    private volatile FontMetrics metrics;
 
     /**
      * Creates a font from a family name, style and pixel size (census form).
@@ -185,7 +189,7 @@ public class Font {
      */
     public int canDisplayUpTo(String text) {
         Objects.requireNonNull(text, "text");
-        android.graphics.Paint paint = coveragePaint();
+        android.graphics.Paint paint = measurePaint();
         for (int i = 0; i < text.length(); i++) {
             if (!paint.hasGlyph(String.valueOf(text.charAt(i)))) {
                 return i;
@@ -222,14 +226,46 @@ public class Font {
         return size;
     }
 
-    private synchronized android.graphics.Paint coveragePaint() {
-        if (coveragePaint == null) {
-            android.graphics.Paint paint = new android.graphics.Paint();
-            paint.setTypeface(typeface);
-            paint.setTextSize(Math.max(1f, size));
-            coveragePaint = paint;
+    /**
+     * Package-visible: the measuring paint ({@code typeface} + {@code max(1, size)}), built on
+     * first use and never mutated afterwards, so {@link FontMetrics} and {@link #canDisplayUpTo}
+     * can read it concurrently.
+     */
+    android.graphics.Paint measurePaint() {
+        android.graphics.Paint paint = measurePaint;
+        if (paint == null) {
+            synchronized (this) {
+                paint = measurePaint;
+                if (paint == null) {
+                    paint = new android.graphics.Paint();
+                    paint.setTypeface(typeface);
+                    paint.setTextSize(Math.max(1f, size));
+                    measurePaint = paint;
+                }
+            }
         }
-        return coveragePaint;
+        return paint;
+    }
+
+    /**
+     * Package-visible: the metrics of this font, created once (a font is immutable, so its
+     * metrics are constant) and handed back by every {@code Graphics2D.getFontMetrics} call —
+     * the census measures text on every frame, and this keeps that allocation-free.
+     *
+     * @return the cached metrics
+     */
+    FontMetrics metrics() {
+        FontMetrics current = metrics;
+        if (current == null) {
+            synchronized (this) {
+                current = metrics;
+                if (current == null) {
+                    current = new FontMetrics(this);
+                    metrics = current;
+                }
+            }
+        }
+        return current;
     }
 
     /** Package-visible: the AWT style bits ({@code PLAIN}/{@code BOLD}/{@code ITALIC} mask). */

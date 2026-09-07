@@ -12,6 +12,40 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+## 0.1.1 — 2026-09-05
+
+The Android touch-and-screen release: the game-over and pause overlays gained
+real buttons, tall screens are filled edge to edge, and the release now ships
+a sideloadable APK built by CI.
+
+### Fixed
+
+- The Android APK closed instantly on launch: D8 desugars Java records, so
+  `Class.isRecord()` is `false` for every `content.defs` type on a device and
+  `StrictBinder` rejected all 17 content files with "unsupported target type",
+  aborting the boot. The binder now recognises a desugared record structurally and
+  reads its components off the **canonical constructor**, whose parameters are
+  declaration order by definition, matching each to its field by name
+  (`-parameters` is now on for the Android compile too, as it already was for the
+  desktop one). Field order cannot be used: the dex format stores a class's fields
+  sorted by name, so `getDeclaredFields()` is alphabetical on a device — that both
+  rejected the multi-typed defs outright and, worse, silently swapped same-typed
+  components (`UpgradesDef(trees, nodes)` bound `nodes` into `trees`). The
+  structural check runs only after every type the binder knows by name, so boxed and
+  platform classes are untouched. `StrictBinderDesugarTest` feeds the fields in dex
+  order and pins the result to the record reading for every def; the JVM (and
+  Robolectric) keep real records, which is why no existing test could see this.
+
+- The Android APK crashed on launch and showed the default launcher icon:
+  the `Rewrite (#13)` history that became `main` had dropped the M10 launcher
+  icons and ~500 lines of `awt` shim parity/fidelity fixes, so the first real
+  frame — which the Robolectric boot test skips (its holder has no canvas) —
+  threw on the regressed shim. The proven shim, the adaptive launcher icons
+  (the bird, generated from the desktop icon by `IconGen`) and the manifest
+  `icon`/`roundIcon` are restored, and the Android module is now compiled,
+  unit-tested and assembled in CI on every push so this cannot silently
+  regress again.
+
 ### Added
 
 - Buttons on the game-over strip (Retry / Summary / Menu) and on the pause
