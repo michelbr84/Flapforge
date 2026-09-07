@@ -1,33 +1,47 @@
 package io.github.michelbr84.flapforge.ui.screens;
 
-import io.github.michelbr84.flapforge.app.AppVersion;
 import io.github.michelbr84.flapforge.app.GameContext;
+import io.github.michelbr84.flapforge.audio.MusicSequencer;
 import io.github.michelbr84.flapforge.content.ContentKind;
 import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
+import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.progression.AchievementEvaluator;
+import io.github.michelbr84.flapforge.progression.PlayerLevel;
+import io.github.michelbr84.flapforge.progression.PlayerProfile;
+import io.github.michelbr84.flapforge.progression.ProgressionRules;
+import io.github.michelbr84.flapforge.progression.Statistics;
+import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
+import io.github.michelbr84.flapforge.render.BackgroundRenderer;
+import io.github.michelbr84.flapforge.render.CloudLayer;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.Overscan;
 import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.render.TextPainter.Align;
-import io.github.michelbr84.flapforge.audio.MusicSequencer;
 import io.github.michelbr84.flapforge.render.WorldPalette;
+import io.github.michelbr84.flapforge.render.WorldStyle;
 import io.github.michelbr84.flapforge.ui.FocusRing;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
-import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
-import io.github.michelbr84.flapforge.input.RawInput;
-import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.ui.component.Button;
+import io.github.michelbr84.flapforge.ui.component.CtaButton;
+import io.github.michelbr84.flapforge.ui.component.CurrencyChip;
 import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
-import io.github.michelbr84.flapforge.ui.component.Panel;
+import io.github.michelbr84.flapforge.ui.component.IconButton;
+import io.github.michelbr84.flapforge.ui.component.NavBar;
+import io.github.michelbr84.flapforge.ui.component.NavButton;
+import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -35,75 +49,81 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * The main menu (D17), completed in M2: the Green Fields backdrop, a bird perched on an anvil
- * above the procedurally drawn title, and a panel with Play, Settings and Quit.
+ * The home hub (D17, M10): the first screen after the boot, laid out like the front page of an
+ * arcade roguelite rather than as a list of options.
+ *
+ * <ul>
+ *   <li>A HUD band on top: the {@link PlayerCard} (avatar, name, level, XP — opens the Profile),
+ *       the coin {@link CurrencyChip} (opens the Shop) and the gear {@link IconButton}
+ *       (Settings).</li>
+ *   <li>The emblem — the bird on the anvil — over the title and the tagline, then the
+ *       {@link WorldPlaque} naming the selected world (opens the World Select).</li>
+ *   <li>The {@link ForgeScene}: the island with the anvil and the selected bird, dressed with
+ *       more the further the upgrade trees have been built, in the selected world's palette
+ *       over that world's backdrop.</li>
+ *   <li>The {@link NextUnlockCard}, the START RUN {@link CtaButton} with the world and the tier
+ *       under it, and the last-run line.</li>
+ *   <li>The {@link NavBar}: Shop, Birds, PLAY, Forge (the upgrade trees) and Goals (challenges,
+ *       achievements, milestones, collections).</li>
+ * </ul>
  *
  * <p>Everything the player reads comes from {@link Strings} and follows a live language switch:
  * the screen compares the table's language against the one its labels were built from and
- * rebuilds them when it changed, so returning from the settings screen in another language
- * cannot leave a stale word behind. Play pushes a {@link GameScreen} built from the injected
- * {@link SeededRunSource} and {@link SeedSequence} (so {@code --seed N} reaches the first run),
- * Settings pushes the real {@link SettingsScreen}, Quit asks the {@link ScreenManager} to close.
- * Arrows/Tab, Enter/Space, hover and click all work through the {@link FocusRing}; {@code Esc}
- * moves focus to Quit.
+ * rebuilds them when it changed. The profile is watched the same way: a pop back from a
+ * sub-screen does not re-enter the hub (D17), so {@link #tick} compares the selection, the
+ * level, the wallet, the unlocks, the upgrades and the run history against what is shown and
+ * refreshes when any differs.
  *
- * <p>The shared {@link ToastLayer} is drawn here, so a message raised at boot (a settings file
- * that had to be reset) is still readable on the first screen the player sees.
+ * <p>START RUN plays the profile's selection: with content and a profile the hub builds its own
+ * {@link ContentRunFactory} ({@code SEEDED} when the seed was explicit, {@code STANDARD}
+ * otherwise), so the plaque is what the run is; without them the injected source is played,
+ * which is how {@code --seed N} and the tests reach the first run.
  *
- * <p>M3 adds the Statistics entry and, when the session has a profile, a {@link CurrencyDisplay}
- * of the wallet in the top-right corner. It is refreshed on every entry, so the coins a run just
- * paid roll up in front of the player on the screen they land on rather than appearing as a
- * silently different number.
+ * <p>{@code Esc}/Back arms a "press again to quit" toast for {@value #QUIT_ARM_TICKS} ticks; a
+ * second press asks the {@link ScreenManager} to close. Any change of the screen stack disarms
+ * it. The shared {@link ToastLayer} is drawn here under the HUD band, so a message raised at
+ * boot is still readable on the first screen the player sees.
  *
- * <p>M4 adds Birds, Upgrades and Shop between Play and Statistics, and M8 adds Challenges and
- * Achievements after them. They are built only when the session actually has content and a profile
- * behind it, because all these screens edit a profile; a menu without one (a bare screen stack in
- * a test, the headless launch) keeps the M2 entries and lays the panel out for what it has. The
- * two extra M8 rows share the button height the panel fits into.
- *
- * <p>M9 adds the prestige badge under the world line (E4): "Prestige ×{0}" for a profile that
- * has started over, in the accent colour so it reads as a mark of rank rather than a status line.
- *
- * <p>M9 also adds the attract mode: after {@value #ATTRACT_DELAY_TICKS} ticks without any input
- * a bot-driven {@link DemoScreen} starts behind the menu, rendered dimmed under the veil the menu
- * draws on top of it. Any input — a key, a click, the wheel, the pointer moving — cancels it in
- * the tick it arrives and resets the idle timer; a focus loss or an iconify freezes it in place,
- * the same attention rule a live run plays by (D2). The demo is profile-less, writes nothing and
- * publishes nothing, so the menu loop keeps playing and the player's save is never touched; see
- * {@link DemoScreen} for the seed stream and the audio choice.
+ * <p>M9's attract mode is unchanged: after {@value #ATTRACT_DELAY_TICKS} ticks without any input
+ * a bot-driven {@link DemoScreen} starts behind the hub, rendered dimmed under a veil with only
+ * the hub's chrome on top (the backdrop and the forge scene are skipped while it is up). Any
+ * input cancels it in the tick it arrives; the press that cancels it never arms the quit.
  */
 public final class MainMenuScreen implements Screen {
 
-    private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
     /** World whose loop the menu plays — the plan's menu music is Green Fields (M8, D19). */
     private static final String MENU_MUSIC_WORLD = "green_fields";
     private static final int BOB_PERIOD_TICKS = 96;
-    private static final double BOB_AMPLITUDE = 6;
+    private static final double BOB_AMPLITUDE = 4;
     private static final int WING_PERIOD_TICKS = 48;
     private static final double EMBLEM_CX = Playfield.WIDTH / 2.0;
-    private static final double ANVIL_TOP_Y = 118;
-    private static final double ANVIL_W = 88;
-    private static final double BIRD_SIZE = 56;
-    private static final int TITLE_BASELINE = 208;
-    private static final int TAGLINE_BASELINE = 242;
-    private static final int PANEL_X = 70;
-    private static final int PANEL_Y = 250;
-    private static final int PANEL_W = Playfield.WIDTH - 2 * PANEL_X;
-    private static final int BUTTON_H = 34;
-    private static final int BUTTON_GAP = 4;
-    private static final int WALLET_W = 130;
-    private static final int FOOTER_BASELINE = Playfield.HEIGHT - 14;
-    private static final int BUILD_BASELINE = Playfield.HEIGHT - 28;
-    /** Baseline of the selected-world line in the top-left corner (M7). */
-    public static final int WORLD_BASELINE = 30;
-    /** Baseline of the prestige badge, under the world line (M9, E4). */
-    public static final int PRESTIGE_BASELINE = WORLD_BASELINE + 18;
+    private static final double LOGO_ANVIL_TOP = 84;
+    private static final double LOGO_ANVIL_W = 56;
+    private static final double LOGO_BIRD_SIZE = 32;
+    private static final int TITLE_BASELINE = 144;
+    private static final int TAGLINE_BASELINE = 160;
+    private static final int LAST_RUN_BASELINE = 556;
+    /** Band kept clear of toasts so they never cover the HUD. */
+    public static final int TOAST_TOP_INSET = 64;
+    /** Ticks the quit stays armed after the first Back. */
+    public static final int QUIT_ARM_TICKS = 180;
     /**
      * Ticks of idle input before the attract demo starts (M9): twenty seconds at the tick rate.
      */
     public static final int ATTRACT_DELAY_TICKS = 20 * Playfield.TICK_RATE;
     /** The veil the attract demo is shown under: dimmed, but the menu on top stays readable. */
     private static final Color ATTRACT_DIM = new Color(0, 0, 0, 0x66);
+
+    /** Navigation item id: the shop. */
+    public static final String NAV_SHOP = "shop";
+    /** Navigation item id: the bird selection. */
+    public static final String NAV_BIRDS = "birds";
+    /** Navigation item id: play (the same run as START RUN). */
+    public static final String NAV_PLAY = "play";
+    /** Navigation item id: the upgrade trees. */
+    public static final String NAV_FORGE = "forge";
+    /** Navigation item id: the goals. */
+    public static final String NAV_GOALS = "goals";
 
     private final ScreenManager screens;
     private final GameContext context;
@@ -112,28 +132,48 @@ public final class MainMenuScreen implements Screen {
     private final ToastLayer toasts;
     private final ParticleSystem particles;
     private final FocusRing ring = new FocusRing();
-    private final Panel panel = new Panel();
-    private final Button play;
-    private final Button birds;
-    private final Button upgrades;
-    private final Button shop;
-    private final Button challenges;
-    private final Button achievements;
-    private final Button statistics;
-    private final Button settings;
-    private final Button quit;
-    private final CurrencyDisplay wallet = new CurrencyDisplay();
     private final Strings strings;
+    private final GameContent content;
+    private final boolean meta;
+    private final boolean hasContent;
+    private final UnlockEvaluator evaluator;
+    private final CtaButton startRun;
+    private final PlayerCard playerCard;
+    private final CurrencyChip coins;
+    private final IconButton gear;
+    private final WorldPlaque plaque;
+    private final NextUnlockCard nextUnlock;
+    private final NavBar nav = new NavBar();
+    private final ForgeScene forge = new ForgeScene();
+    private final BackgroundRenderer backdrop = new BackgroundRenderer();
+    private final CloudLayer clouds = new CloudLayer();
+    private WorldPalette palette = WorldPalette.GREEN_FIELDS;
     private String shownLanguage;
-    private String versionLine;
-    private String buildLine;
     private String worldLine = "";
-    private String shownWorldId;
     private String prestigeLine = "";
-    private int shownPrestigeCount = -1;
+    private String lastRunLine = "";
+    private UnlockEvaluator.NextUnlock next;
+    private int forgeStage;
+    private int quitArmedTicks;
+    private boolean reduceShown;
     private long ticks;
     private double prevBob;
     private double bob;
+    // What the hub was last built from (D17: a pop does not re-enter the screen).
+    private String shownWorldId;
+    private String shownTierId;
+    private String shownBirdId;
+    private String shownPaletteId;
+    private int shownLevel = -1;
+    private long shownXp = -1;
+    private int shownPrestigeCount = -1;
+    private long shownCoins = -1;
+    private int shownUnlocked = -1;
+    private int shownUpgrades = -1;
+    private int shownRuns = -1;
+    private long shownTotalRuns = -1;
+    private long shownBestGates = -1;
+    private boolean shownProfile;
     /** The bot-driven demo shown behind the menu while the player idles (M9); null in headless. */
     private final DemoScreen demo;
     private boolean attractActive;
@@ -168,7 +208,7 @@ public final class MainMenuScreen implements Screen {
      * Creates the menu for a wired application.
      *
      * @param context the application services
-     * @param runFactory builds the run the game screen plays
+     * @param runFactory builds the run the game screen plays when the session has no profile
      * @param seeds the seed source ({@code --seed N} makes it explicit)
      */
     public MainMenuScreen(GameContext context, SeededRunSource runFactory, SeedSequence seeds) {
@@ -185,6 +225,12 @@ public final class MainMenuScreen implements Screen {
                 ? context.toasts() : new ToastLayer();
         this.strings = context != null && context.strings() != null
                 ? context.strings() : Strings.active();
+        this.content = context == null ? null : context.content();
+        this.hasContent = content != null;
+        // The meta-progression screens need content and a profile to read; a bare screen stack
+        // (tests, tools, the headless launch) has neither, so the hub greys their items out.
+        this.meta = hasContent && context.profile() != null;
+        this.evaluator = hasContent ? UnlockEvaluator.of(content) : null;
         // The attract demo (M9) exists everywhere but in the headless launch: there is no
         // renderer there to show it, and the CI run the published determinism hash is read from
         // stays exactly as heavy as it was. Bare screen stacks (tests, tools) get one too, so
@@ -192,28 +238,68 @@ public final class MainMenuScreen implements Screen {
         this.demo = context != null && context.options().headless() ? null
                 : new DemoScreen(demoSource(), BotPilot.Preset.AVERAGE, strings);
         this.particles = new ParticleSystem();
-        play = panel.add(new Button("", this::startGame));
-        // The meta-progression screens need content and a profile to read; a bare screen stack
-        // (tests, tools, the headless launch) has neither, so the menu simply does not offer them.
-        boolean meta = context != null && context.content() != null && context.profile() != null;
-        birds = meta ? panel.add(new Button("", this::openBirds)) : null;
-        upgrades = meta ? panel.add(new Button("", this::openUpgrades)) : null;
-        shop = meta ? panel.add(new Button("", this::openShop)) : null;
-        challenges = meta ? panel.add(new Button("", this::openChallenges)) : null;
-        achievements = meta ? panel.add(new Button("", this::openAchievements)) : null;
-        statistics = panel.add(new Button("", this::openStatistics));
-        settings = panel.add(new Button("", this::openSettings));
-        quit = panel.add(new Button("", screens::requestClose));
-        panel.setBounds(PANEL_X, PANEL_Y, PANEL_W,
-                Panel.columnHeight(panel.children().size(), BUTTON_H, BUTTON_GAP,
-                        Panel.DEFAULT_PADDING));
-        panel.layoutColumn(BUTTON_H, BUTTON_GAP);
-        panel.registerFocusables(ring);
-        wallet.setBounds(Playfield.WIDTH - WALLET_W - 14.0, 14, WALLET_W, 26);
-        wallet.setAlign(Align.RIGHT);
-        wallet.setVisible(context != null && context.profile() != null);
-        wallet.setAmountNow(walletBalance());
+
+        startRun = new CtaButton("", this::startGame);
+        startRun.setBounds(40, 474, 340, 62);
+        startRun.setIcon((g, cx, cy, size, color) ->
+                ProceduralArt.drawCrossedHammers(g, cx, cy, size, color));
+        playerCard = new PlayerCard(this::openProfile);
+        playerCard.setBounds(10, 8, 180, 52);
+        coins = new CurrencyChip(this::openShop);
+        coins.setBounds(200, 12, 130, 30);
+        coins.setVisible(meta);
+        gear = new IconButton("", (g, cx, cy, size, color) ->
+                ProceduralArt.drawGear(g, cx, cy, size, color, ProceduralArt.TEXT_DARK),
+                this::openSettings);
+        gear.setBounds(354, 10, 40, 40);
+        plaque = new WorldPlaque(this::openWorldSelect);
+        plaque.setBounds(90, 168, 240, 32);
+        plaque.setVisible(meta);
+        nextUnlock = new NextUnlockCard(this::openNextUnlock);
+        nextUnlock.setBounds(24, 410, 372, 48);
+        nextUnlock.setVisible(meta);
+        ring.add(startRun);
+        ring.add(playerCard);
+        ring.add(coins);
+        ring.add(gear);
+        ring.add(plaque);
+        ring.add(nextUnlock);
+
+        nav.setBounds(0, 582, Playfield.WIDTH, 58);
+        nav.add(new NavButton(NAV_SHOP, "", (g, cx, cy, size, color) ->
+                ProceduralArt.drawAwning(g, cx, cy, size, color, ProceduralArt.TEXT_DARK),
+                this::openShop)).setEnabled(meta);
+        nav.add(new NavButton(NAV_BIRDS, "", (g, cx, cy, size, color) ->
+                ProceduralArt.drawBirdSilhouette(g, cx, cy, size, color),
+                this::openBirds)).setEnabled(meta);
+        NavButton play = nav.add(new NavButton(NAV_PLAY, "", (g, cx, cy, size, color) ->
+                ProceduralArt.drawCrossedHammers(g, cx, cy, size, color), this::startGame));
+        play.setPrimary(true);
+        nav.add(new NavButton(NAV_FORGE, "", (g, cx, cy, size, color) ->
+                ProceduralArt.drawHammer(g, cx, cy, size, 0.5, color, color),
+                this::openUpgrades)).setEnabled(meta);
+        nav.add(new NavButton(NAV_GOALS, "", (g, cx, cy, size, color) ->
+                ProceduralArt.drawScroll(g, cx, cy, size, color, ProceduralArt.TEXT_DARK),
+                this::openGoals)).setEnabled(hasContent);
+        nav.layoutRow(8, 44, 2, 56, 76, 84, 4, 8);
+        nav.registerFocusables(ring);
+
+        reduceShown = !ParticleSystem.defaultReduceFlashing();
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
         refreshTexts();
+        coins.display().setAmountNow(walletBalance());
+    }
+
+    // ------------------------------------------------------------------ profile reads
+
+    /**
+     * The session's profile, read through the context on every call because a prestige and
+     * {@code --reset-save} replace the instance.
+     *
+     * @return the profile, or {@code null} without one
+     */
+    private PlayerProfile profile() {
+        return context == null ? null : context.profile();
     }
 
     /**
@@ -222,9 +308,33 @@ public final class MainMenuScreen implements Screen {
      * @return the balance, 0 when the session has no profile
      */
     private long walletBalance() {
-        PlayerProfile p = context == null ? null : context.profile();
+        PlayerProfile p = profile();
+        // Read the map directly: this runs every tick from hubStale(), and Wallet.of allocates.
         Long coins = p == null ? null : p.wallet.get(PlayerProfile.CURRENCY_COINS);
         return coins == null ? 0 : coins;
+    }
+
+    /**
+     * Forwards the reduce-flashing default to everything on the hub that pulses. Polled every
+     * tick because the setting is changed on the settings screen, and a pop back from there
+     * does not re-enter the hub (D17).
+     *
+     * @param reduce the default
+     */
+    private void applyReduceFlashing(boolean reduce) {
+        if (reduce == reduceShown) {
+            return;
+        }
+        reduceShown = reduce;
+        particles.setReduceFlashing(reduce);
+        forge.setReduceFlashing(reduce);
+        startRun.setReduceFlashing(reduce);
+        backdrop.setReduceFlashing(reduce);
+    }
+
+    private ProgressionRules rules() {
+        return context != null && context.progressionRules() != null
+                ? context.progressionRules() : ProgressionRules.none();
     }
 
     /**
@@ -242,132 +352,191 @@ public final class MainMenuScreen implements Screen {
         return new ClassicRunFactory();
     }
 
+    // ------------------------------------------------------------------ actions
+
+    /**
+     * Starts the run the plaque names: with content and a profile the hub builds its own
+     * factory over the live profile, so the selection is what is played (an explicit seed keeps
+     * the run {@code SEEDED}); without them the injected source is played.
+     */
     private void startGame() {
-        screens.push(context != null ? new GameScreen(context, runFactory, seeds)
-                : new GameScreen(screens, runFactory, seeds));
+        SeededRunSource source = runFactory;
+        if (meta) {
+            source = new ContentRunFactory(content,
+                    seeds.isExplicit() ? RunMode.SEEDED : RunMode.STANDARD, context::profile);
+        }
+        screens.push(context != null ? new GameScreen(context, source, seeds)
+                : new GameScreen(screens, source, seeds));
     }
 
     private void openSettings() {
         screens.push(context != null ? new SettingsScreen(context) : new SettingsScreen(screens));
     }
 
-    private void openStatistics() {
+    private void openProfile() {
         screens.push(context != null ? new StatisticsScreen(context)
                 : new StatisticsScreen(screens));
     }
 
     private void openBirds() {
-        screens.push(new BirdSelectionScreen(context));
+        if (meta) {
+            screens.push(new BirdSelectionScreen(context));
+        }
     }
 
     private void openUpgrades() {
-        screens.push(new UpgradeTreeScreen(context));
+        if (meta) {
+            screens.push(new UpgradeTreeScreen(context));
+        }
     }
 
     private void openShop() {
-        screens.push(new ShopScreen(context));
+        if (meta) {
+            screens.push(new ShopScreen(context));
+        }
     }
 
-    private void openChallenges() {
-        screens.push(new ChallengesScreen(context));
+    private void openGoals() {
+        if (hasContent) {
+            screens.push(new GoalsScreen(context));
+        }
     }
 
-    private void openAchievements() {
-        screens.push(new AchievementsScreen(context));
+    private void openWorldSelect() {
+        if (meta) {
+            screens.push(new WorldSelectScreen(context));
+        }
     }
+
+    /** Opens the screen where the next unlock's kind is earned or bought. */
+    private void openNextUnlock() {
+        if (!meta || next == null) {
+            return;
+        }
+        switch (next.kind()) {
+            case BIRD:
+                openBirds();
+                break;
+            case WORLD:
+                openWorldSelect();
+                break;
+            case TREE:
+                openUpgrades();
+                break;
+            case CHALLENGE:
+                screens.push(new GoalsScreen(context, GoalsScreen.TAB_CHALLENGES));
+                break;
+            default:
+                openShop();
+                break;
+        }
+    }
+
+    // ------------------------------------------------------------------ accessors
 
     /**
-     * The Birds button.
+     * The START RUN call to action, also what {@link #playButton()} returns.
      *
-     * @return the button, or {@code null} when the session has no profile to show
+     * @return the button
      */
-    public Button birdsButton() {
-        return birds;
+    public CtaButton startRunButton() {
+        return startRun;
     }
 
     /**
-     * The Upgrades button.
-     *
-     * @return the button, or {@code null} when the session has no profile to show
-     */
-    public Button upgradesButton() {
-        return upgrades;
-    }
-
-    /**
-     * The Shop button.
-     *
-     * @return the button, or {@code null} when the session has no profile to show
-     */
-    public Button shopButton() {
-        return shop;
-    }
-
-    /**
-     * The Challenges button (M8).
-     *
-     * @return the button, or {@code null} when the session has no profile to show
-     */
-    public Button challengesButton() {
-        return challenges;
-    }
-
-    /**
-     * The Achievements button (M8).
-     *
-     * @return the button, or {@code null} when the session has no profile to show
-     */
-    public Button achievementsButton() {
-        return achievements;
-    }
-
-    /**
-     * The Play button.
+     * The Play control: START RUN.
      *
      * @return the button
      */
     public Button playButton() {
-        return play;
+        return startRun;
     }
 
     /**
-     * The Statistics button.
-     *
-     * @return the button
-     */
-    public Button statisticsButton() {
-        return statistics;
-    }
-
-    /**
-     * The Settings button.
+     * The gear that opens the settings.
      *
      * @return the button
      */
     public Button settingsButton() {
-        return settings;
+        return gear;
     }
 
     /**
-     * The wallet readout (hidden when the session has no profile).
+     * The bottom navigation.
+     *
+     * @return the bar
+     */
+    public NavBar navBar() {
+        return nav;
+    }
+
+    /**
+     * One navigation item.
+     *
+     * @param id one of {@link #NAV_SHOP}, {@link #NAV_BIRDS}, {@link #NAV_PLAY},
+     *     {@link #NAV_FORGE}, {@link #NAV_GOALS}
+     * @return the item
+     */
+    public NavButton navButton(String id) {
+        return nav.button(id);
+    }
+
+    /**
+     * The player card.
+     *
+     * @return the card
+     */
+    public PlayerCard playerCard() {
+        return playerCard;
+    }
+
+    /**
+     * The coin chip (hidden when the session has no profile).
+     *
+     * @return the chip
+     */
+    public CurrencyChip coinsChip() {
+        return coins;
+    }
+
+    /**
+     * The wallet readout inside the coin chip.
      *
      * @return the display
      */
     public CurrencyDisplay walletDisplay() {
-        return wallet;
+        return coins.display();
     }
 
     /**
-     * The Quit button.
+     * The world plaque (hidden when the session has no profile).
      *
-     * @return the button
+     * @return the plaque
      */
-    public Button quitButton() {
-        return quit;
+    public WorldPlaque worldPlaque() {
+        return plaque;
     }
 
     /**
-     * The selected-world line, as drawn (M7).
+     * The next-unlock card (hidden when the session has no profile).
+     *
+     * @return the card
+     */
+    public NextUnlockCard nextUnlockCard() {
+        return nextUnlock;
+    }
+
+    /**
+     * The unlock the card points at.
+     *
+     * @return the unlock, or {@code null} when nothing measurable is left or without a profile
+     */
+    public UnlockEvaluator.NextUnlock nextUnlock() {
+        return next;
+    }
+
+    /**
+     * The world plaque's text (M7).
      *
      * @return the text, empty when the session has no profile or no worlds
      */
@@ -376,68 +545,48 @@ public final class MainMenuScreen implements Screen {
     }
 
     /**
-     * Rebuilds the selected-world line from the profile. Called on entry, on a language switch
-     * and from {@link #tick} whenever the selection differs from the one shown: a pop back from
-     * the bird selection does not re-enter the menu (D17), so the line has to notice on its own.
-     */
-    private void refreshWorldLine() {
-        worldLine = "";
-        shownWorldId = null;
-        if (context == null || context.profile() == null || context.content() == null
-                || !context.content().has(GameContent.WORLDS)) {
-            return;
-        }
-        String id = context.profile().selected.worldId;
-        shownWorldId = id;
-        if (context.content().worlds().contains(id)) {
-            worldLine = strings.format(StringKey.MENU_WORLD,
-                    ProgressionText.name(strings, ContentKind.WORLD, id));
-        }
-    }
-
-    /** Whether the world line names a world other than the profile's current selection. */
-    private boolean worldLineStale() {
-        if (context == null || context.profile() == null) {
-            return false;
-        }
-        String id = context.profile().selected.worldId;
-        return id == null ? shownWorldId != null : !id.equals(shownWorldId);
-    }
-
-    /**
-     * Rebuilds the prestige badge from the profile (M9, E4): "Prestige ×{0}" while the profile
-     * has banked at least one prestige, nothing before the first one. Like the world line, it
-     * notices on its own when the count changed — a prestige performed in the statistics screen
-     * is visible here the moment the player pops back.
-     */
-    private void refreshPrestigeBadge() {
-        prestigeLine = "";
-        shownPrestigeCount = -1;
-        if (context == null || context.profile() == null) {
-            return;
-        }
-        int count = context.profile().prestigeCount;
-        shownPrestigeCount = count;
-        if (count > 0) {
-            prestigeLine = strings.format(StringKey.MENU_PRESTIGE_BADGE, count);
-        }
-    }
-
-    /** Whether the badge shows a count other than the profile's current one. */
-    private boolean prestigeBadgeStale() {
-        if (context == null || context.profile() == null) {
-            return !prestigeLine.isEmpty();
-        }
-        return context.profile().prestigeCount != shownPrestigeCount;
-    }
-
-    /**
-     * The prestige badge, as drawn (M9).
+     * The prestige badge on the player card (M9).
      *
      * @return the text, empty when the session has no profile or no prestige yet
      */
     public String prestigeBadge() {
         return prestigeLine;
+    }
+
+    /**
+     * The last-run line under START RUN, as drawn.
+     *
+     * @return the text, empty when the session has no profile
+     */
+    public String lastRunLine() {
+        return lastRunLine;
+    }
+
+    /**
+     * The forge scene's stage.
+     *
+     * @return the stage, 0 without a profile
+     */
+    public int forgeStage() {
+        return forgeStage;
+    }
+
+    /**
+     * The palette the hub is drawn in: the selected world's.
+     *
+     * @return the palette
+     */
+    public WorldPalette hubPalette() {
+        return palette;
+    }
+
+    /**
+     * Whether the next Back quits.
+     *
+     * @return {@code true} while the confirmation is armed
+     */
+    public boolean quitArmed() {
+        return quitArmedTicks > 0;
     }
 
     /**
@@ -487,45 +636,144 @@ public final class MainMenuScreen implements Screen {
 
     /** Re-reads every visible label from the string table (a language switch). */
     public void refreshTexts() {
-        play.setText(strings.get(StringKey.MENU_PLAY));
-        if (birds != null) {
-            birds.setText(strings.get(StringKey.MENU_BIRDS));
-            upgrades.setText(strings.get(StringKey.MENU_UPGRADES));
-            shop.setText(strings.get(StringKey.MENU_SHOP));
-            challenges.setText(strings.get(StringKey.MENU_CHALLENGES));
-            achievements.setText(strings.get(StringKey.MENU_ACHIEVEMENTS));
-        }
-        statistics.setText(strings.get(StringKey.MENU_STATISTICS));
-        settings.setText(strings.get(StringKey.MENU_SETTINGS));
-        wallet.setFormat(strings.get(StringKey.HUD_COINS));
-        quit.setText(strings.get(StringKey.MENU_QUIT));
-        versionLine = strings.format(StringKey.FOOTER_VERSION, AppVersion.version());
-        buildLine = strings.format(StringKey.FOOTER_BUILD, System.getProperty("java.version",
-                "17"));
-        refreshWorldLine();
-        refreshPrestigeBadge();
+        startRun.setText(strings.get(StringKey.MENU_START_RUN));
+        gear.setText(strings.get(StringKey.MENU_SETTINGS));
+        coins.display().setFormat(strings.get(StringKey.HUD_COINS));
+        nav.button(NAV_SHOP).setText(strings.get(StringKey.MENU_SHOP));
+        nav.button(NAV_BIRDS).setText(strings.get(StringKey.MENU_BIRDS));
+        nav.button(NAV_PLAY).setText(strings.get(StringKey.MENU_PLAY));
+        nav.button(NAV_FORGE).setText(strings.get(StringKey.MENU_NAV_FORGE));
+        nav.button(NAV_GOALS).setText(strings.get(StringKey.MENU_NAV_GOALS));
         shownLanguage = strings.language();
+        refreshHub();
     }
+
+    // ------------------------------------------------------------------ hub state
+
+    /**
+     * Rebuilds everything that depends on the profile: the player card, the coins, the plaque,
+     * the palette and the backdrop, the forge scene, the next unlock, the START RUN subtitle and
+     * the last-run line. Called on entry, on a language switch and from {@link #tick} whenever
+     * {@link #hubStale()} says the profile moved on.
+     */
+    private void refreshHub() {
+        PlayerProfile p = profile();
+        PlayerLevel.Progress progress = rules().levels().progressWithin(p == null ? 0 : p.xp);
+        int prestigeCount = p == null ? 0 : p.prestigeCount;
+        prestigeLine = prestigeCount > 0
+                ? strings.format(StringKey.MENU_PRESTIGE_BADGE, prestigeCount) : "";
+
+        WorldDef world = null;
+        if (meta && content.has(GameContent.WORLDS)
+                && content.worlds().contains(p.selected.worldId)) {
+            world = content.worlds().get(p.selected.worldId);
+        }
+        palette = world == null ? WorldPalette.GREEN_FIELDS : WorldPalette.from(world.palette());
+        backdrop.setStyle(world == null ? WorldStyle.HILLS : WorldStyle.fromId(world.style()));
+        screens.setLetterboxRgb(palette.letterbox());
+        playerCard.bind(strings.get(StringKey.MENU_PLAYER_NAME),
+                strings.format(StringKey.MENU_PLAYER_LEVEL, progress.level()),
+                progress.maxed() ? 1 : progress.fraction(), prestigeLine, content, p,
+                ProceduralArt.accentColor(palette));
+
+        String worldName = world == null ? ""
+                : ProgressionText.name(strings, ContentKind.WORLD, world.id());
+        worldLine = world == null ? ""
+                : strings.format(StringKey.MENU_WORLD_PLAQUE, world.order(), worldName);
+        plaque.bind(worldLine, world == null ? null : world.palette());
+        startRun.setSubtitle(world == null ? "" : strings.format(StringKey.MENU_RUN_SUBTITLE,
+                worldName, ProgressionText.name(strings, ContentKind.TIER, p.selected.tierId)));
+
+        next = meta ? evaluator.nextUnlock(p, content) : null;
+        if (next != null) {
+            AchievementEvaluator.Progress unlock = next.progress();
+            nextUnlock.bind(strings.format(StringKey.MENU_NEXT_UNLOCK,
+                    ProgressionText.unlockableName(strings, content, next.id())),
+                    strings.format(StringKey.MILESTONES_PROGRESS, unlock.current(),
+                            unlock.target()), unlock.fraction(), next.kind());
+        } else {
+            nextUnlock.bind(strings.get(StringKey.MENU_NEXT_UNLOCK_NONE), "", 0, null);
+        }
+
+        if (p == null) {
+            lastRunLine = "";
+        } else if (p.statistics.runHistory.isEmpty()) {
+            lastRunLine = strings.get(StringKey.MENU_LAST_RUN_NONE);
+        } else {
+            Statistics.RunHistoryEntry last = p.statistics.runHistory.get(
+                    p.statistics.runHistory.size() - 1);
+            lastRunLine = strings.format(StringKey.MENU_LAST_RUN, last.gates, last.coins,
+                    p.statistics.bestGates);
+        }
+
+        forgeStage = p == null ? 0 : ForgeScene.stageOf(p.upgradeLevelsTotal());
+        forge.bind(palette, content, p, forgeStage, prestigeCount > 0);
+        if (meta) {
+            coins.display().setAmount(walletBalance());
+        }
+        snapshot(p);
+    }
+
+    /** Remembers what the hub was built from, for {@link #hubStale()}. */
+    private void snapshot(PlayerProfile p) {
+        shownProfile = p != null;
+        shownWorldId = p == null ? null : p.selected.worldId;
+        shownTierId = p == null ? null : p.selected.tierId;
+        shownBirdId = p == null ? null : p.selected.birdId;
+        shownPaletteId = p == null ? null : p.selected.paletteId;
+        shownLevel = p == null ? -1 : p.level;
+        shownXp = p == null ? -1 : p.xp;
+        shownPrestigeCount = p == null ? -1 : p.prestigeCount;
+        shownCoins = p == null ? -1 : walletBalance();
+        shownUnlocked = p == null ? -1 : p.unlocked.size();
+        shownUpgrades = p == null ? -1 : p.upgradeLevelsTotal();
+        shownRuns = p == null ? -1 : p.statistics.runHistory.size();
+        // The history is capped, so its size stops moving; the lifetime count never does.
+        shownTotalRuns = p == null ? -1 : p.statistics.totalRuns;
+        shownBestGates = p == null ? -1 : p.statistics.bestGates;
+    }
+
+    /** Whether the profile differs from what the hub shows. */
+    private boolean hubStale() {
+        PlayerProfile p = profile();
+        if (p == null) {
+            return shownProfile;
+        }
+        return !shownProfile
+                || !Objects.equals(shownWorldId, p.selected.worldId)
+                || !Objects.equals(shownTierId, p.selected.tierId)
+                || !Objects.equals(shownBirdId, p.selected.birdId)
+                || !Objects.equals(shownPaletteId, p.selected.paletteId)
+                || shownLevel != p.level
+                || shownXp != p.xp
+                || shownPrestigeCount != p.prestigeCount
+                || shownCoins != walletBalance()
+                || shownUnlocked != p.unlocked.size()
+                || shownUpgrades != p.upgradeLevelsTotal()
+                || shownRuns != p.statistics.runHistory.size()
+                || shownTotalRuns != p.statistics.totalRuns
+                || shownBestGates != p.statistics.bestGates;
+    }
+
+    // ------------------------------------------------------------------ behaviour
 
     @Override
     public void onEnter() {
         ring.resetTransition();
-        ring.focus(play);
-        screens.setLetterboxRgb(PALETTE.letterbox());
-        particles.setReduceFlashing(ParticleSystem.defaultReduceFlashing());
+        ring.focus(startRun);
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
         // The idle clock of the attract mode (M9) starts when the menu becomes visible, so the
         // first tick after the push counts as idle instead of being eaten by the transition.
         idleTicks = 0;
         stackVersionSeen = screens.stackVersion();
+        quitArmedTicks = 0;
         startMenuMusic();
         // Rolling up rather than jumping: the coins a finished run paid are credited while the
         // game screen is still up, so this is the first frame the player can see them on.
-        wallet.setVisible(context != null && context.profile() != null);
-        wallet.setAmount(walletBalance());
-        refreshWorldLine();
-        refreshPrestigeBadge();
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
+        } else {
+            refreshHub();
         }
     }
 
@@ -553,23 +801,46 @@ public final class MainMenuScreen implements Screen {
         prevBob = bob;
         bob = bobAt(ticks);
         toasts.tick();
-        wallet.tick();
+        coins.tick();
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
         particles.update(1.0 / Playfield.TICK_RATE);
+        startRun.setTicks(ticks);
+        playerCard.setTicks(ticks);
+        if (quitArmedTicks > 0) {
+            quitArmedTicks--;
+        }
+        if (screens.stackVersion() != stackVersionSeen) {
+            // A screen came and went: whatever Back meant before it is forgotten, and the
+            // letterbox the sub-screen set is the hub's world's again (a pop never re-enters).
+            quitArmedTicks = 0;
+            screens.setLetterboxRgb(palette.letterbox());
+        }
+        boolean attractWasUp = attractActive;
         trackIdle(input);
         tickAttract(input);
+        backdrop.tick(0.5, attractActive);
+        clouds.tick(0.5, false);
         UiNode activated = ring.handle(input);
         if (activated != null) {
-            particles.emitUiSparkle(activated.centerX(), activated.centerY(), PALETTE.accent());
+            particles.emitUiSparkle(activated.centerX(), activated.centerY(), palette.accent());
         }
-        if (input.isJustPressed(InputAction.BACK)) {
-            ring.focus(quit);
+        // The press that cancelled the attract demo is spent on that; it never arms the quit.
+        if (input.isJustPressed(InputAction.BACK) && !(attractWasUp && !attractActive)) {
+            if (quitArmedTicks > 0) {
+                quitArmedTicks = 0;
+                screens.requestClose();
+            } else {
+                quitArmedTicks = QUIT_ARM_TICKS;
+                toasts.push(strings.get(StringKey.MENU_QUIT_CONFIRM), Toast.Kind.WARNING);
+            }
         }
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
-        } else if (worldLineStale()) {
-            refreshWorldLine();
-        } else if (prestigeBadgeStale()) {
-            refreshPrestigeBadge();
+        } else if (hubStale()) {
+            refreshHub();
+        }
+        if (!attractActive && forge.sparkleDue(ticks)) {
+            particles.emitUiSparkle(ForgeScene.ANVIL_CX, ForgeScene.ANVIL_TOP, palette.accent());
         }
     }
 
@@ -677,58 +948,55 @@ public final class MainMenuScreen implements Screen {
     public void render(Graphics2D g, double alpha) {
         boolean demoUp = attractActive && demo != null;
         if (demoUp) {
-            // The attract backdrop (M9): the demo world first, the veil over it, the menu on
-            // top of both — so the menu is the foreground throughout and the demo can never
-            // take an input the menu did not see first. The world renderer paints its own
-            // background, which is why the menu's own sky fill is skipped while it is up.
+            // The attract backdrop (M9): the demo world first, the veil over it, the hub's
+            // chrome on top of both — so the hub is the foreground throughout and the demo can
+            // never take an input the hub did not see first. The world renderer paints its own
+            // background, which is why the hub's backdrop and forge scene are skipped.
             demo.render(g, alpha);
             Overscan.fillVisible(g, ATTRACT_DIM);
         }
         ProceduralArt.prepare(g);
+        double bobNow = MathUtil.lerp(prevBob, bob, alpha);
         if (!demoUp) {
-            ProceduralArt.fillBackground(g, PALETTE);
+            ProceduralArt.fillBackground(g, palette);
+            backdrop.render(g, alpha, palette);
+            clouds.render(g, alpha, palette);
+            forge.render(g, alpha, bobNow, ticks);
         }
 
-        ProceduralArt.drawAnvil(g, EMBLEM_CX, ANVIL_TOP_Y, ANVIL_W,
-                ProceduralArt.letterboxColor(PALETTE));
-        double birdY = ANVIL_TOP_Y - BIRD_SIZE * 0.38 + MathUtil.lerp(prevBob, bob, alpha);
+        ProceduralArt.drawAnvil(g, EMBLEM_CX, LOGO_ANVIL_TOP, LOGO_ANVIL_W,
+                ProceduralArt.letterboxColor(palette));
         double phase = (ticks % WING_PERIOD_TICKS) / (double) WING_PERIOD_TICKS;
-        ProceduralArt.drawBird(g, EMBLEM_CX, birdY, BIRD_SIZE, phase, PALETTE);
-
-        g.setFont(Fonts.bold(58));
+        ProceduralArt.drawBird(g, EMBLEM_CX, LOGO_ANVIL_TOP - LOGO_BIRD_SIZE * 0.38 + bobNow,
+                LOGO_BIRD_SIZE, phase, palette);
+        g.setFont(Fonts.bold(34));
         TextPainter.drawOutlined(g, strings.get(StringKey.APP_TITLE), EMBLEM_CX, TITLE_BASELINE,
-                Align.CENTER, ProceduralArt.accentColor(PALETTE),
-                ProceduralArt.letterboxColor(PALETTE), 3);
-        g.setFont(Fonts.regular(16));
-        // Outlined, not plain: M4's re-layout moved the title block up into the cloud band to fit
-        // the three new buttons, and the tagline now crosses the cloud at (190, 236).
+                Align.CENTER, ProceduralArt.accentColor(palette),
+                ProceduralArt.letterboxColor(palette), 3);
+        g.setFont(Fonts.regular(12));
         TextPainter.drawOutlined(g, strings.get(StringKey.APP_TAGLINE), EMBLEM_CX,
                 TAGLINE_BASELINE, Align.CENTER, ProceduralArt.TEXT_LIGHT,
-                ProceduralArt.letterboxColor(PALETTE), 2);
+                ProceduralArt.letterboxColor(palette), 2);
 
-        panel.render(g);
-        if (wallet.isVisible()) {
-            wallet.render(g);
+        nav.render(g);
+        if (plaque.isVisible()) {
+            plaque.render(g);
         }
-        if (!worldLine.isEmpty()) {
-            g.setFont(Fonts.bold(13));
-            TextPainter.drawOutlined(g, worldLine, 14, WORLD_BASELINE, Align.LEFT,
-                    ProceduralArt.TEXT_LIGHT, ProceduralArt.letterboxColor(PALETTE), 2);
+        if (nextUnlock.isVisible()) {
+            nextUnlock.render(g);
         }
-        if (!prestigeLine.isEmpty()) {
-            g.setFont(Fonts.bold(13));
-            TextPainter.drawOutlined(g, prestigeLine, 14, PRESTIGE_BASELINE, Align.LEFT,
-                    ProceduralArt.accentColor(PALETTE), ProceduralArt.letterboxColor(PALETTE), 2);
+        startRun.render(g);
+        if (!lastRunLine.isEmpty()) {
+            g.setFont(Fonts.regular(12));
+            TextPainter.drawOutlined(g, lastRunLine, EMBLEM_CX, LAST_RUN_BASELINE, Align.CENTER,
+                    ProceduralArt.TEXT_LIGHT, ProceduralArt.letterboxColor(palette), 2);
         }
+        playerCard.render(g);
+        if (coins.isVisible()) {
+            coins.render(g);
+        }
+        gear.render(g);
         particles.render(g);
-
-        g.setFont(Fonts.regular(12));
-        g.setColor(ProceduralArt.TEXT_DARK);
-        TextPainter.draw(g, versionLine, 12, FOOTER_BASELINE);
-        TextPainter.draw(g, buildLine, 12, BUILD_BASELINE);
-        TextPainter.drawRight(g, strings.get(StringKey.FOOTER_KEYS), Playfield.WIDTH - 12,
-                FOOTER_BASELINE);
-
-        toasts.render(g);
+        toasts.render(g, TOAST_TOP_INSET);
     }
 }

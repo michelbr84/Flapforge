@@ -39,8 +39,6 @@ public enum StringKey {
 
     /** Main menu: start a run. */
     MENU_PLAY("menu.play"),
-    /** Main menu: open the statistics screen. */
-    MENU_STATISTICS("menu.statistics"),
     /** Main menu: open the settings screen. */
     MENU_SETTINGS("menu.settings"),
     /** Main menu: leave the game. */
@@ -363,12 +361,8 @@ public enum StringKey {
 
     /** Main menu: open the bird selection. */
     MENU_BIRDS("menu.birds"),
-    /** Main menu: open the upgrade trees. */
-    MENU_UPGRADES("menu.upgrades"),
     /** Main menu: open the shop. */
     MENU_SHOP("menu.shop"),
-    /** Main menu: the world the next run is played in, {@code {0}} its name (M7). */
-    MENU_WORLD("menu.world"),
 
     /** Make the focused entry the one the next run uses. */
     COMMON_SELECT("common.select"),
@@ -736,10 +730,6 @@ public enum StringKey {
     /** Statistics: synergies activated across every run. */
     STATS_SYNERGIES_ACTIVATED("stats.synergies_activated"),
 
-    /** Main menu: open the challenges (M8). */
-    MENU_CHALLENGES("menu.challenges"),
-    /** Main menu: open the achievements (M8). */
-    MENU_ACHIEVEMENTS("menu.achievements"),
     /** Challenges screen: title. */
     CHALLENGES_TITLE("challenges.title"),
     /** Challenges screen: the world a challenge is played in, {@code {0}} its name (E6). */
@@ -788,8 +778,6 @@ public enum StringKey {
     OBJECTIVE_REACH_POINTS("objective.reach_points"),
     /** Objective in words: survive the challenge's boss. */
     OBJECTIVE_BOSS_CLEARED("objective.boss_cleared"),
-    /** Achievements screen: title. */
-    ACHIEVEMENTS_TITLE("achievements.title"),
     /** Achievements screen: the achievements tab. */
     ACHIEVEMENTS_TAB_ACHIEVEMENTS("achievements.tab.achievements"),
     /** Achievements screen: the milestones tab (D13). */
@@ -921,6 +909,55 @@ public enum StringKey {
     PRESTIGE_MAXED("prestige.maxed"),
     /** Main menu badge: how many times the player has prestiged, {@code {0}} the count (M9). */
     MENU_PRESTIGE_BADGE("menu.prestige_badge"),
+
+    /** Home hub: the call to action that starts a run. */
+    MENU_START_RUN("menu.start_run"),
+    /** Home hub: the line under START RUN, {@code {0}} the world and {@code {1}} the tier. */
+    MENU_RUN_SUBTITLE("menu.run_subtitle"),
+    /** Home hub: the world plaque, {@code {0}} the world's number and {@code {1}} its name. */
+    MENU_WORLD_PLAQUE("menu.world_plaque"),
+    /** Home hub: the name on the player card (no account exists, so it is a fixed word). */
+    MENU_PLAYER_NAME("menu.player_name"),
+    /** Home hub: the level on the player card, {@code {0}} the level. */
+    MENU_PLAYER_LEVEL("menu.player_level"),
+    /** Home hub: the next unlock card, {@code {0}} the name of the nearest unlockable. */
+    MENU_NEXT_UNLOCK("menu.next_unlock"),
+    /** Home hub: the next unlock card when nothing measurable is left to unlock. */
+    MENU_NEXT_UNLOCK_NONE("menu.next_unlock_none"),
+    /**
+     * Home hub: the last-run line, {@code {0}} the gates, {@code {1}} the coins earned and
+     * {@code {2}} the best gate count.
+     */
+    MENU_LAST_RUN("menu.last_run"),
+    /** Home hub: the last-run line before the first run. */
+    MENU_LAST_RUN_NONE("menu.last_run_none"),
+    /** Home hub toast: Back was pressed once; a second press quits. */
+    MENU_QUIT_CONFIRM("menu.quit_confirm"),
+    /**
+     * Home hub navigation: the upgrade workshop ({@code UpgradeTreeScreen}, every tree). It is
+     * not the {@code forge} tree, the Iron Forge world or the {@code forge} bird archetype; the
+     * screen it opens keeps its own {@link #UPGRADES_TITLE}.
+     */
+    MENU_NAV_FORGE("menu.nav_forge"),
+    /** Home hub navigation: the Goals screen (challenges, achievements, milestones, collections). */
+    MENU_NAV_GOALS("menu.nav_goals"),
+    /** Goals screen: title. */
+    GOALS_TITLE("goals.title"),
+    /** Profile screen: title. */
+    PROFILE_TITLE("profile.title"),
+    /**
+     * Profile screen: the collections line, {@code {0}}/{@code {1}} birds, {@code {2}}/{@code {3}}
+     * worlds and {@code {4}}/{@code {5}} achievements.
+     */
+    PROFILE_COLLECTIONS("profile.collections"),
+    /** World select screen: title. */
+    WORLD_SELECT_TITLE("world_select.title"),
+    /** World select screen: a card's title, {@code {0}} the world's number and {@code {1}} its name. */
+    WORLD_SELECT_CARD("world_select.card"),
+    /** World select screen: the difficulty row's label. */
+    WORLD_SELECT_TIER("world_select.tier"),
+    /** Settings section: version, build and keys, and the way out of the game. */
+    SETTINGS_SECTION_ABOUT("settings.section.about"),
     /** Toast: a prestige was performed, {@code {0}} the count (M9). */
     TOAST_PRESTIGE("toast.prestige");
 

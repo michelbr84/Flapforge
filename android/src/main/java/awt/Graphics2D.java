@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
 
+import awt.geom.Arc2D;
 import awt.geom.Ellipse2D;
 import awt.geom.Line2D;
 import awt.geom.Path2D;
@@ -43,7 +44,10 @@ import awt.geom.RoundRectangle2D;
  *
  * <p>Semantics decisions: the paint state is one slot ({@code setColor} and {@code setPaint}
  * write it, {@code getPaint} reads it — the only concrete census values are {@link Color} and
- * {@link GradientPaint}); clip shapes are captured in device space when set and intersected
+ * {@link GradientPaint}), and a {@link GradientPaint} is drawn at its ramp colours' own alpha
+ * however translucent the {@link Color} the same context drew with before (Skia scales a
+ * shader by the paint alpha, so the android paint is reset to opaque before the shader is
+ * installed); clip shapes are captured in device space when set and intersected
  * canvas-side by successive {@code clipPath} calls, with {@code getClip} handing back an opaque
  * device-space shape that {@code setClip} accepts verbatim (every census pair wraps a single
  * change under one unchanged transform, so the roundtrip is exact); hints
@@ -52,10 +56,24 @@ import awt.geom.RoundRectangle2D;
  * census hints are accepted and ignored. No composite state exists (no {@code AlphaComposite}
  * census site). {@code dispose()} releases nothing (the canvas is GC-managed) — it exists because
  * the game's {@code finally} blocks call it.
+ *
+ * <p>Allocation profile (P4): the draw path is allocation-free in the steady state. A context
+ * owns one scratch {@code Path2D.Double} sink, one recycled {@code android.graphics.Path}
+ * (rewound per shape; the host draws on a software canvas, so {@code drawPath} consumes it
+ * immediately), scratch {@code awt.geom} shapes for the integer convenience methods, and the
+ * float buffer / {@code Rect} the image and text pipeline needs; clipping brackets the draw with
+ * plain save/restore calls instead of a captured {@code Runnable}. The remaining per-call
+ * allocations are the ones the contract requires: a retained device path per {@code clip} /
+ * {@code setClip}, the {@code getClip} handle, and a {@code LinearGradient} whenever the ramp's
+ * device-space end points or colours differ from the previous one (a single-entry cache serves
+ * repeated identical gradients within one context; the host opens a fresh context per frame, so
+ * on the device the sky gradient still costs one {@code LinearGradient} per frame).
+ * {@code getFontMetrics} hands back the metrics cached on the immutable {@link Font}.
  */
 public class Graphics2D {
 
     private static final AwtMatrix IDENTITY = new AwtMatrix();
+    private static final BasicStroke DEFAULT_STROKE = new BasicStroke(1f);
 
     private final Canvas canvas;
     private final AwtMatrix matrix = new AwtMatrix();
@@ -69,7 +87,7 @@ public class Graphics2D {
     // Rendering hints (census keys only; defaults AWT-like).
     private boolean antialias = false;
     private boolean textAntialias = true;
-    private boolean nearestNeighbourImages = false;
+    private boolean nearestNeighbourImages = true; // SunGraphics2D default: NEAREST_NEIGHBOR
 
     // Clip state: device-space paths intersected at draw time (semantics 3).
     private android.graphics.Path[] clipPaths = new android.graphics.Path[0];
@@ -78,13 +96,35 @@ public class Graphics2D {
     private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint imagePaint = new Paint();
     private final android.graphics.Matrix androidMatrix = new android.graphics.Matrix();
+    private final float[] matrixValues = new float[9];
     private final RectF rectBuffer = new RectF();
+    private final android.graphics.Rect srcBuffer = new android.graphics.Rect();
+
+    // Scratch geometry, recycled per call (a context is used from one thread at a time).
+    private final Path2D.Double sinkPath = new Path2D.Double();
+    private final Path2D.Double polygonPath = new Path2D.Double(Path2D.WIND_EVEN_ODD);
+    private final Path2D.Double polylinePath = new Path2D.Double();
+    private final android.graphics.Path devicePathBuffer = new android.graphics.Path();
+    private final Rectangle2D.Double scratchRect = new Rectangle2D.Double();
+    private final RoundRectangle2D.Double scratchRound = new RoundRectangle2D.Double();
+    private final Ellipse2D.Double scratchEllipse = new Ellipse2D.Double();
+    private final Line2D.Double scratchLine = new Line2D.Double();
+    private final Arc2D.Double scratchArc = new Arc2D.Double(Arc2D.OPEN);
 
     private Stroke dashCacheKey;
     private double dashCacheScale = Double.NaN;
     private DashPathEffect dashCacheEffect;
+
+    // Single-entry gradient cache keyed by the shader's resolved end points and colours.
+    private Shader gradientCache;
+    private float gradientX1;
+    private float gradientY1;
+    private float gradientX2;
+    private float gradientY2;
+    private int gradientColor1;
+    private int gradientColor2;
 
     /**
      * Creates a context over an android canvas. The Android host (P2) uses this to wrap the
@@ -237,7 +277,7 @@ public class Graphics2D {
      * @return the metrics
      */
     public FontMetrics getFontMetrics(Font font) {
-        return new FontMetrics(font);
+        return font.metrics();
     }
 
     /**
@@ -251,11 +291,9 @@ public class Graphics2D {
             return;
         }
         if (shape instanceof DeviceClip deviceClip) {
-            android.graphics.Path[] copies = new android.graphics.Path[deviceClip.paths.length];
-            for (int i = 0; i < deviceClip.paths.length; i++) {
-                copies[i] = new android.graphics.Path(deviceClip.paths[i]);
-            }
-            clipPaths = copies;
+            // Device paths are built once and only ever read by canvas.clipPath, and the clip
+            // arrays are replaced rather than edited, so the handle's paths are shared as-is.
+            clipPaths = deviceClip.paths.clone();
             return;
         }
         clipPaths = new android.graphics.Path[] {devicePath(shape, matrix)};
@@ -308,7 +346,8 @@ public class Graphics2D {
      * @param h the height
      */
     public void clipRect(int x, int y, int w, int h) {
-        clip(new Rectangle2D.Double(x, y, w, h));
+        scratchRect.setFrame(x, y, w, h);
+        clip(scratchRect);
     }
 
     /**
@@ -317,14 +356,15 @@ public class Graphics2D {
      * @param shape the shape to fill
      */
     public void fill(Shape shape) {
-        Path2D.Double sink = new Path2D.Double();
-        shape.appendTo(sink);
+        Path2D.Double segments = segments(shape);
         int winding = shape instanceof Path2D path
                 ? path.getWindingRule()
                 : Path2D.WIND_NON_ZERO;
-        android.graphics.Path androidPath = sink.toAndroidPath(matrix, winding);
+        segments.toAndroidPath(matrix, winding, devicePathBuffer);
         configureFill(fillPaint);
-        withClip(() -> canvas.drawPath(androidPath, fillPaint));
+        boolean clipped = pushClip();
+        canvas.drawPath(devicePathBuffer, fillPaint);
+        popClip(clipped);
     }
 
     /**
@@ -333,46 +373,51 @@ public class Graphics2D {
      * @param shape the shape to draw
      */
     public void draw(Shape shape) {
-        Path2D.Double sink = new Path2D.Double();
-        shape.appendTo(sink);
-        android.graphics.Path androidPath = sink.toAndroidPath(matrix, Path2D.WIND_NON_ZERO);
+        segments(shape).toAndroidPath(matrix, Path2D.WIND_NON_ZERO, devicePathBuffer);
         configureStroke(strokePaint);
-        withClip(() -> canvas.drawPath(androidPath, strokePaint));
+        boolean clipped = pushClip();
+        canvas.drawPath(devicePathBuffer, strokePaint);
+        popClip(clipped);
     }
 
     /**
      * Fills an integer rectangle (census: 14 sites).
      */
     public void fillRect(int x, int y, int w, int h) {
-        fill(new Rectangle2D.Double(x, y, w, h));
+        scratchRect.setFrame(x, y, w, h);
+        fill(scratchRect);
     }
 
     /**
      * Fills a rounded rectangle (census: 32 sites).
      */
     public void fillRoundRect(int x, int y, int w, int h, int arcWidth, int arcHeight) {
-        fill(new RoundRectangle2D.Double(x, y, w, h, arcWidth, arcHeight));
+        scratchRound.setRoundRect(x, y, w, h, arcWidth, arcHeight);
+        fill(scratchRound);
     }
 
     /**
      * Strokes a rounded rectangle outline (census: 19 sites).
      */
     public void drawRoundRect(int x, int y, int w, int h, int arcWidth, int arcHeight) {
-        draw(new RoundRectangle2D.Double(x, y, w, h, arcWidth, arcHeight));
+        scratchRound.setRoundRect(x, y, w, h, arcWidth, arcHeight);
+        draw(scratchRound);
     }
 
     /**
      * Fills an ellipse (census: 9 sites).
      */
     public void fillOval(int x, int y, int w, int h) {
-        fill(new Ellipse2D.Double(x, y, w, h));
+        scratchEllipse.setFrame(x, y, w, h);
+        fill(scratchEllipse);
     }
 
     /**
      * Strokes an ellipse outline (census: 2 sites).
      */
     public void drawOval(int x, int y, int w, int h) {
-        draw(new Ellipse2D.Double(x, y, w, h));
+        scratchEllipse.setFrame(x, y, w, h);
+        draw(scratchEllipse);
     }
 
     /**
@@ -380,16 +425,19 @@ public class Graphics2D {
      * census: ui/component/CardGrid.java:560, ui/screens/ModifierChoiceOverlay.java:424).
      */
     public void drawArc(int x, int y, int w, int h, int startAngle, int arcAngle) {
-        awt.geom.Arc2D.Double arc = new awt.geom.Arc2D.Double(awt.geom.Arc2D.OPEN);
-        arc.setArc(x, y, w, h, startAngle, arcAngle, awt.geom.Arc2D.OPEN);
-        draw(arc);
+        scratchArc.setArc(x, y, w, h, startAngle, arcAngle, Arc2D.OPEN);
+        draw(scratchArc);
     }
 
     /**
      * Draws a straight line (census: 6 sites).
      */
     public void drawLine(int x1, int y1, int x2, int y2) {
-        draw(new Line2D.Double(x1, y1, x2, y2));
+        scratchLine.x1 = x1;
+        scratchLine.y1 = y1;
+        scratchLine.x2 = x2;
+        scratchLine.y2 = y2;
+        draw(scratchLine);
     }
 
     /**
@@ -399,10 +447,10 @@ public class Graphics2D {
      * self-intersecting outline leaves its doubly-wound regions unfilled here too.
      */
     public void fillPolygon(int[] xPoints, int[] yPoints, int nPoints) {
-        Path2D.Double path = new Path2D.Double(Path2D.WIND_EVEN_ODD);
-        appendPolygon(path, xPoints, yPoints, nPoints);
-        path.closePath();
-        fill(path);
+        polygonPath.reset();
+        appendPolygon(polygonPath, xPoints, yPoints, nPoints);
+        polygonPath.closePath();
+        fill(polygonPath);
     }
 
     /**
@@ -410,9 +458,9 @@ public class Graphics2D {
      * render/LightningRenderer.java:158, :161, :172).
      */
     public void drawPolyline(int[] xPoints, int[] yPoints, int nPoints) {
-        Path2D.Double path = new Path2D.Double();
-        appendPolygon(path, xPoints, yPoints, nPoints);
-        draw(path);
+        polylinePath.reset();
+        appendPolygon(polylinePath, xPoints, yPoints, nPoints);
+        draw(polylinePath);
     }
 
     /**
@@ -435,16 +483,12 @@ public class Graphics2D {
         textPaint.setTextSize((float) use.size());
         textPaint.setFlags((textPaint.getFlags() & ~Paint.ANTI_ALIAS_FLAG)
                 | (textAntialias ? Paint.ANTI_ALIAS_FLAG : 0));
-        androidMatrix.setValues(new float[] {
-                (float) matrix.m00, (float) matrix.m01, (float) matrix.m02,
-                (float) matrix.m10, (float) matrix.m11, (float) matrix.m12,
-                0f, 0f, 1f});
-        withClip(() -> {
-            canvas.save();
-            canvas.concat(androidMatrix);
-            canvas.drawText(text, x, y, textPaint);
-            canvas.restore();
-        });
+        boolean clipped = pushClip();
+        canvas.save();
+        canvas.concat(androidMatrix());
+        canvas.drawText(text, x, y, textPaint);
+        canvas.restore();
+        popClip(clipped);
     }
 
     /**
@@ -481,7 +525,8 @@ public class Graphics2D {
             return;
         }
         rectBuffer.set(x, y, x + w, y + h);
-        drawRegion(img, new android.graphics.Rect(0, 0, img.getWidth(), img.getHeight()));
+        srcBuffer.set(0, 0, img.getWidth(), img.getHeight());
+        drawRegion(img, srcBuffer);
     }
 
     /**
@@ -504,7 +549,8 @@ public class Graphics2D {
                             + "of the census surface");
         }
         rectBuffer.set(dx1, dy1, dx2, dy2);
-        drawRegion(img, new android.graphics.Rect(sx1, sy1, sx2, sy2));
+        srcBuffer.set(sx1, sy1, sx2, sy2);
+        drawRegion(img, srcBuffer);
     }
 
     /**
@@ -526,12 +572,12 @@ public class Graphics2D {
         src.offset(img.offsetX(), img.offsetY());
         imagePaint.setFlags((imagePaint.getFlags() & ~Paint.FILTER_BITMAP_FLAG)
                 | (nearestNeighbourImages ? 0 : Paint.FILTER_BITMAP_FLAG));
-        withClip(() -> {
-            canvas.save();
-            canvas.concat(androidMatrix());
-            canvas.drawBitmap(img.bitmap(), src, rectBuffer, imagePaint);
-            canvas.restore();
-        });
+        boolean clipped = pushClip();
+        canvas.save();
+        canvas.concat(androidMatrix());
+        canvas.drawBitmap(img.bitmap(), src, rectBuffer, imagePaint);
+        canvas.restore();
+        popClip(clipped);
     }
 
     private static void appendPolygon(Path2D.Double path, int[] xPoints, int[] yPoints,
@@ -545,23 +591,45 @@ public class Graphics2D {
         }
     }
 
-    private android.graphics.Path devicePath(Shape shape, AwtMatrix transform) {
-        Path2D.Double sink = new Path2D.Double();
-        shape.appendTo(sink);
-        return sink.toAndroidPath(transform, Path2D.WIND_NON_ZERO);
+    /**
+     * The segments of {@code shape} in its own coordinates: a {@code Path2D.Double} is read
+     * directly (its {@code appendTo} would copy it verbatim), any other shape is appended into
+     * the recycled sink.
+     */
+    private Path2D.Double segments(Shape shape) {
+        if (shape instanceof Path2D.Double path) {
+            return path;
+        }
+        sinkPath.reset();
+        shape.appendTo(sinkPath);
+        return sinkPath;
     }
 
-    private void withClip(Runnable draw) {
+    /** A fresh, retained device-space path for the clip state. */
+    private android.graphics.Path devicePath(Shape shape, AwtMatrix transform) {
+        return segments(shape).toAndroidPath(transform, Path2D.WIND_NON_ZERO);
+    }
+
+    /**
+     * Installs the clip paths under a canvas save when there are any.
+     *
+     * @return whether a save was pushed (hand it to {@link #popClip(boolean)})
+     */
+    private boolean pushClip() {
         if (clipPaths.length == 0) {
-            draw.run();
-            return;
+            return false;
         }
         canvas.save();
         for (android.graphics.Path clip : clipPaths) {
             canvas.clipPath(clip);
         }
-        draw.run();
-        canvas.restore();
+        return true;
+    }
+
+    private void popClip(boolean pushed) {
+        if (pushed) {
+            canvas.restore();
+        }
     }
 
     private void applyPaintState(Paint target) {
@@ -575,6 +643,11 @@ public class Graphics2D {
      */
     private void applyPaintState(Paint target, boolean deviceSpace) {
         if (paintState instanceof GradientPaint gradient) {
+            // Skia multiplies a shader's output by the paint alpha, and the target keeps the
+            // colour of the last Color it drew with (a translucent fill, say). AWT draws a
+            // GradientPaint at its ramp colours' own alpha whatever came before, so the paint is
+            // made opaque before the shader goes in.
+            target.setColor(0xFF000000);
             target.setShader(gradientShader(gradient, deviceSpace));
         } else {
             target.setShader(null);
@@ -583,21 +656,51 @@ public class Graphics2D {
     }
 
     private Shader gradientShader(GradientPaint gradient, boolean deviceSpace) {
-        double[] a = {gradient.x1, gradient.y1};
-        double[] b = {gradient.x2, gradient.y2};
+        double ax = gradient.x1;
+        double ay = gradient.y1;
+        double bx = gradient.x2;
+        double by = gradient.y2;
         if (deviceSpace) {
-            matrix.apply(a);
-            matrix.apply(b);
+            double dax = matrix.transformX(ax, ay);
+            double day = matrix.transformY(ax, ay);
+            double dbx = matrix.transformX(bx, by);
+            double dby = matrix.transformY(bx, by);
+            ax = dax;
+            ay = day;
+            bx = dbx;
+            by = dby;
         }
-        if (a[0] == b[0] && a[1] == b[1]) {
+        float x1 = (float) ax;
+        float y1 = (float) ay;
+        float x2;
+        float y2;
+        int color1 = gradient.color1.getRGB();
+        int color2;
+        if (ax == bx && ay == by) {
             // Degenerate AWT gradient: the two points coincide, so the ramp is uniform colour 1.
-            return new LinearGradient((float) a[0], (float) a[1],
-                    (float) a[0] + 1f, (float) a[1],
-                    gradient.color1.getRGB(), gradient.color1.getRGB(), Shader.TileMode.CLAMP);
+            x2 = x1 + 1f;
+            y2 = y1;
+            color2 = color1;
+        } else {
+            x2 = (float) bx;
+            y2 = (float) by;
+            color2 = gradient.color2.getRGB();
         }
-        return new LinearGradient((float) a[0], (float) a[1],
-                (float) b[0], (float) b[1],
-                gradient.color1.getRGB(), gradient.color2.getRGB(), Shader.TileMode.CLAMP);
+        // A LinearGradient is immutable, so the previous one is reused whenever this context
+        // would rebuild it with identical parameters (repeated fills of the same ramp). The cache
+        // lives with the context: a per-frame context starts empty.
+        if (gradientCache != null && x1 == gradientX1 && y1 == gradientY1 && x2 == gradientX2
+                && y2 == gradientY2 && color1 == gradientColor1 && color2 == gradientColor2) {
+            return gradientCache;
+        }
+        gradientCache = new LinearGradient(x1, y1, x2, y2, color1, color2, Shader.TileMode.CLAMP);
+        gradientX1 = x1;
+        gradientY1 = y1;
+        gradientX2 = x2;
+        gradientY2 = y2;
+        gradientColor1 = color1;
+        gradientColor2 = color2;
+        return gradientCache;
     }
 
     private void configureFill(Paint paint) {
@@ -609,7 +712,7 @@ public class Graphics2D {
 
     private void configureStroke(Paint paint) {
         applyPaintState(paint);
-        BasicStroke basic = stroke instanceof BasicStroke b ? b : new BasicStroke(1f);
+        BasicStroke basic = stroke instanceof BasicStroke b ? b : DEFAULT_STROKE;
         double scale = matrix.averageScale();
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth((float) Math.max(0f, basic.width * scale));
@@ -653,11 +756,10 @@ public class Graphics2D {
         return font;
     }
 
+    /** The current transform as the context's one android matrix, refreshed in place. */
     private android.graphics.Matrix androidMatrix() {
-        androidMatrix.setValues(new float[] {
-                (float) matrix.m00, (float) matrix.m01, (float) matrix.m02,
-                (float) matrix.m10, (float) matrix.m11, (float) matrix.m12,
-                0f, 0f, 1f});
+        matrix.toFloatValues(matrixValues);
+        androidMatrix.setValues(matrixValues);
         return androidMatrix;
     }
 

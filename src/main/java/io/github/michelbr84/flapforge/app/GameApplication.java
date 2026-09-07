@@ -81,7 +81,8 @@ import java.util.Objects;
  * the window on the event-dispatch thread — the loop runs on the non-daemon
  * {@code flapforge-loop} thread and the main thread returns. Without a display the host answers
  * no window, and the launch prints a hint and returns (no {@code System.exit}). Quit path:
- * {@code CloseRequested} (window button, Quit in the menu) stops the loop after the current
+ * {@code CloseRequested} (window button, Back twice on the hub, Quit in Settings) stops the
+ * loop after the current
  * frame; the loop thread then disposes the presenter, detaches the bridge, disposes the window
  * (on the desktop: the frame, on the event-dispatch thread) and stops the executors, after which
  * the JVM exits naturally. A daemon watchdog calls {@code System.exit} only if the JVM is still
@@ -381,11 +382,12 @@ public final class GameApplication {
     }
 
     /**
-     * Applies {@code --world} (M7): the named world is pinned on the run factory for this launch.
-     * When the profile owns it the selection is written too, as the world picker would; when it
-     * does not, the profile is left alone and a line says so — the flag is a launch override, not
-     * an unlock, so the next launch without it is back to the owned selection. An id the content
-     * does not ship is reported and ignored.
+     * Applies {@code --world} (M7, M10): the named world is pinned on the run factory — which
+     * the headless run plays — and, when the profile owns it, written to the selection as the
+     * World Select would, so the hub's plaque and START RUN play it. When the profile does not
+     * own it the profile is left alone and a line says so: the hub builds its own factory over
+     * the live selection, so a locked world is never flown from there — the flag is not an
+     * unlock. An id the content does not ship is reported and ignored.
      *
      * @param runs the factory every run comes from
      * @param content the loaded content
@@ -411,8 +413,8 @@ public final class GameApplication {
                 System.out.println("--world " + world + ": selected");
             } else {
                 System.out.println("--world " + world + ": not unlocked in this profile (world:"
-                        + world + "); playing it for this launch only, the selection stays "
-                        + profile.selected.worldId);
+                        + world + "); the selection stays " + profile.selected.worldId
+                        + " and START RUN plays the selection");
             }
         }
         return world;
@@ -856,6 +858,18 @@ public final class GameApplication {
         GameHost current = host;
         return current == null ? FrameLimiter.DEFAULT_FPS
                 : FrameLimiter.refreshRateOrDefault(current.displayRefreshRateHz());
+    }
+
+    /**
+     * Whether the platform expects an in-game Quit control (M10): the answer of the host of the
+     * last {@link #start(LaunchOptions, GameHost)}, and {@code true} when no application was
+     * started (tests and tools build screens without a host, and the desktop is the default).
+     *
+     * @return {@code true} when a Quit row belongs in the settings
+     */
+    public static boolean canQuit() {
+        GameHost current = host;
+        return current == null || current.supportsQuit();
     }
 
     /**

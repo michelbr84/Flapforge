@@ -15,7 +15,6 @@ import io.github.michelbr84.flapforge.content.defs.WorldPaletteDef;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.core.TimeSource;
-import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.stats.EffectStack;
@@ -60,7 +59,6 @@ import java.awt.Shape;
 import java.awt.Stroke;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -864,20 +862,13 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * The hazards a world spawns: the families with a positive spawn weight, named, in kind
-     * order.
+     * The hazards a world spawns, in words (shared with the hub's World Select, M10).
      *
      * @param def the world
      * @return the comma-separated names
      */
     private String hazardsOf(WorldDef def) {
-        List<String> names = new ArrayList<>();
-        for (Map.Entry<ObstacleKind, Integer> entry : def.spawnWeights().entrySet()) {
-            if (entry.getValue() != null && entry.getValue() > 0) {
-                names.add(ProgressionText.obstacleName(strings, entry.getKey()));
-            }
-        }
-        return names.isEmpty() ? strings.get(StringKey.COMMON_NONE) : String.join(", ", names);
+        return ProgressionText.hazards(strings, def);
     }
 
     /**

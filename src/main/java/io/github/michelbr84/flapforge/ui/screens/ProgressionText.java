@@ -14,6 +14,7 @@ import io.github.michelbr84.flapforge.content.defs.BirdDef;
 import io.github.michelbr84.flapforge.content.defs.StatModifierDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
+import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.obstacle.ObstacleKind;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleSet;
@@ -21,7 +22,8 @@ import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
 import io.github.michelbr84.flapforge.gameplay.stats.StatOp;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
-import io.github.michelbr84.flapforge.progression.Wallet;
+import io.github.michelbr84.flapforge.progression.UnlockEvaluator;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
@@ -646,8 +648,9 @@ public final class ProgressionText {
      * How much of a condition is still missing, as a fraction of its threshold.
      *
      * <p>The number is a ranking key, not something the player sees: {@code 0} means done,
-     * {@code 1} means untouched, and a condition with no measurable progress (a challenge, an
-     * achievement, a cleared world) counts as untouched so a countable branch always wins a tie.
+     * {@code 1} means untouched. The measurement is {@link UnlockEvaluator#progressOf}'s, so the
+     * branch this class names and the bar the hub draws read the same counters (M10); without a
+     * profile every threshold counts as untouched and only a {@code default} is done.
      *
      * @param condition the condition
      * @param profile the profile, may be {@code null}
@@ -660,48 +663,25 @@ public final class ProgressionText {
         if (profile == null) {
             return 1;
         }
-        double target;
-        double current;
-        switch (condition.type()) {
-            case PURCHASE:
-                target = condition.amount();
-                current = Wallet.of(profile).balance(PlayerProfile.CURRENCY_COINS);
-                break;
-            case RUNS:
-                target = condition.value();
-                current = profile.statistics.totalRuns - profile.prestigeBaseline.totalRuns;
-                break;
-            case TOTAL_GATES:
-                target = condition.value();
-                current = profile.statistics.totalGates - profile.prestigeBaseline.totalGates;
-                break;
-            case COINS_EARNED_TOTAL:
-                target = condition.value();
-                current = profile.statistics.coinsEarned - profile.prestigeBaseline.coinsEarned;
-                break;
-            case BEST_GATES:
-                target = condition.value();
-                current = profile.statistics.bestGates;
-                break;
-            case BEST_POINTS:
-                target = condition.value();
-                current = profile.statistics.bestPoints;
-                break;
-            case LEVEL:
-                target = condition.value();
-                current = profile.level;
-                break;
-            case PRESTIGE:
-                target = condition.value();
-                current = profile.prestigeCount;
-                break;
-            default:
-                return 1;
+        return 1 - UnlockEvaluator.progressOf(condition, profile, null).fraction();
+    }
+
+    /**
+     * The hazards a world spawns: the families with a positive spawn weight, named, in kind
+     * order (the bird screen's world row and the hub's World Select card, M10).
+     *
+     * @param strings the string table
+     * @param def the world
+     * @return the comma-separated names, or the "none" word
+     */
+    public static String hazards(Strings strings, WorldDef def) {
+        List<String> names = new ArrayList<>();
+        for (Map.Entry<ObstacleKind, Integer> entry : def.spawnWeights().entrySet()) {
+            if (entry.getValue() != null && entry.getValue() > 0) {
+                names.add(obstacleName(strings, entry.getKey()));
+            }
         }
-        if (target <= 0) {
-            return 0;
-        }
-        return Math.max(0, Math.min(1, 1 - current / target));
+        return names.isEmpty() ? strings.get(StringKey.COMMON_NONE) : String.join(", ", names);
     }
 
     /**

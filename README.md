@@ -344,11 +344,13 @@ Permanent Unlock
 
 Forty-one achievements are judged automatically as runs finish and purchases
 land: lifetime counters, per-run records, and collection percentages. The
-Achievements screen has three tabs — the achievements themselves (hidden ones
-show as `???` until they fire), milestones with progress bars toward the next
-level rewards and lifetime thresholds, and collections showing how much of
-each content category is owned. Every newly earned achievement and granted
-unlock raises a toast when it happens, naming the coins it paid.
+Goals screen (the **Goals** item of the home hub) has four tabs — the seven
+challenges, the achievements themselves (hidden ones show as `???` until
+they fire), milestones with progress bars toward the next level rewards and
+lifetime thresholds, and collections showing how much of each content
+category is owned. Every newly earned achievement and granted unlock raises
+a toast when it happens, naming the coins it paid, and the home hub's
+**Next unlock** card always names the nearest one still to earn.
 
 ### Music
 
@@ -545,8 +547,8 @@ A world can contain:
 - Different difficulty curves.
 
 Worlds unlock in order: clearing a world's boss opens the next one, or the
-next world can be bought in the shop. A launch can also pin any world with
-`--world <id>`.
+next world can be bought in the shop. An owned world can also be selected for
+one launch with `--world <id>`.
 
 ---
 
@@ -585,7 +587,7 @@ and
 ## Game Modes
 
 The bird selection screen has a run-mode row beside the world and tier rows.
-Four modes exist; Challenges live on their own menu screen.
+Four modes exist; Challenges live on the first tab of the Goals screen.
 
 ### Standard
 
@@ -615,7 +617,7 @@ retry keeps the same seed. Daily mode is recorded per attempt
 
 ### Challenge
 
-The seven special runs of the Challenges menu — their world, tier, rules,
+The seven special runs of the Goals screen's Challenges tab — their world, tier, rules,
 forced cards and boss are the challenge's own; a challenge is playable whether
 or not its world is unlocked.
 
@@ -631,11 +633,12 @@ Stacked on top of every mode except where a challenge fixes its own:
 
 ### Prestige
 
-At level 25 the statistics screen offers a prestige (a two-step confirm, at
-most five per profile). It banks the career against a baseline snapshot,
-resets coins, XP, level, upgrades, ability levels, challenge records and the
-daily pick, and keeps every bird, cosmetic, achievement and lifetime
-statistic. What you keep forever is the badge on the menu, a
+At level 25 the Profile screen (behind the home hub's player card) offers a
+prestige (a two-step confirm, at most five per profile). It banks the career
+against a baseline snapshot, resets coins, XP, level, upgrades, ability
+levels, challenge records and the daily pick, and keeps every bird, cosmetic,
+achievement and lifetime statistic. What you keep forever is the badge on
+the player card, a
 +5 % coin multiplier per prestige on every later run, and the golden
 `prestige` palette of the bird you prestige with. Unlock conditions that count
 a lifetime total read "since prestige" afterwards, so nothing already earned
@@ -643,8 +646,8 @@ is granted twice.
 
 ### Attract mode
 
-Idle on the main menu for twenty seconds and a bot plays a demo run behind
-it, dimmed under the menu. Any input takes the game back.
+Idle on the home hub for twenty seconds and a bot plays a demo run behind
+it, dimmed under the hub's chrome. Any input takes the game back.
 
 ---
 
@@ -654,7 +657,7 @@ it, dimmed under the menu. Any input takes the game back.
 | --- | --- |
 | `Space`, `Up arrow`, left mouse button | Flap |
 | `X`, `Shift`, right mouse button | Use the equipped active ability |
-| `Esc` | Pause the run / go back a screen |
+| `Esc` | Pause the run / go back a screen / on the home hub, twice to quit |
 | `Enter` | Confirm the focused item |
 | `M` | Mute / unmute audio |
 | `F3` | Toggle the debug overlay (tick rate, frame time, seed) |
@@ -673,16 +676,24 @@ loses them. A daily's retry keeps its seed and only counts the attempt.
 `M`, `F3` and `F11` work on every screen and are remembered: each one changes
 the matching setting, so the game starts up the way you left it.
 
-The world is picked in the bird selection screen (the world row lists the
-five worlds, what each spawns and, for a locked one, the cheapest way in) or
-pinned for one launch with `--world <id>` — see [Running the Game](#running-the-game).
+The first screen is the **home hub**: a player card (avatar, level, XP —
+opens the Profile with the lifetime statistics and the prestige), the coin
+chip (opens the Shop) and the settings gear on top; the world plaque, which
+opens the **World Select** (one card per world with what it spawns, the way
+in while locked, and the difficulty row); the forge scene, which grows with
+your upgrades; the **Next unlock** card; the gold **START RUN** with the
+world and difficulty it will play; and a bottom navigation — **Shop**,
+**Birds**, **Play**, **Forge** (the upgrade trees) and **Goals** (the four
+tabs described under [Features](#features)). Every control takes the same
+keyboard focus ring and mouse or touch input as every other screen and
+honours the text scale and colour-blind settings. `Esc` on the hub asks
+"Press again to quit"; a second press closes the game (Settings › About has
+a Quit row too).
 
-Two menu entries sit beside Play: **Challenges** (pick one of the seven
-special runs, read its objective and rewards, and start it with the current
-bird, palette and loadout) and **Achievements** (the three tabs described
-under [Features](#features)). Both take the same keyboard focus ring and
-mouse input as every other screen, and both honour the text scale and
-colour-blind settings.
+The world is picked on the hub's plaque, in the bird selection screen (the
+world row lists the five worlds, what each spawns and, for a locked one, the
+cheapest way in) or for one launch with `--world <id>` — see
+[Running the Game](#running-the-game).
 
 Input is sampled per simulation tick (60 Hz), so a tap shorter than a frame
 is never lost and key auto-repeat never produces an extra flap.
@@ -768,7 +779,7 @@ game through Gradle and forward every argument to it; `scripts/build.sh` /
 app image above.
 
 ```bash
-scripts/run.sh --seed 42 --world storm_sky --bird zephyr
+scripts/run.sh --seed 42 --world wind_valley --bird zephyr   # --world needs an owned world
 ```
 
 Release artefacts are built by CI: pushing a `v*` tag runs
@@ -782,7 +793,7 @@ Launch flags (all of them shipped; details in
 | Flag | Meaning |
 | --- | --- |
 | `--seed N` | fixed RNG seed for a reproducible run |
-| `--world ID` | start in a given world (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`); a locked world is played for this launch only and the profile's selection is left alone (a log line says so) |
+| `--world ID` | select a world for this launch (`green_fields`, `wind_valley`, `iron_forge`, `storm_sky`, `void`): an owned world is written to the profile's selection, which the hub's plaque and START RUN then play; a locked one cannot be selected, so the hub keeps the owned selection and a log line says so (a `--headless-run` still plays the flag's world) |
 | `--bird ID` | start with a given bird |
 | `--tier ID` | difficulty tier (`normal`, `hard`, `nightmare`) |
 | `--scale N` | initial window scale (integer multiple of the 420×640 playfield); default: the largest scale whose window fits the screen |

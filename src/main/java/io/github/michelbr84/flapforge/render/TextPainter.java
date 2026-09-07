@@ -178,6 +178,35 @@ public final class TextPainter {
         g.drawString(text, ax, by);
     }
 
+    /** The character appended to text that had to be cut short. */
+    public static final String ELLIPSIS = "\u2026";
+
+    /**
+     * Cuts a text to fit a width, appending {@value #ELLIPSIS} when it had to be shortened. This
+     * measures the text repeatedly, so callers cache the result: a label's text changes only when
+     * the data or the language does, never per frame.
+     *
+     * @param g the context, with the font already set
+     * @param text the text
+     * @param width the width available, in logical pixels
+     * @return the text, or a prefix of it followed by {@value #ELLIPSIS}
+     */
+    public static String ellipsise(Graphics2D g, String text, int width) {
+        if (width <= 0 || width(g, text) <= width) {
+            return text;
+        }
+        int ellipsis = width(g, ELLIPSIS);
+        int end = text.length();
+        while (end > 0 && width(g, text.substring(0, end)) + ellipsis > width) {
+            end--;
+        }
+        // Trailing spaces and a dangling separator look like a typo next to the ellipsis.
+        while (end > 0 && (text.charAt(end - 1) == ' ' || text.charAt(end - 1) == '-')) {
+            end--;
+        }
+        return text.substring(0, end) + ELLIPSIS;
+    }
+
     private static final Color OUTLINE_BLACK = new Color(0x000000);
     private static final Color OUTLINE_WHITE = new Color(0xFFFFFF);
 

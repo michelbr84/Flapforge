@@ -22,6 +22,7 @@ import io.github.michelbr84.flapforge.input.InputQueue;
 import io.github.michelbr84.flapforge.input.KeyBindings;
 import io.github.michelbr84.flapforge.input.Keys;
 import io.github.michelbr84.flapforge.input.RawInput;
+import io.github.michelbr84.flapforge.progression.PlayerLevel;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
@@ -163,7 +164,7 @@ class StatisticsScreenTest {
                 headers.add(row.id());
             }
         }
-        assertEquals(List.of(StringKey.STATS_GROUP_FLIGHTS.key(),
+        assertEquals(List.of(StringKey.STATS_TITLE.key(), StringKey.STATS_GROUP_FLIGHTS.key(),
                 StringKey.STATS_GROUP_DISTANCE.key(), StringKey.STATS_GROUP_ECONOMY.key(),
                 StringKey.STATS_GROUP_STREAKS.key(), StringKey.STATS_GROUP_BUILDS.key(),
                 StringKey.STATS_GROUP_DEATHS.key(), StringKey.PRESTIGE_GROUP.key()), headers);
@@ -177,6 +178,40 @@ class StatisticsScreenTest {
         // M9: the prestige panel closes the screen, and a profile that never prestiged says so.
         assertEquals("0", value(screen, "prestigeCount"));
         assertEquals("+0% coins", value(screen, "prestigeBonus"));
+    }
+
+    @Test
+    void theProfileHeaderCarriesTheLevelThePrestigeAndTheCollections() {
+        playThreeRuns();
+        StatisticsScreen screen = new StatisticsScreen(screens, strings, profile, rules);
+        screens.push(screen);
+        screens.applyPending();
+        loop.start();
+        ticks(GRACE);
+
+        PlayerLevel.Progress progress = rules.levels().progressWithin(profile.xp);
+        List<String> header = screen.headerTexts();
+        assertEquals(strings.get(StringKey.MENU_PLAYER_NAME), header.get(0));
+        assertEquals(strings.format(StringKey.MENU_PLAYER_LEVEL, progress.level()),
+                header.get(1));
+        assertEquals(2, header.size(), "no prestige badge and no collections without content");
+        assertEquals(strings.format(StringKey.SUMMARY_LEVEL, progress.level()),
+                screen.levelBar().label());
+        assertEquals(progress.fraction(), screen.levelBar().value(), 1e-9);
+        assertEquals(strings.format(StringKey.SUMMARY_LEVEL_PROGRESS, progress.xpIntoLevel(),
+                progress.xpForNextLevel()), screen.levelBar().valueText());
+        assertFalse(screen.levelBar().isFocusable(), "the bar is a readout");
+        assertFalse(screen.focusRing().nodes().contains(screen.levelBar()));
+
+        profile.prestigeCount = 2;
+        screen.refreshTexts();
+        assertEquals(strings.format(StringKey.MENU_PRESTIGE_BADGE, 2),
+                screen.headerTexts().get(2));
+
+        presenter.present(0.5);
+        BufferedImage frame = presenter.image();
+        assertNotNull(frame);
+        assertTrue(distinctColours(frame) >= 2, "the profile header is uniform");
     }
 
     @Test
@@ -233,10 +268,10 @@ class StatisticsScreenTest {
         loop.start();
         ticks(GRACE);
 
-        tap(Keys.DOWN);
-        assertSame(menu.statisticsButton(), menu.focusRing().focused());
+        tap(Keys.UP);
+        assertSame(menu.playerCard(), menu.focusRing().focused());
         tap(Keys.ENTER);
-        assertTrue(screens.top() instanceof StatisticsScreen, "Enter opens the statistics");
+        assertTrue(screens.top() instanceof StatisticsScreen, "Enter opens the profile");
         ticks(GRACE);
 
         tap(Keys.ESCAPE);
@@ -253,7 +288,7 @@ class StatisticsScreenTest {
         screens.applyPending();
         loop.start();
         ticks(GRACE);
-        tap(Keys.DOWN);
+        tap(Keys.UP);
         tap(Keys.ENTER);
         StatisticsScreen screen = (StatisticsScreen) screens.top();
         ticks(GRACE);

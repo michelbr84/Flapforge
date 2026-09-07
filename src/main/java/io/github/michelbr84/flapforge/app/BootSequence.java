@@ -89,7 +89,7 @@ public final class BootSequence {
         Graphics2D g = probe.createGraphics();
         try {
             TextPainter.prepare(g);
-            int[] sizes = {11, 12, 13, 14, 15, 16, 20, 30, 32, 40, 58};
+            int[] sizes = {10, 11, 12, 13, 14, 15, 16, 20, 22, 24, 30, 32, 34, 40, 58};
             for (int size : sizes) {
                 g.setFont(Fonts.regular(size));
                 g.getFontMetrics().stringWidth(WARM_UP_TEXT);

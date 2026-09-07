@@ -64,13 +64,12 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.DraftRuns;
 import io.github.michelbr84.flapforge.support.FixedTimeSource;
-import io.github.michelbr84.flapforge.ui.screens.AchievementsScreen;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.BootScreen;
 import io.github.michelbr84.flapforge.ui.screens.BossBanner;
-import io.github.michelbr84.flapforge.ui.screens.ChallengesScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
+import io.github.michelbr84.flapforge.ui.screens.GoalsScreen;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.MainMenuScreen;
 import io.github.michelbr84.flapforge.ui.screens.ModifierChoiceOverlay;
@@ -83,6 +82,7 @@ import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
 import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
 import io.github.michelbr84.flapforge.ui.screens.StatisticsScreen;
 import io.github.michelbr84.flapforge.ui.screens.UpgradeTreeScreen;
+import io.github.michelbr84.flapforge.ui.screens.WorldSelectScreen;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
@@ -133,6 +133,50 @@ class ProceduralRenderTest {
         }
         List<BufferedImage> all = ProceduralArt.icons();
         assertEquals(ProceduralArt.ICON_SIZES.size(), all.size());
+    }
+
+    @Test
+    void hubIconsRenderNonBlank() {
+        Map<String, java.util.function.Consumer<Graphics2D>> icons = new LinkedHashMap<>();
+        Color gold = ProceduralArt.COIN_GOLD;
+        Color dark = ProceduralArt.TEXT_DARK;
+        Color[] ramp = ProceduralArt.alphaRamp(gold, 16);
+        icons.put("gear", g -> ProceduralArt.drawGear(g, 24, 24, 30, gold, dark));
+        icons.put("flame", g -> ProceduralArt.drawFlame(g, 24, 40, 20, 30,
+                ProceduralArt.FLAME_EDGE, ProceduralArt.FLAME_CORE));
+        icons.put("spark", g -> ProceduralArt.drawSpark(g, 24, 24, 10, gold));
+        icons.put("hammer", g -> ProceduralArt.drawHammer(g, 24, 24, 30, 0.6, gold, dark));
+        icons.put("crossed", g -> ProceduralArt.drawCrossedHammers(g, 24, 24, 30, gold));
+        icons.put("barrel", g -> ProceduralArt.drawBarrel(g, 24, 24, 26, ProceduralArt.WOOD, gold));
+        icons.put("banner", g -> ProceduralArt.drawBanner(g, 24, 4, 40, 0.5, dark, gold));
+        icons.put("awning", g -> ProceduralArt.drawAwning(g, 24, 24, 30, gold, dark));
+        icons.put("bird", g -> ProceduralArt.drawBirdSilhouette(g, 24, 24, 30, gold));
+        icons.put("scroll", g -> ProceduralArt.drawScroll(g, 24, 24, 30, gold, dark));
+        icons.put("crown", g -> ProceduralArt.drawCrown(g, 24, 24, 24, gold));
+        icons.put("chevron", g -> ProceduralArt.drawChevron(g, 24, 24, 16, gold));
+        icons.put("padlock", g -> ProceduralArt.drawPadlock(g, 24, 24, 16, null));
+        icons.put("glow", g -> ProceduralArt.drawGlow(g, 24, 24, 20, ramp, 0.8));
+        for (ProceduralArt.ButtonState state : ProceduralArt.ButtonState.values()) {
+            icons.put("cta " + state, g -> ProceduralArt.ctaButton(g, 2, 8, 44, 32, state));
+            icons.put("nav " + state, g -> ProceduralArt.navButton(g, 2, 4, 44, 40, state, false));
+            icons.put("primary " + state,
+                    g -> ProceduralArt.navButton(g, 2, 4, 44, 40, state, true));
+            icons.put("chip " + state, g -> ProceduralArt.chip(g, 2, 8, 44, 32, state));
+            icons.put("plaque " + state, g -> ProceduralArt.plaque(g, 2, 8, 44, 32, state));
+        }
+        icons.put("cta glow", g -> ProceduralArt.ctaGlow(g, 8, 12, 32, 24, ramp, 0.5));
+        icons.put("nav band", g -> ProceduralArt.navBand(g, 16, 32));
+        for (Map.Entry<String, java.util.function.Consumer<Graphics2D>> icon : icons.entrySet()) {
+            BufferedImage img = new BufferedImage(48, 48, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            try {
+                ProceduralArt.prepare(g);
+                icon.getValue().accept(g);
+            } finally {
+                g.dispose();
+            }
+            assertTrue(distinctColours(img, 1) >= 2, icon.getKey() + " is uniform");
+        }
     }
 
     @Test
@@ -356,25 +400,25 @@ class ProceduralRenderTest {
                 assertTrue(distinctColours(shop, 2) >= 2, "shop is uniform in " + language);
                 byLanguage.put(language + "-shop", copy(shop));
 
-                // M8: the two progression screens and the boss banner's three states.
-                Fixture played = Fixture.played();
-                BufferedImage challenges = renderScreen(sm -> new ChallengesScreen(sm,
-                        Strings.active(), GameContent.load(), played.profile), 5);
-                assertTrue(distinctColours(challenges, 2) >= 2,
-                        "challenges is uniform in " + language);
-                byLanguage.put(language + "-challenges", copy(challenges));
+                // M10: the hub's world picker.
+                BufferedImage worldSelect = renderScreen(meta::worldSelect, 5);
+                assertTrue(distinctColours(worldSelect, 2) >= 2,
+                        "world select is uniform in " + language);
+                byLanguage.put(language + "-world-select", copy(worldSelect));
 
-                for (int tab = 0; tab < 3; tab++) {
+                // M8/M10: the four Goals tabs and the boss banner's three states.
+                Fixture played = Fixture.played();
+                for (int tab = 0; tab < 4; tab++) {
                     final int tabIndex = tab;
-                    BufferedImage achievements = renderScreen(sm -> {
-                        AchievementsScreen screen = new AchievementsScreen(sm, Strings.active(),
+                    BufferedImage goals = renderScreen(sm -> {
+                        GoalsScreen screen = new GoalsScreen(sm, Strings.active(),
                                 GameContent.load(), played.profile, played.rules);
                         screen.tabBar().select(tabIndex);
                         return screen;
                     }, 5);
-                    assertTrue(distinctColours(achievements, 2) >= 2,
-                            "achievements tab " + tab + " is uniform in " + language);
-                    byLanguage.put(language + "-achievements-" + tab, copy(achievements));
+                    assertTrue(distinctColours(goals, 2) >= 2,
+                            "goals tab " + tab + " is uniform in " + language);
+                    byLanguage.put(language + "-goals-" + tab, copy(goals));
                 }
 
                 for (BossBanner.Phase state : new BossBanner.Phase[] {
@@ -426,17 +470,16 @@ class ProceduralRenderTest {
                 "the shop must look different in the two languages");
         assertFalse(identical(byLanguage.get("en-draft"), byLanguage.get("pt_BR-draft")),
                 "the modifier draft must look different in the two languages");
-        assertFalse(identical(byLanguage.get("en-challenges"),
-                        byLanguage.get("pt_BR-challenges")),
-                "the challenges screen must look different in the two languages");
-        assertFalse(identical(byLanguage.get("en-achievements-0"),
-                        byLanguage.get("pt_BR-achievements-0")),
-                "the achievements grid must look different in the two languages");
-        assertFalse(identical(byLanguage.get("en-achievements-1"),
-                        byLanguage.get("pt_BR-achievements-1")),
+        assertFalse(identical(byLanguage.get("en-world-select"),
+                        byLanguage.get("pt_BR-world-select")),
+                "the world select must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-goals-0"), byLanguage.get("pt_BR-goals-0")),
+                "the challenges tab must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-goals-1"), byLanguage.get("pt_BR-goals-1")),
+                "the achievements tab must look different in the two languages");
+        assertFalse(identical(byLanguage.get("en-goals-2"), byLanguage.get("pt_BR-goals-2")),
                 "the milestones tab must look different in the two languages");
-        assertFalse(identical(byLanguage.get("en-achievements-2"),
-                        byLanguage.get("pt_BR-achievements-2")),
+        assertFalse(identical(byLanguage.get("en-goals-3"), byLanguage.get("pt_BR-goals-3")),
                 "the collections tab must look different in the two languages");
         assertFalse(identical(byLanguage.get("en-boss-WARNING"),
                         byLanguage.get("pt_BR-boss-WARNING")),
@@ -558,6 +601,10 @@ class ProceduralRenderTest {
 
         Screen shop(ScreenManager sm) {
             return new ShopScreen(sm, Strings.active(), content, profile, unlocks, null);
+        }
+
+        Screen worldSelect(ScreenManager sm) {
+            return new WorldSelectScreen(sm, Strings.active(), content, profile, selection, null);
         }
     }
 
@@ -1110,17 +1157,22 @@ class ProceduralRenderTest {
                     "upgrade trees overflow at 1.5x text");
             assertTrue(distinctColours(renderScreen(meta::shop, 5), 2) >= 2,
                     "shop overflows at 1.5x text");
+            assertTrue(distinctColours(renderScreen(meta::worldSelect, 5), 2) >= 2,
+                    "world select overflows at 1.5x text");
             Fixture played = Fixture.played();
             assertTrue(distinctColours(renderScreen(played::summary, 5), 2) >= 2,
                     "run summary overflows at 1.5x text");
             assertTrue(distinctColours(renderScreen(played::statistics, 5), 2) >= 2,
                     "statistics overflows at 1.5x text");
-            assertTrue(distinctColours(renderScreen(sm -> new ChallengesScreen(sm,
-                    Strings.active(), GameContent.load(), played.profile), 5), 2) >= 2,
-                    "challenges overflows at 1.5x text");
-            assertTrue(distinctColours(renderScreen(sm -> new AchievementsScreen(sm,
-                    Strings.active(), GameContent.load(), played.profile, played.rules), 5), 2)
-                    >= 2, "achievements overflows at 1.5x text");
+            for (int tab = 0; tab < 4; tab++) {
+                final int tabIndex = tab;
+                assertTrue(distinctColours(renderScreen(sm -> {
+                    GoalsScreen screen = new GoalsScreen(sm, Strings.active(),
+                            GameContent.load(), played.profile, played.rules);
+                    screen.tabBar().select(tabIndex);
+                    return screen;
+                }, 5), 2) >= 2, "goals tab " + tab + " overflows at 1.5x text");
+            }
             assertTrue(distinctColours(new Rig().frame(1.0), 2) >= 2,
                     "the run HUD overflows at 1.5x text");
         } finally {

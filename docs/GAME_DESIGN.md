@@ -16,7 +16,9 @@ work with. No online services: seeds, dailies and records are all local and dete
 ## The core loop
 
 1. **Pick a loadout** — bird, palette, one active ability, passive abilities, world, tier,
-   mode (Standard, Seeded, Daily; Challenges have their own screen).
+   mode (Standard, Seeded, Daily; Challenges live on the Goals screen). The home hub
+   shows what START RUN will play (world • difficulty), the next unlock to work towards
+   and the forge growing with the upgrades bought.
 2. **Fly** — one input (Space / ↑ / left-click) flaps; X / Shift / right-click fires the
    active ability. Pass gates, collect coins, keep a clean-gate streak.
 3. **Draft** — at gates 10/25/45/70/100/140 the run pauses in a breather and offers 1-of-3
@@ -176,9 +178,9 @@ per boss), level curve base 100 × 1.10 growth, max level 50, milestone rewards 
 
 **Prestige** (level 25, max 5): resets coins/XP/level/upgrades/ability levels/challenges,
 keeps birds, cosmetics, achievements and lifetime statistics; each stack grants +5 % coin
-mult (`PRESTIGE` layer) and a badge on the menu; cumulative unlock conditions read
-"since prestige" against a baseline snapshot (E23). The two-step confirm lives in the
-Statistics screen.
+mult (`PRESTIGE` layer) and a badge on the hub's player card; cumulative unlock conditions
+read "since prestige" against a baseline snapshot (E23). The two-step confirm lives in the
+Profile screen (`StatisticsScreen`).
 
 **Daily** (`economy.json.daily`): one deterministic pick per UTC date — seed
 `fnv1a("daily:" + yyyy-MM-dd)`, world, tier from `{normal, hard}` and 2 forced compatible

@@ -65,14 +65,13 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Toggle;
-import io.github.michelbr84.flapforge.ui.screens.AchievementsScreen;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.BossBanner;
-import io.github.michelbr84.flapforge.ui.screens.ChallengesScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.ContentRunFactory;
 import io.github.michelbr84.flapforge.ui.screens.GameOverOverlay;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
+import io.github.michelbr84.flapforge.ui.screens.GoalsScreen;
 import io.github.michelbr84.flapforge.ui.screens.PauseOverlay;
 import io.github.michelbr84.flapforge.ui.screens.ProgressionText;
 import io.github.michelbr84.flapforge.ui.screens.RuleShiftBanner;
@@ -83,6 +82,7 @@ import io.github.michelbr84.flapforge.ui.screens.ModifierChoiceOverlay;
 import io.github.michelbr84.flapforge.ui.screens.SettingsScreen;
 import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
 import io.github.michelbr84.flapforge.ui.screens.UpgradeTreeScreen;
+import io.github.michelbr84.flapforge.ui.screens.WorldSelectScreen;
 import java.awt.AWTError;
 import java.awt.Canvas;
 import java.awt.Graphics2D;
@@ -786,8 +786,10 @@ class SmokeWindowTest {
             logSizes("after F11 twice", rig.window);
             focusCanvasOrAbort(rig);
 
-            driver.tap(KeyEvent.VK_DOWN, () -> menu.focusRing().focused() == menu.settingsButton());
-            assertSame(menu.settingsButton(), menu.focusRing().focused(), "Down moves to Settings");
+            driver.tap(KeyEvent.VK_DOWN, () -> menu.focusRing().focused()
+                    == menu.navButton(MainMenuScreen.NAV_PLAY));
+            assertSame(menu.navButton(MainMenuScreen.NAV_PLAY), menu.focusRing().focused(),
+                    "Down moves to the Play item of the navigation");
             driver.tap(KeyEvent.VK_UP, () -> menu.focusRing().focused() == menu.playButton());
             assertSame(menu.playButton(), menu.focusRing().focused(), "Up moves focus back");
             driver.tap(KeyEvent.VK_ENTER, () -> rig.screens.top() instanceof GameScreen);
@@ -888,8 +890,9 @@ class SmokeWindowTest {
             rig.frames(GRACE);
             assertFalse(settings.isDirty(), "leaving the screen wrote the file");
             assertTrue(Files.exists(rig.store.file()), "settings.json was written");
-            assertEquals(Strings.load("pt_BR").get(StringKey.MENU_PLAY), menu.playButton().text(),
-                    "the menu behind the settings screen followed the language too");
+            assertEquals(Strings.load("pt_BR").get(StringKey.MENU_START_RUN),
+                    menu.playButton().text(),
+                    "the hub behind the settings screen followed the language too");
             assertEquals("pt_BR", rig.store.settings().language, "the language was persisted");
             assertTrue(saveShot("settings-back", rig) >= 2, "menu after settings is uniform");
 
@@ -1031,12 +1034,14 @@ class SmokeWindowTest {
             rig.frames(30);
             focusCanvasOrAbort(rig);
             Driver driver = new Driver(rig);
-            assertNotNull(menu.birdsButton(), "a session with a profile offers the M4 screens");
+            assertTrue(menu.navButton(MainMenuScreen.NAV_BIRDS).isEnabled(),
+                    "a session with a profile offers the M4 screens");
             assertEquals(500, walletOf(rig));
-            assertTrue(saveShot("menu-meta", rig) >= 2, "the seven-entry menu is uniform");
+            assertTrue(saveShot("hub", rig) >= 2, "the hub is uniform");
 
-            // Menu -> Birds, with a real click through the toolkit.
-            driver.click(menu.birdsButton(), () -> rig.screens.top() instanceof BirdSelectionScreen);
+            // Hub -> Birds, with a real click through the toolkit.
+            driver.click(menu.navButton(MainMenuScreen.NAV_BIRDS),
+                    () -> rig.screens.top() instanceof BirdSelectionScreen);
             BirdSelectionScreen birds = (BirdSelectionScreen) rig.screens.top();
             rig.frames(GRACE);
             assertTrue(saveShot("birds", rig) >= 2, "bird selection is uniform");
@@ -1057,7 +1062,7 @@ class SmokeWindowTest {
             // Menu -> Upgrades: buy the first node and see the live stat panel move.
             driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
             rig.frames(GRACE);
-            driver.click(menu.upgradesButton(),
+            driver.click(menu.navButton(MainMenuScreen.NAV_FORGE),
                     () -> rig.screens.top() instanceof UpgradeTreeScreen);
             UpgradeTreeScreen trees = (UpgradeTreeScreen) rig.screens.top();
             rig.frames(GRACE);
@@ -1071,7 +1076,8 @@ class SmokeWindowTest {
             // Menu -> Shop.
             driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
             rig.frames(GRACE);
-            driver.click(menu.shopButton(), () -> rig.screens.top() instanceof ShopScreen);
+            driver.click(menu.navButton(MainMenuScreen.NAV_SHOP),
+                    () -> rig.screens.top() instanceof ShopScreen);
             ShopScreen shop = (ShopScreen) rig.screens.top();
             rig.frames(GRACE);
             assertFalse(shop.offers().isEmpty(), "the shop still has something to sell");
@@ -1108,8 +1114,8 @@ class SmokeWindowTest {
             focusCanvasOrAbort(rig);
             Driver driver = new Driver(rig);
 
-            // Menu -> Birds, then equip the shield in the first passive slot with a real click.
-            driver.click(menu.birdsButton(),
+            // Hub -> Birds, then equip the shield in the first passive slot with a real click.
+            driver.click(menu.navButton(MainMenuScreen.NAV_BIRDS),
                     () -> rig.screens.top() instanceof BirdSelectionScreen);
             BirdSelectionScreen birds = (BirdSelectionScreen) rig.screens.top();
             rig.frames(GRACE);
@@ -1246,7 +1252,8 @@ class SmokeWindowTest {
             // Menu -> Birds; the world row is stepped with real arrow keys, Wind Valley then the
             // forge, both owned. The pointer is parked over the title first so no row takes the
             // focus back the moment it moves.
-            driver.click(menu.birdsButton(), () -> rig.screens.top() instanceof BirdSelectionScreen);
+            driver.click(menu.navButton(MainMenuScreen.NAV_BIRDS),
+                    () -> rig.screens.top() instanceof BirdSelectionScreen);
             BirdSelectionScreen birds = (BirdSelectionScreen) rig.screens.top();
             rig.frames(GRACE);
             assertEquals("green_fields", birds.currentWorldId(), "a fresh profile flies the fields");
@@ -1267,7 +1274,7 @@ class SmokeWindowTest {
             String forgeName = ProgressionText.name(strings, ContentKind.WORLD, "iron_forge");
             assertTrue(menu.worldLine().contains(forgeName),
                     "the menu names the selected world: " + menu.worldLine());
-            assertTrue(saveShot("menu-world", rig) >= 2, "the menu frame is uniform");
+            assertTrue(saveShot("hub-world", rig) >= 2, "the hub frame is uniform");
 
             // Iron Forge: fly until a gear or a piston is on screen, capture it, keep flying.
             GameScreen forge = play(rig, driver, menu, "iron_forge", WorldStyle.FACTORY);
@@ -1374,21 +1381,25 @@ class SmokeWindowTest {
             focusCanvasOrAbort(rig);
             Driver driver = new Driver(rig);
 
-            // Menu -> Challenges; step the list to the corridor challenge with real arrow keys,
-            // one Right per challenge like the world picker is stepped.
-            driver.click(menu.challengesButton(),
-                    () -> rig.screens.top() instanceof ChallengesScreen);
-            ChallengesScreen challenges = (ChallengesScreen) rig.screens.top();
+            // Menu -> Goals (Challenges tab); step the list to the corridor challenge with real
+            // arrow keys, one Right per challenge like the world picker is stepped.
+            driver.click(menu.navButton(MainMenuScreen.NAV_GOALS),
+                    () -> rig.screens.top() instanceof GoalsScreen);
+            GoalsScreen challenges = (GoalsScreen) rig.screens.top();
             rig.frames(GRACE);
             driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
+            assertEquals(GoalsScreen.TAB_CHALLENGES, challenges.tabBar().selectedId());
+            challenges.focusRing().focus(challenges.challengeList());
+            rig.frames(3);
             List<String> challengeIds = GameContent.load().challenges().ids();
-            while (!"boss_corridor_1".equals(challenges.selected().id())) {
-                String next = challengeIds.get(challengeIds.indexOf(challenges.selected().id())
-                        + 1);
-                driver.tap(KeyEvent.VK_RIGHT, () -> next.equals(challenges.selected().id()));
+            while (!"boss_corridor_1".equals(challenges.selectedChallenge().id())) {
+                String next = challengeIds.get(
+                        challengeIds.indexOf(challenges.selectedChallenge().id()) + 1);
+                driver.tap(KeyEvent.VK_RIGHT,
+                        () -> next.equals(challenges.selectedChallenge().id()));
             }
             assertNotNull(challenges.playSource(), "the granted challenge offers a run");
-            assertTrue(saveShot("challenges", rig) >= 2, "the challenges frame is uniform");
+            assertTrue(saveShot("goals-challenges", rig) >= 2, "the challenges frame is uniform");
 
             // A real click on Play starts the challenge's own run.
             driver.click(challenges.playButton(), () -> rig.screens.top() instanceof GameScreen);
@@ -1428,21 +1439,24 @@ class SmokeWindowTest {
 
             leaveRun(rig, driver, menu);
 
-            // Menu -> Achievements: the three tabs stepped with real arrow keys.
-            driver.click(menu.achievementsButton(),
-                    () -> rig.screens.top() instanceof AchievementsScreen);
-            AchievementsScreen achievements = (AchievementsScreen) rig.screens.top();
+            // Hub -> Goals again: the remaining tabs stepped with real arrow keys.
+            driver.click(menu.navButton(MainMenuScreen.NAV_GOALS),
+                    () -> rig.screens.top() instanceof GoalsScreen);
+            GoalsScreen achievements = (GoalsScreen) rig.screens.top();
             rig.frames(GRACE);
             driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
-            assertEquals(AchievementsScreen.TAB_ACHIEVEMENTS, achievements.tabBar().selectedId());
-            assertTrue(saveShot("achievements", rig) >= 2, "the achievements frame is uniform");
+            assertEquals(GoalsScreen.TAB_CHALLENGES, achievements.tabBar().selectedId());
             driver.tap(KeyEvent.VK_RIGHT, () -> achievements.tabBar().selectedId()
-                    .equals(AchievementsScreen.TAB_MILESTONES));
-            assertTrue(saveShot("achievements-milestones", rig) >= 2,
+                    .equals(GoalsScreen.TAB_ACHIEVEMENTS));
+            assertTrue(saveShot("goals-achievements", rig) >= 2,
+                    "the achievements frame is uniform");
+            driver.tap(KeyEvent.VK_RIGHT, () -> achievements.tabBar().selectedId()
+                    .equals(GoalsScreen.TAB_MILESTONES));
+            assertTrue(saveShot("goals-milestones", rig) >= 2,
                     "the milestones frame is uniform");
             driver.tap(KeyEvent.VK_RIGHT, () -> achievements.tabBar().selectedId()
-                    .equals(AchievementsScreen.TAB_COLLECTIONS));
-            assertTrue(saveShot("achievements-collections", rig) >= 2,
+                    .equals(GoalsScreen.TAB_COLLECTIONS));
+            assertTrue(saveShot("goals-collections", rig) >= 2,
                     "the collections frame is uniform");
             assertEquals(8, achievements.bars().size(), "one bar per collection category");
 
@@ -1453,26 +1467,23 @@ class SmokeWindowTest {
     }
 
     /**
-     * Steps the world row to a world with real arrow keys: menu → Birds, one {@code Right} per
-     * world from the selected one, back to the menu.
+     * Selects a world with real clicks: the hub's plaque opens the World Select, the world's
+     * card is clicked, and the picker pops back to the hub on its own.
      */
-    private static void select(Rig rig, Driver driver, MainMenuScreen menu, String worldId) {
-        driver.click(menu.birdsButton(), () -> rig.screens.top() instanceof BirdSelectionScreen);
-        BirdSelectionScreen birds = (BirdSelectionScreen) rig.screens.top();
+    private static void select(Rig rig, Driver driver, MainMenuScreen menu, String worldId)
+            throws Exception {
+        driver.click(menu.worldPlaque(), () -> rig.screens.top() instanceof WorldSelectScreen);
+        WorldSelectScreen worlds = (WorldSelectScreen) rig.screens.top();
         rig.frames(GRACE);
-        driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
-        birds.focusRing().focus(birds.worldList());
-        rig.frames(3);
-        List<String> ids = birds.worldIds();
-        int target = ids.indexOf(worldId);
-        assertTrue(target >= 0, worldId + " is in the picker: " + ids);
-        while (ids.indexOf(birds.currentWorldId()) < target) {
-            String next = ids.get(ids.indexOf(birds.currentWorldId()) + 1);
-            driver.tap(KeyEvent.VK_RIGHT, () -> next.equals(birds.currentWorldId()));
-        }
-        assertEquals(worldId, birds.currentWorldId());
-        driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
+        assertTrue(worlds.worldIds().contains(worldId),
+                worldId + " is in the picker: " + worlds.worldIds());
+        assertTrue(saveShot("world-select", rig) >= 2, "the world select is uniform");
+        driver.click(worlds.worldGrid().card(worldId), () -> rig.screens.top() == menu);
         rig.frames(GRACE);
+        assertEquals(worldId, rig.save.profile().selected.worldId, "the card wrote the selection");
+        assertTrue(menu.worldLine().contains(
+                ProgressionText.name(Strings.active(), ContentKind.WORLD, worldId)),
+                "the plaque names the selection: " + menu.worldLine());
     }
 
     /**

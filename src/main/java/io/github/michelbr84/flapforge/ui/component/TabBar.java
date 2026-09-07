@@ -12,6 +12,7 @@ import io.github.michelbr84.flapforge.ui.UiNode;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Shape;
 import java.awt.Stroke;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -252,8 +253,13 @@ public class TabBar extends UiNode implements Adjustable {
             g.setColor(tab.isEnabled()
                     ? (isSelected ? ProceduralArt.TEXT_LIGHT : ProceduralArt.TEXT_MUTED)
                     : ProceduralArt.TEXT_MUTED);
+            // Four tabs at textScale 1.5 in pt_BR overflow their cells; the clip keeps a long
+            // label inside its own tab instead of over the neighbour's.
+            Shape unclipped = g.getClip();
+            g.clipRect(tx + 2, ty, tw - 4, th);
             TextPainter.draw(g, tab.label(), tx + tw / 2.0,
                     TextPainter.centeredBaseline(g, ty + th / 2.0), Align.CENTER);
+            g.setClip(unclipped);
             if (!tab.isEnabled()) {
                 g.drawLine(tx + 6, ty + th - 4, tx + tw - 6, ty + th - 4);
             }

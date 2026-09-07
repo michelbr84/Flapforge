@@ -54,6 +54,13 @@ import java.util.Set;
  */
 public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
 
+    /**
+     * What a purchase-only path adds to its distance when earnable paths are preferred: more than
+     * the whole earnable range, so even a price the wallet already covers ranks behind a
+     * threshold nothing has been done towards.
+     */
+    private static final double PURCHASE_OFFSET = 2.0;
+
     /** How many times {@link #evaluate(PlayerProfile)} re-runs while grants keep appearing. */
     public static final int MAX_PASSES = 8;
 
@@ -377,6 +384,270 @@ public final class UnlockEvaluator implements ProgressionManager.UnlockHook {
             return 0;
         }
         return collections.percent(category, profile, owned);
+    }
+
+    /**
+     * How far a profile is towards one condition (M10: the hub's "Next unlock" card and the
+     * progress bars of the meta screens).
+     *
+     * <p>The pair is the same reading {@link #isSatisfied(UnlockConditionDef, PlayerProfile)}
+     * makes, so a bar and the grant can never disagree: cumulative counters are taken since the
+     * last prestige (E23), {@code level} is the current level, a collection counter is the owned
+     * percentage. The three named conditions (a challenge, an achievement, a cleared world) have no
+     * middle ground and read as {@code 0 / 1} or {@code 1 / 1}; {@code default} reads as
+     * {@code 0 / 0}, which is complete. A {@code purchase} measures the wallet against the price —
+     * a display-only figure, because a purchase is never <em>earned</em> (the class comment) and
+     * only {@link UnlockManager} grants it. An {@code any_of} reports the branch the profile is
+     * closest to ({@link #nearestBranch(UnlockConditionDef, PlayerProfile, boolean)}), an
+     * {@code all_of} counts its finished children.
+     *
+     * @param condition the condition tree; {@code null} reads as complete
+     * @param profile the profile to read
+     * @return the progress, {@code current} clamped into {@code [0, target]}
+     */
+    public AchievementEvaluator.Progress progressOf(UnlockConditionDef condition,
+            PlayerProfile profile) {
+        Objects.requireNonNull(profile, "profile");
+        return progressOf(condition, profile, collections);
+    }
+
+    /**
+     * How far a profile is towards one unlockable.
+     *
+     * @param unlockId the namespaced id
+     * @param profile the profile to read
+     * @return the progress; an unknown id reads as complete ({@code 0 / 0})
+     */
+    public AchievementEvaluator.Progress progressOf(String unlockId, PlayerProfile profile) {
+        return progressOf(conditions.get(unlockId), profile);
+    }
+
+    /**
+     * The static form of {@link #progressOf(UnlockConditionDef, PlayerProfile)}, for callers
+     * without an evaluator. Without a collection reader a {@code collection.*} counter reads as
+     * untouched; every other counter resolves through {@link Statistics#resolve}.
+     *
+     * @param condition the condition tree; {@code null} reads as complete
+     * @param profile the profile to read
+     * @param collections the collection reader, or {@code null}
+     * @return the progress
+     */
+    public static AchievementEvaluator.Progress progressOf(UnlockConditionDef condition,
+            PlayerProfile profile, CollectionProgress collections) {
+        Objects.requireNonNull(profile, "profile");
+        if (condition == null) {
+            return new AchievementEvaluator.Progress(0, 0);
+        }
+        long target = Math.max(0, Math.round(condition.value()));
+        switch (condition.type()) {
+            case DEFAULT:
+                return new AchievementEvaluator.Progress(0, 0);
+            case BEST_GATES:
+                return new AchievementEvaluator.Progress(profile.statistics.bestGates, target);
+            case BEST_POINTS:
+                return new AchievementEvaluator.Progress(profile.statistics.bestPoints, target);
+            case TOTAL_GATES:
+                return new AchievementEvaluator.Progress(sincePrestige(
+                        profile.statistics.totalGates, profile.prestigeBaseline.totalGates),
+                        target);
+            case RUNS:
+                return new AchievementEvaluator.Progress(sincePrestige(
+                        profile.statistics.totalRuns, profile.prestigeBaseline.totalRuns), target);
+            case LEVEL:
+                return new AchievementEvaluator.Progress(profile.level, target);
+            case COINS_EARNED_TOTAL:
+                return new AchievementEvaluator.Progress(sincePrestige(
+                        profile.statistics.coinsEarned, profile.prestigeBaseline.coinsEarned),
+                        target);
+            case CHALLENGE:
+                return new AchievementEvaluator.Progress(
+                        isChallengeCompleted(profile, condition.id()) ? 1 : 0, 1);
+            case ACHIEVEMENT:
+                return new AchievementEvaluator.Progress(condition.id() != null
+                        && profile.achievements.containsKey(condition.id()) ? 1 : 0, 1);
+            case WORLD_CLEARED:
+                return new AchievementEvaluator.Progress(
+                        isWorldCleared(profile, condition.id()) ? 1 : 0, 1);
+            case PURCHASE:
+                return new AchievementEvaluator.Progress(
+                        Wallet.of(profile).balance(PlayerProfile.CURRENCY_COINS),
+                        priceOf(condition));
+            case PRESTIGE:
+                return new AchievementEvaluator.Progress(profile.prestigeCount, target);
+            case COUNTER:
+                return new AchievementEvaluator.Progress(
+                        counterValue(condition.counter(), profile, collections), target);
+            case ALL_OF: {
+                long done = 0;
+                for (UnlockConditionDef child : condition.conditions()) {
+                    if (progressOf(child, profile, collections).isComplete()) {
+                        done++;
+                    }
+                }
+                return new AchievementEvaluator.Progress(done, condition.conditions().size());
+            }
+            case ANY_OF:
+            default: {
+                UnlockConditionDef branch = nearestBranch(condition, profile, collections, false);
+                if (branch == null || branch == condition) {
+                    // An empty any_of: nothing to measure and never satisfied.
+                    return new AchievementEvaluator.Progress(0, 1);
+                }
+                return progressOf(branch, profile, collections);
+            }
+        }
+    }
+
+    /**
+     * The branch of a condition tree a profile is closest to finishing: the leaf of an
+     * {@code any_of} (recursively) whose missing fraction is smallest, ties keeping content order.
+     * Anything that is not an {@code any_of} is its own branch.
+     *
+     * <p>With {@code preferEarned} a {@code purchase} leaf ranks behind every other leaf whatever
+     * the wallet says: the shop is the place to buy, and the hub's "next unlock" should name the
+     * thing the player can <em>earn</em> next.
+     *
+     * @param condition the condition tree, may be {@code null}
+     * @param profile the profile to read
+     * @param preferEarned whether a purchase branch loses to any earnable one
+     * @return the branch, or {@code null} for no condition or an empty {@code any_of}
+     */
+    public UnlockConditionDef nearestBranch(UnlockConditionDef condition, PlayerProfile profile,
+            boolean preferEarned) {
+        Objects.requireNonNull(profile, "profile");
+        return nearestBranch(condition, profile, collections, preferEarned);
+    }
+
+    /**
+     * The static form of {@link #nearestBranch(UnlockConditionDef, PlayerProfile, boolean)}.
+     *
+     * @param condition the condition tree, may be {@code null}
+     * @param profile the profile to read
+     * @param collections the collection reader, or {@code null}
+     * @param preferEarned whether a purchase branch loses to any earnable one
+     * @return the branch, or {@code null} for no condition or an empty {@code any_of}
+     */
+    public static UnlockConditionDef nearestBranch(UnlockConditionDef condition,
+            PlayerProfile profile, CollectionProgress collections, boolean preferEarned) {
+        Objects.requireNonNull(profile, "profile");
+        if (condition == null) {
+            return null;
+        }
+        if (condition.type() != UnlockType.ANY_OF) {
+            return condition;
+        }
+        UnlockConditionDef best = null;
+        double bestKey = Double.MAX_VALUE;
+        for (UnlockConditionDef child : condition.conditions()) {
+            UnlockConditionDef branch = nearestBranch(child, profile, collections, preferEarned);
+            if (branch == null) {
+                continue;
+            }
+            double key = 1 - progressOf(branch, profile, collections).fraction();
+            if (preferEarned && branch.type() == UnlockType.PURCHASE) {
+                key += PURCHASE_OFFSET;
+            }
+            if (key < bestKey) {
+                best = branch;
+                bestKey = key;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The unlockable a profile is closest to earning (M10: the hub's "Next unlock" card).
+     *
+     * <p>Every unlockable the content ships is a candidate except what the profile owns, the
+     * cosmetics (a palette is a reward of its bird, not a goal of its own), and anything the
+     * content stages as not yet playable (E19). Each candidate is measured on its nearest earnable
+     * branch; a candidate whose only path is a purchase ranks behind every earnable one, a
+     * {@code default} that is still unowned is waiting for the next {@link #evaluate} and is not a
+     * goal, and a branch already satisfied but not yet granted is transient and skipped. Ties keep
+     * content order, so the answer is the same on every platform.
+     *
+     * @param profile the profile to read
+     * @param content the loaded content
+     * @return the nearest unlockable, or {@code null} when nothing measurable is left
+     */
+    public NextUnlock nextUnlock(PlayerProfile profile, GameContent content) {
+        Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(content, "content");
+        NextUnlock best = null;
+        double bestRemaining = Double.MAX_VALUE;
+        for (Map.Entry<String, UnlockConditionDef> entry : conditions.entrySet()) {
+            String id = entry.getKey();
+            if (profile.isUnlocked(id)) {
+                continue;
+            }
+            ContentKind kind = kinds.get(id);
+            if (kind == null || kind == ContentKind.COSMETIC) {
+                continue;
+            }
+            String namespace = kind.namespace();
+            if (namespace != null && id.startsWith(namespace)
+                    && !content.playable(kind, id.substring(namespace.length()))) {
+                continue;
+            }
+            UnlockConditionDef branch = nearestBranch(entry.getValue(), profile, collections, true);
+            if (branch == null || branch.type() == UnlockType.DEFAULT) {
+                continue;
+            }
+            AchievementEvaluator.Progress progress = progressOf(branch, profile, collections);
+            if (progress.target() <= 0
+                    || (progress.isComplete() && branch.type() != UnlockType.PURCHASE)) {
+                continue;
+            }
+            double remaining = 1 - progress.fraction();
+            if (branch.type() == UnlockType.PURCHASE) {
+                remaining += PURCHASE_OFFSET;
+            }
+            if (remaining < bestRemaining) {
+                best = new NextUnlock(id, kind, branch, progress);
+                bestRemaining = remaining;
+            }
+        }
+        return best;
+    }
+
+    private static long counterValue(String name, PlayerProfile profile,
+            CollectionProgress collections) {
+        if (name == null || name.isBlank()) {
+            return 0;
+        }
+        if (name.startsWith(COLLECTION)) {
+            String category = category(name);
+            return category == null || collections == null ? 0
+                    : collections.percent(category, profile);
+        }
+        return Statistics.resolve(profile, name);
+    }
+
+    /**
+     * The nearest unlockable of a profile (M10).
+     *
+     * @param id the namespaced unlockable id
+     * @param kind the kind the id belongs to
+     * @param branch the condition branch the profile is closest to finishing
+     * @param progress how far along that branch the profile is
+     */
+    public record NextUnlock(String id, ContentKind kind, UnlockConditionDef branch,
+            AchievementEvaluator.Progress progress) {
+
+        /**
+         * Validates the record.
+         *
+         * @param id the namespaced unlockable id
+         * @param kind the kind the id belongs to
+         * @param branch the condition branch
+         * @param progress the progress along it
+         */
+        public NextUnlock {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(branch, "branch");
+            Objects.requireNonNull(progress, "progress");
+        }
     }
 
     /**

@@ -72,3 +72,37 @@ jobs:
             build/test-results
             build/smoke
           if-no-files-found: ignore
+
+  android:
+    name: Android unit tests and APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      # 17 for the module's source/target level, 21 as the default JVM the Gradle daemon and
+      # the Android Gradle Plugin run on.
+      - name: Set up JDK 17 and 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # The Robolectric unit tests render the real frame through the awt shim, and assembleDebug
+      # proves the transformed sources and resources package. This job exists because the shim
+      # is exercised nowhere else in CI (the desktop build never touches android/).
+      - name: Android unit tests and debug APK
+        run: ./gradlew -p android testDebugUnitTest assembleDebug --stacktrace
+
+      - name: Upload the Android test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-test-reports
+          path: android/build/reports/tests
+          if-no-files-found: ignore

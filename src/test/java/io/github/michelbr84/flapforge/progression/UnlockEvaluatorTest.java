@@ -281,6 +281,141 @@ class UnlockEvaluatorTest {
                 "nor under an all_of that an any_of holds");
     }
 
+    @Test
+    void progressOfMeasuresEveryConditionType() {
+        profile.statistics.totalRuns = 12;
+        profile.prestigeBaseline.totalRuns = 10;
+        assertEquals(new AchievementEvaluator.Progress(2, 3),
+                evaluator.progressOf(threshold(UnlockType.RUNS, 3), profile),
+                "E23: runs are counted since the prestige");
+        profile.level = 4;
+        assertEquals(new AchievementEvaluator.Progress(4, 10),
+                evaluator.progressOf(threshold(UnlockType.LEVEL, 10), profile));
+        profile.statistics.bestGates = 9;
+        assertEquals(new AchievementEvaluator.Progress(9, 15),
+                evaluator.progressOf(threshold(UnlockType.BEST_GATES, 15), profile));
+        Wallet.of(profile).add(PlayerProfile.CURRENCY_COINS, 100);
+        UnlockConditionDef purchase = new UnlockConditionDef(UnlockType.PURCHASE, 0, null, 150,
+                null, List.of());
+        assertEquals(new AchievementEvaluator.Progress(100, 150),
+                evaluator.progressOf(purchase, profile), "a purchase measures the wallet");
+        UnlockConditionDef challenge = new UnlockConditionDef(UnlockType.CHALLENGE, 0,
+                "no_shield_1", 0, null, List.of());
+        assertEquals(new AchievementEvaluator.Progress(0, 1),
+                evaluator.progressOf(challenge, profile));
+        profile.challenge("no_shield_1").completed = true;
+        assertEquals(new AchievementEvaluator.Progress(1, 1),
+                evaluator.progressOf(challenge, profile));
+        UnlockConditionDef achievement = new UnlockConditionDef(UnlockType.ACHIEVEMENT, 0,
+                "ability_adept", 0, null, List.of());
+        assertEquals(new AchievementEvaluator.Progress(0, 1),
+                evaluator.progressOf(achievement, profile));
+        profile.achievements.put("ability_adept", new PlayerProfile.AchievementRecord(1));
+        assertEquals(new AchievementEvaluator.Progress(1, 1),
+                evaluator.progressOf(achievement, profile));
+        UnlockConditionDef cleared = new UnlockConditionDef(UnlockType.WORLD_CLEARED, 0,
+                "green_fields", 0, null, List.of());
+        profile.statistics.recordBossClear("green_fields");
+        assertEquals(new AchievementEvaluator.Progress(1, 1),
+                evaluator.progressOf(cleared, profile));
+        profile.prestigeBaseline.bossesCleared.add("green_fields");
+        assertEquals(new AchievementEvaluator.Progress(0, 1),
+                evaluator.progressOf(cleared, profile), "E23: a boss cleared before the prestige");
+        UnlockConditionDef counter = new UnlockConditionDef(UnlockType.COUNTER, 50, null, 0,
+                "collection.birds.percent", List.of());
+        assertEquals(new AchievementEvaluator.Progress(
+                evaluator.counter("collection.birds.percent", profile), 50),
+                evaluator.progressOf(counter, profile), "a collection counter is a percentage");
+        assertEquals(new AchievementEvaluator.Progress(0, 50),
+                UnlockEvaluator.progressOf(counter, profile, null),
+                "without a collection reader the counter is untouched");
+        AchievementEvaluator.Progress none = evaluator.progressOf(UnlockConditionDef.DEFAULT,
+                profile);
+        assertEquals(new AchievementEvaluator.Progress(0, 0), none);
+        assertTrue(none.isComplete(), "a default is complete");
+        assertEquals(new AchievementEvaluator.Progress(0, 0),
+                evaluator.progressOf("nothing:at:all", profile), "an unknown id is complete");
+        UnlockConditionDef runs = threshold(UnlockType.RUNS, 3);
+        UnlockConditionDef level = threshold(UnlockType.LEVEL, 5);
+        UnlockConditionDef allOf = new UnlockConditionDef(UnlockType.ALL_OF, 0, null, 0, null,
+                List.of(runs, level));
+        assertEquals(new AchievementEvaluator.Progress(0, 2), evaluator.progressOf(allOf, profile));
+        profile.prestigeBaseline.totalRuns = 0;
+        assertEquals(new AchievementEvaluator.Progress(1, 2), evaluator.progressOf(allOf, profile),
+                "an all_of counts its finished children");
+        profile.statistics.totalRuns = 2;
+        profile.level = 1;
+        UnlockConditionDef anyOf = new UnlockConditionDef(UnlockType.ANY_OF, 0, null, 0, null,
+                List.of(level, runs));
+        assertEquals(new AchievementEvaluator.Progress(2, 3), evaluator.progressOf(anyOf, profile),
+                "an any_of measures the branch the profile is closest to");
+        UnlockConditionDef emptyAny = new UnlockConditionDef(UnlockType.ANY_OF, 0, null, 0, null,
+                List.of());
+        assertFalse(evaluator.progressOf(emptyAny, profile).isComplete(),
+                "an empty any_of is never complete");
+    }
+
+    @Test
+    void nearestBranchPrefersTheClosestBranchOrAnEarnableOne() {
+        UnlockConditionDef guardian = evaluator.conditionOf("bird:guardian");
+        assertEquals(UnlockType.ANY_OF, guardian.type(), "Ironbeak is any_of[runs 3, purchase 150]");
+        Wallet.of(profile).add(PlayerProfile.CURRENCY_COINS, 140);
+        assertEquals(UnlockType.PURCHASE, evaluator.nearestBranch(guardian, profile, false).type(),
+                "140 of 150 coins is closer than 0 of 3 runs");
+        assertEquals(UnlockType.RUNS, evaluator.nearestBranch(guardian, profile, true).type(),
+                "but the earnable branch wins when asked for");
+        UnlockConditionDef covered = new UnlockConditionDef(UnlockType.ANY_OF, 0, null, 0, null,
+                List.of(new UnlockConditionDef(UnlockType.PURCHASE, 0, null, 10, null, List.of()),
+                        threshold(UnlockType.RUNS, 3)));
+        assertEquals(UnlockType.RUNS, evaluator.nearestBranch(covered, profile, true).type(),
+                "a price the wallet already covers still ranks behind an untouched threshold");
+        assertEquals(UnlockType.PURCHASE, evaluator.nearestBranch(covered, profile, false).type(),
+                "unless the caller does not care how it opens");
+        profile.statistics.totalRuns = 2;
+        assertEquals(UnlockType.PURCHASE, evaluator.nearestBranch(guardian, profile, false).type(),
+                "140 of 150 coins is still closer than 2 of 3 runs");
+        assertEquals(guardian.conditions().get(0),
+                evaluator.nearestBranch(guardian, profile, true), "the branch is the leaf itself");
+        Wallet.of(profile).spend(PlayerProfile.CURRENCY_COINS, 140);
+        assertEquals(UnlockType.RUNS, evaluator.nearestBranch(guardian, profile, false).type(),
+                "with an empty wallet the runs are closer");
+        assertEquals(threshold(UnlockType.RUNS, 3),
+                evaluator.nearestBranch(threshold(UnlockType.RUNS, 3), profile, true),
+                "a leaf is its own branch");
+        assertEquals(null, evaluator.nearestBranch(null, profile, true));
+    }
+
+    @Test
+    void nextUnlockNamesTheNearestEarnableUnlockable() {
+        UnlockEvaluator.NextUnlock next = evaluator.nextUnlock(profile, content);
+        assertEquals("tree:economy", next.id(), "a fresh profile at level 1 is closest to level 3");
+        assertEquals(UnlockType.LEVEL, next.branch().type());
+        assertEquals(new AchievementEvaluator.Progress(1, 3), next.progress());
+        Wallet.of(profile).add(PlayerProfile.CURRENCY_COINS, 5000);
+        assertEquals("tree:economy", evaluator.nextUnlock(profile, content).id(),
+                "a fat wallet never turns a shop price into the next unlock");
+        profile.statistics.totalRuns = 2;
+        next = evaluator.nextUnlock(profile, content);
+        assertEquals("bird:guardian", next.id(), "two of three runs is the nearest goal now");
+        assertEquals(new AchievementEvaluator.Progress(2, 3), next.progress());
+        profile.statistics.totalRuns = 3;
+        assertFalse("bird:guardian".equals(evaluator.nextUnlock(profile, content).id()),
+                "a satisfied branch is about to be granted and is no longer a goal");
+    }
+
+    @Test
+    void nextUnlockSkipsCosmeticsAndAnswersNullWhenNothingIsLeft() {
+        profile.unlock("bird:swift");
+        for (String id : evaluator.conditions().keySet()) {
+            if (evaluator.kindOf(id) != io.github.michelbr84.flapforge.content.ContentKind.COSMETIC) {
+                profile.unlock(id);
+            }
+        }
+        assertFalse(profile.isUnlocked("cosmetic:swift:comet"), "a palette is still unowned");
+        assertEquals(null, evaluator.nextUnlock(profile, content),
+                "palettes are rewards of their bird, never the next goal");
+    }
+
     private static UnlockConditionDef threshold(UnlockType type, double value) {
         return new UnlockConditionDef(type, value, null, 0, null, List.of());
     }

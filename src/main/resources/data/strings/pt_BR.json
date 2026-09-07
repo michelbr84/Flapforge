@@ -11,13 +11,10 @@
   "boot.press_any": "Pressione qualquer tecla para continuar",
 
   "menu.play": "Jogar",
-  "menu.statistics": "Estatísticas",
   "menu.settings": "Configurações",
   "menu.quit": "Sair",
   "menu.birds": "Aves",
-  "menu.upgrades": "Melhorias",
   "menu.shop": "Loja",
-  "menu.world": "Mundo: {0}",
 
   "common.back": "Voltar",
   "common.on": "Ligado",
@@ -672,8 +669,6 @@
   "achievement.daily_week.name": "Sete Dias",
   "achievement.daily_week.desc": "Jogue sete desafios diários.",
 
-  "menu.challenges": "Desafios",
-  "menu.achievements": "Conquistas",
 
   "challenges.title": "Desafios",
   "challenges.world": "Mundo: {0}",
@@ -701,7 +696,6 @@
   "objective.reach_points": "Alcance {0} pontos",
   "objective.boss_cleared": "Vença o chefe",
 
-  "achievements.title": "Conquistas",
   "achievements.tab.achievements": "Conquistas",
   "achievements.tab.milestones": "Marcos",
   "achievements.tab.collections": "Coleções",
@@ -777,6 +771,26 @@
   "prestige.maxed": "O limite de prestígios foi alcançado",
 
   "menu.prestige_badge": "Prestígio ×{0}",
+
+  "menu.start_run": "INICIAR PARTIDA",
+  "menu.run_subtitle": "{0} • {1}",
+  "menu.world_plaque": "Mundo {0} · {1}",
+  "menu.player_name": "Jogador",
+  "menu.player_level": "Nv. {0}",
+  "menu.next_unlock": "Próximo desbloqueio: {0}",
+  "menu.next_unlock_none": "Tudo desbloqueado",
+  "menu.last_run": "Última partida: {0} portões · +{1} moedas   Recorde: {2}",
+  "menu.last_run_none": "Nenhuma partida ainda — toque em INICIAR PARTIDA",
+  "menu.quit_confirm": "Pressione de novo para sair",
+  "menu.nav_forge": "Forja",
+  "menu.nav_goals": "Metas",
+  "goals.title": "Metas",
+  "profile.title": "Perfil",
+  "profile.collections": "Aves {0}/{1} · Mundos {2}/{3} · Conquistas {4}/{5}",
+  "world_select.title": "Escolha um mundo",
+  "world_select.card": "Mundo {0} · {1}",
+  "world_select.tier": "Dificuldade",
+  "settings.section.about": "Sobre",
 
   "toast.prestige": "Prestígio {0} feito — a escalada recomeça"
 }

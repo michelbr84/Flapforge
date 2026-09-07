@@ -11,13 +11,10 @@
   "boot.press_any": "Press any key to continue",
 
   "menu.play": "Play",
-  "menu.statistics": "Statistics",
   "menu.settings": "Settings",
   "menu.quit": "Quit",
   "menu.birds": "Birds",
-  "menu.upgrades": "Upgrades",
   "menu.shop": "Shop",
-  "menu.world": "World: {0}",
 
   "common.back": "Back",
   "common.on": "On",
@@ -672,8 +669,6 @@
   "achievement.daily_week.name": "Seven Days",
   "achievement.daily_week.desc": "Play seven daily challenges.",
 
-  "menu.challenges": "Challenges",
-  "menu.achievements": "Achievements",
 
   "challenges.title": "Challenges",
   "challenges.world": "World: {0}",
@@ -701,7 +696,6 @@
   "objective.reach_points": "Reach {0} points",
   "objective.boss_cleared": "Clear the boss",
 
-  "achievements.title": "Achievements",
   "achievements.tab.achievements": "Achievements",
   "achievements.tab.milestones": "Milestones",
   "achievements.tab.collections": "Collections",
@@ -777,6 +771,26 @@
   "prestige.maxed": "The prestige cap is reached",
 
   "menu.prestige_badge": "Prestige ×{0}",
+
+  "menu.start_run": "START RUN",
+  "menu.run_subtitle": "{0} • {1}",
+  "menu.world_plaque": "World {0} · {1}",
+  "menu.player_name": "Player",
+  "menu.player_level": "Lv. {0}",
+  "menu.next_unlock": "Next unlock: {0}",
+  "menu.next_unlock_none": "Everything unlocked",
+  "menu.last_run": "Last run: {0} gates · +{1} coins   Best: {2}",
+  "menu.last_run_none": "No run yet — press START RUN",
+  "menu.quit_confirm": "Press again to quit",
+  "menu.nav_forge": "Forge",
+  "menu.nav_goals": "Goals",
+  "goals.title": "Goals",
+  "profile.title": "Profile",
+  "profile.collections": "Birds {0}/{1} · Worlds {2}/{3} · Achievements {4}/{5}",
+  "world_select.title": "Choose a world",
+  "world_select.card": "World {0} · {1}",
+  "world_select.tier": "Difficulty",
+  "settings.section.about": "About",
 
   "toast.prestige": "Prestige {0} performed — the climb starts over"
 }

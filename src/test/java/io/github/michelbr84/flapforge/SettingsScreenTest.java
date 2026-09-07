@@ -3,10 +3,12 @@ package io.github.michelbr84.flapforge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.michelbr84.flapforge.app.AppVersion;
 import io.github.michelbr84.flapforge.app.Clock;
 import io.github.michelbr84.flapforge.app.FrameLimiter;
 import io.github.michelbr84.flapforge.app.GameContext;
@@ -36,6 +38,7 @@ import io.github.michelbr84.flapforge.render.Viewport;
 import io.github.michelbr84.flapforge.support.DirectExecutor;
 import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
+import io.github.michelbr84.flapforge.ui.component.Label;
 import io.github.michelbr84.flapforge.ui.component.ListView;
 import io.github.michelbr84.flapforge.ui.component.Slider;
 import io.github.michelbr84.flapforge.ui.component.Toast;
@@ -439,6 +442,38 @@ class SettingsScreenTest {
         tap(Keys.UP);
         assertFalse(screen.backButton().isFocused());
         assertFalse(screen.restoreButton().isFocused());
+    }
+
+    @Test
+    void theAboutSectionListsTheBuildAndQuitAsksTheManagerToClose() {
+        List<String> about = screen.aboutTexts();
+        assertEquals(3, about.size(), about.toString());
+        assertEquals(strings.format(StringKey.FOOTER_VERSION, AppVersion.version()),
+                about.get(0));
+        assertTrue(about.get(1).contains(System.getProperty("java.version", "17")),
+                about.get(1));
+        assertEquals(strings.get(StringKey.FOOTER_KEYS), about.get(2));
+        assertNotNull(screen.quitButton(), "no host was started, so the game may quit");
+        assertEquals(strings.get(StringKey.MENU_QUIT), screen.quitButton().text());
+        assertSame(screen.quitButton(), screen.rows().get(screen.rows().size() - 1),
+                "Quit is the last row of the band");
+        assertTrue(screen.focusRing().nodes().contains(screen.quitButton()));
+        for (String text : about) {
+            assertFalse(screen.rows().stream().anyMatch(row -> row instanceof Label label
+                    && label.text().equals(text)), "an information line is never a row");
+        }
+
+        Strings.active().reload("pt_BR");
+        Strings.use(Strings.active());
+        ticks(1);
+        assertEquals(Strings.load("pt_BR").get(StringKey.MENU_QUIT), screen.quitButton().text());
+
+        assertFalse(screens.isCloseRequested());
+        screen.focusRow(screen.quitButton());
+        ticks(1);
+        assertSame(screen.quitButton(), screen.focusRing().focused());
+        tap(Keys.ENTER);
+        assertTrue(screens.isCloseRequested(), "Quit closes the game through the manager");
     }
 
     @Test
