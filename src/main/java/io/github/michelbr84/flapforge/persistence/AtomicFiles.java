@@ -240,6 +240,9 @@ public final class AtomicFiles {
 
     /** Internal marker for {@link FailurePoint}; never escapes this class. */
     private static final class SimulatedFailure extends IOException {
+
+        private static final long serialVersionUID = 1L;
+
         SimulatedFailure(String message) {
             super(message);
         }

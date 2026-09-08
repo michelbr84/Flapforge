@@ -2,6 +2,7 @@ package io.github.michelbr84.flapforge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -161,7 +162,8 @@ class PrestigeWiringTest {
         assertSame(menu.playerCard(), menu.focusRing().focused());
         tap(Keys.ENTER);
         ticks(GRACE);
-        StatisticsScreen stats = (StatisticsScreen) screens.top();
+        assertInstanceOf(StatisticsScreen.class, screens.top(),
+                "the player card opens the Profile");
 
         tap(Keys.DOWN);
         tap(Keys.ENTER);

@@ -54,7 +54,6 @@ public final class AudioManager {
 
     private volatile AudioBackend backend;
     private boolean closed;
-    private EventBus bus;
     private EventBus.Subscription subscription;
     private double masterVolume = 0.8;
     private double sfxVolume = 1.0;
@@ -116,7 +115,6 @@ public final class AudioManager {
     public void attach(EventBus bus) {
         Objects.requireNonNull(bus, "bus");
         detach();
-        this.bus = bus;
         this.subscription = bus.subscribe(GameEvent.class, this::handle);
     }
 
@@ -126,7 +124,6 @@ public final class AudioManager {
             subscription.cancel();
             subscription = null;
         }
-        bus = null;
     }
 
     /**

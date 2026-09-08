@@ -6,7 +6,6 @@ import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.RunFactory;
 import io.github.michelbr84.flapforge.content.defs.WorldDef;
 import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
-import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
 import io.github.michelbr84.flapforge.gameplay.run.RunInput;

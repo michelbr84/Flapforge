@@ -18,7 +18,6 @@ import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.gameplay.harness.BotPilot;
 import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
-import io.github.michelbr84.flapforge.gameplay.run.RunInput;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
 import io.github.michelbr84.flapforge.gameplay.stats.RuleFlag;
@@ -623,6 +622,10 @@ class GameScreenTest {
         ticks(GRACE);
         assertEquals("boss_corridor_1", game.run().config().challengeId());
         assertTrue(game.run().config().bossEnabled());
+        assertEquals(CORRIDOR_BOSS_GATE,
+                GameContent.load().challenges().get("boss_corridor_1").boss().atGate(),
+                "the shipped corridor challenge starts its boss at gate "
+                        + CORRIDOR_BOSS_GATE);
     }
 
     /**

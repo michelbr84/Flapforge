@@ -205,6 +205,8 @@ public final class ContentCheck {
      */
     static final class ToolFailure extends RuntimeException {
 
+        private static final long serialVersionUID = 1L;
+
         private final int status;
 
         ToolFailure(int status) {

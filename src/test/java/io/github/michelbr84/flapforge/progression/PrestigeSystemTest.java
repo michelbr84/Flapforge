@@ -3,7 +3,6 @@ package io.github.michelbr84.flapforge.progression;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,7 +22,6 @@ import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatModifier;
 import io.github.michelbr84.flapforge.gameplay.stats.StatOp;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;

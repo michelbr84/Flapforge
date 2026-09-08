@@ -3,7 +3,6 @@ package io.github.michelbr84.flapforge.ability.behaviors;
 import io.github.michelbr84.flapforge.ability.AbilityBehavior;
 import io.github.michelbr84.flapforge.ability.AbilityContext;
 import io.github.michelbr84.flapforge.ability.ParamSpec;
-import io.github.michelbr84.flapforge.gameplay.run.ReviveSystem;
 import java.util.List;
 
 /**

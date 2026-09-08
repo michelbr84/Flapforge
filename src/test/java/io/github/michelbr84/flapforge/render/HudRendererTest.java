@@ -373,13 +373,12 @@ class HudRendererTest {
             for (int i = 0; i < 50; i++) {
                 hud.render(g, run, WorldPalette.GREEN_FIELDS, null);
             }
-            long id = Thread.currentThread().getId();
-            long before = threads.getThreadAllocatedBytes(id);
+            long before = threads.getCurrentThreadAllocatedBytes();
             int frames = 300;
             for (int i = 0; i < frames; i++) {
                 hud.render(g, run, WorldPalette.GREEN_FIELDS, null);
             }
-            long perFrame = (threads.getThreadAllocatedBytes(id) - before) / frames;
+            long perFrame = (threads.getCurrentThreadAllocatedBytes() - before) / frames;
             System.out.println("[hud] ability HUD frame allocates " + perFrame + " bytes");
             assertTrue(perFrame < ALLOCATION_BUDGET_BYTES,
                     "the ability HUD allocated " + perFrame + " bytes per frame, budget "
