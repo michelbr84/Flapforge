@@ -111,10 +111,13 @@ import java.util.Objects;
  * {@value Carousel#SCROLL_TICKS}, and the selected tile and the call to action pulse gold over 90.
  * Reduce flashing caps the three glows and leaves the motion alone — the hub draws the same line
  * with its own bob — and high contrast reaches the plates, the role strokes and the island
- * outline through {@link io.github.michelbr84.flapforge.render.Accessibility}. The draw path
- * allocates nothing: the ramps and strokes are constants, the swatch and bar colours are cached
- * when they are bound, and every measured string is cached on its text, its room and the text
- * scale.
+ * outline through {@link io.github.michelbr84.flapforge.render.Accessibility}. The screen itself
+ * adds nothing to a steady frame: the ramps and strokes are constants, the swatch and bar colours
+ * are cached when they are bound, and every measured string is cached on its text, its room and
+ * the text scale, so what a frame costs is what Java2D charges for the plates. Menu frames are
+ * not held to the game frame's 24 KiB budget — this one measures near the hub's, and
+ * {@code ProceduralRenderTest} pins it under a menu budget so a stray {@code new Color} in a
+ * render method shows up.
  */
 public final class BirdSelectionScreen implements Screen {
 

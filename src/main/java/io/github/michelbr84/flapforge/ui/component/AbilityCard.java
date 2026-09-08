@@ -18,7 +18,7 @@ import java.awt.Stroke;
  * <p>The {@link Tone} decides the border and the ink: a fixed slot (a passive the bird grants) is
  * outlined in green and an ability the run's rules would strip in red, which is what "greyed out"
  * means for a chip the player can only step through. Every measured string is cached on the text,
- * the room it has and the text scale, so the draw path allocates nothing.
+ * the room it has and the text scale, so the draw path adds nothing of its own.
  */
 public class AbilityCard extends UiNode {
 

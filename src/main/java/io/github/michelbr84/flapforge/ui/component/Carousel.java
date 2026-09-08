@@ -38,7 +38,7 @@ import java.util.Objects;
  * with the ease-out-quad the coin readout uses, the selected tile carries the gold pulse of the
  * hub's call to action (capped under reduce flashing, which caps luminance pulses only and leaves
  * motion alone), and a locked tile nudges its padlock for {@value #NUDGE_TICKS} ticks when it is
- * tapped. The draw path allocates nothing: the glow ramp and the strokes are constants, every
+ * tapped. The draw path adds nothing of its own: the glow ramp and the strokes are constants, every
  * measured string is cached on its text, its room and the text scale, and the viewport clip is
  * the one bracket per frame.
  */

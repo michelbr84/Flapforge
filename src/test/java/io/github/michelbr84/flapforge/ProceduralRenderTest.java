@@ -122,6 +122,14 @@ class ProceduralRenderTest {
             + " \"license\": \"CC0-1.0\", \"source\": \"drawn for this test\"}]}";
     /** Per-frame allocation budget of the game screen, in bytes. */
     private static final long ALLOCATION_BUDGET_BYTES = 24 * 1024;
+    /**
+     * Per-frame allocation budget of a menu screen, in bytes. A menu is plates and text, and
+     * Java2D charges for every rounded rectangle it fills, so the number is several times the
+     * game frame's: the home hub itself measures around 40 KiB. The budget is here to catch a
+     * screen that allocates <em>its own</em> garbage — a {@code new Color} in a render method, a
+     * string rebuilt per frame — not to make a menu as cheap as a run.
+     */
+    private static final long MENU_ALLOCATION_BUDGET_BYTES = 96 * 1024;
 
     @Test
     void iconIsNonBlankAtEverySize() {
@@ -348,6 +356,41 @@ class ProceduralRenderTest {
         System.out.println("[render] game frame allocates " + perFrame + " bytes");
         assertTrue(perFrame < ALLOCATION_BUDGET_BYTES, "a game frame allocated " + perFrame
                 + " bytes, budget " + ALLOCATION_BUDGET_BYTES);
+    }
+
+    @Test
+    @Tag("perf")
+    void aBirdSelectionFrameStaysWithinItsAllocationBudget() {
+        // The redesigned screen (M11) adds nothing of its own to a steady frame: the glow ramps
+        // and strokes are constants, the swatch and bar colours are cached when they are bound,
+        // and every measured string is cached on its text, its room and the text scale. What is
+        // left is what Java2D charges for the plates, so the frame is pinned under the menu
+        // budget rather than the game frame's. In `perfTest` for the same reason as the frame
+        // above.
+        com.sun.management.ThreadMXBean threads = allocationCounter();
+        assumeTrue(threads != null, "no per-thread allocation counter on this JVM");
+        Meta rich = Meta.spent();
+        Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
+        ScreenManager screens = new ScreenManager(viewport);
+        NullPresenter presenter = new NullPresenter(screens, viewport, Playfield.WIDTH,
+                Playfield.HEIGHT);
+        screens.setPresenter(presenter);
+        screens.push(rich.birds(screens));
+        screens.applyPending();
+        for (int i = 0; i < 50; i++) {
+            screens.tick(InputFrame.EMPTY);
+            presenter.present(0.5); // warm up the font, glyph, string and paint caches
+        }
+        long before = threads.getCurrentThreadAllocatedBytes();
+        int frames = 300;
+        for (int i = 0; i < frames; i++) {
+            screens.tick(InputFrame.EMPTY);
+            presenter.present(0.5);
+        }
+        long perFrame = (threads.getCurrentThreadAllocatedBytes() - before) / frames;
+        System.out.println("[render] bird selection frame allocates " + perFrame + " bytes");
+        assertTrue(perFrame < MENU_ALLOCATION_BUDGET_BYTES, "a bird selection frame allocated "
+                + perFrame + " bytes, budget " + MENU_ALLOCATION_BUDGET_BYTES);
     }
 
     @Test

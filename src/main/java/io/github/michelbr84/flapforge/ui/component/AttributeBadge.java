@@ -18,7 +18,8 @@ import java.util.Objects;
  * {@link UiNode} so a screen can hit-test it for a tooltip and lay it out with the rest. It sits
  * on a chip plate, because the hero band behind it is sky and muted text on sky is unreadable. The
  * label is ellipsised to the room the value leaves and re-measured only when the text or the text
- * scale changes, so the draw path allocates nothing.
+ * scale changes, and the value reads from a string built when it was bound, so the draw path
+ * adds nothing of its own.
  */
 public class AttributeBadge extends UiNode {
 
@@ -38,6 +39,7 @@ public class AttributeBadge extends UiNode {
     private final IconPainter icon;
     private String label = "";
     private int value;
+    private String reading = "0/" + MAX;
     private String shown = "";
     private String shownSource;
     private int shownWidth = -1;
@@ -61,7 +63,21 @@ public class AttributeBadge extends UiNode {
      */
     public void bind(String newLabel, int newValue) {
         this.label = newLabel == null ? "" : newLabel;
-        this.value = MathUtil.clamp(newValue, 0, MAX);
+        int clamped = MathUtil.clamp(newValue, 0, MAX);
+        if (clamped != value) {
+            // Built here, not per frame: the value changes with the browsed bird.
+            reading = clamped + "/" + MAX;
+        }
+        this.value = clamped;
+    }
+
+    /**
+     * The value as drawn.
+     *
+     * @return {@code "<value>/<MAX>"}
+     */
+    public String reading() {
+        return reading;
     }
 
     /**
@@ -117,7 +133,7 @@ public class AttributeBadge extends UiNode {
         TextPainter.draw(g, shown, textLeft, TextPainter.centeredBaseline(g, cy));
         g.setFont(Fonts.bold(VALUE_SIZE));
         g.setColor(ProceduralArt.TEXT_LIGHT);
-        TextPainter.draw(g, value + "/" + MAX, bx + bw - PADDING,
+        TextPainter.draw(g, reading, bx + bw - PADDING,
                 TextPainter.centeredBaseline(g, cy), Align.RIGHT);
     }
 }
