@@ -56,9 +56,11 @@ acompanham (interface em inglês).*
   ave Brasa (Cinder).
 - **Metas** reúne os sete desafios, as 41 conquistas, os marcos e as coleções em quatro abas —
   veja [[Desafios e metas|Desafios-e-Metas-(pt-BR)]].
-- **Aves** é onde você escolhe a ave, as cores, a linha do mundo, o nível de dificuldade, o modo
-  de partida e o equipamento — veja [[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]] e
-  [[Modos de jogo e dificuldade|Modos-de-Jogo-e-Dificuldade-(pt-BR)]].
+- **Aves** é onde você escolhe a ave, as cores e o equipamento, e onde o mundo, o nível de
+  dificuldade e o modo da partida são definidos atrás de uma barra de uma linha — veja
+  [[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]] e
+  [[Modos de jogo e dificuldade|Modos-de-Jogo-e-Dificuldade-(pt-BR)]]. Ela traz esta mesma barra
+  inferior, com Aves na placa dourada.
 - O **Perfil** atrás do cartão do jogador é onde fica o prestígio em duas etapas.
 
 ## Teclado, mouse e toque

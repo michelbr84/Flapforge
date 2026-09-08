@@ -54,8 +54,10 @@ almost black.
   world, nor Cinder the forge bird.
 - **Goals** gathers the seven challenges, the 41 achievements, the milestones and the
   collections in four tabs — see [[Challenges and Goals]].
-- **Birds** is where you pick the bird, its colours, the world row, the difficulty tier, the
-  run mode and the loadout — see [[Birds and Abilities]] and [[Game Modes and Difficulty]].
+- **Birds** is where you pick the bird, its colours and its loadout, and where the run's world,
+  difficulty tier and mode are set behind a one-line setup bar — see [[Birds and Abilities]] and
+  [[Game Modes and Difficulty]]. It carries this same bottom navigation, with Birds on the gold
+  plate.
 - The **Profile** behind the player card is where the two-step prestige lives.
 
 ## Keyboard, mouse and touch

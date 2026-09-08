@@ -147,8 +147,8 @@ A placa da tela inicial ("Mundo 1 · Campos Verdes") abre a tela **Escolha um mu
   bloqueados marcados; passar para um nível bloqueado faz a linha voltar, com o mesmo aviso.
 * Uma linha de descrição sob a linha Dificuldade descreve o mundo em foco.
 
-A linha Mundo da tela Aves faz o mesmo trabalho do outro lado da tela inicial
-([[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]]).
+A tela Aves define o mesmo mundo do outro lado da tela inicial, no painel atrás da barra da
+partida ([[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]]).
 
 ## Escolhendo um mundo pela linha de comando
 

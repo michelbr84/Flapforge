@@ -581,8 +581,9 @@ records the attempts and the best gate count under `RunMode.DAILY` (the reward c
 applies `economy.daily.rewardMult`, ×1.25, for the mode).
 
 **Run modes (D28).** `RunMode` is `STANDARD / SEEDED / DAILY / CHALLENGE`; `RunConfig` carries
-the mode and `RunRewardCalculator` reads it. The bird selection screen's mode row lists
-Standard and Seeded always and Daily when it has a clock, marks the two gated ones with their
+the mode and `RunRewardCalculator` reads it. The mode row in the bird selection screen's
+run-setup panel lists Standard and Seeded always and Daily when it has a clock, marks the two
+gated ones with their
 `feature:seeded_runs` condition, and falls back to a standard run when Play is pressed on a
 locked mode. Seeded replays `profile.lastSeed`; a challenge keeps its own screen and source
 (M8).
@@ -634,6 +635,22 @@ demo never arms it. The old Quit lives in Settings › About as a row shown only
 the former `ChallengesScreen` as its first tab and rebuilds its ring per tab (the list and Play
 exist only on Challenges); `StatisticsScreen` is the Profile, with a fixed header (portrait,
 level bar, prestige, collections) above the scrolled groups.
+
+**Section screens (M11).** The hub's language is factored into `ui.component`: `HubHeader` (the
+title plus a `CurrencyChip` that is focusable only when it has a route) and
+`SectionNav.build(nav, primaryId, routes)`, which fills a `NavBar` with the same five items and
+marks one as primary — Play on the hub, the section itself on a section screen, so the gold
+plate reads "you are here". `BirdSelectionScreen` is the first screen built that way: a
+`BirdHero` (name, archetype line, the bird bobbing on an anvil on an island, and three
+`AttributeBadge`s fed by `BirdAttributes.of`, which resolves a `StatSheet` from the bird's own
+`BirdProfile` and its innate abilities and scores mobility, defence and control out of ten), a
+`Carousel` of `Tile`s (`CardGrid.Card` subclasses clipped to a scrolling viewport, walked with
+Left/Right, the end arrows or the wheel), a `RunSetupBar` opening a `RunSetupPanel` over the
+world, tier and mode rows, `AbilityCard`s for the loadout with the breakdown behind a
+`DetailsPanel`, one `CtaButton` and the `SectionNav`. Reduce flashing caps the glows and leaves
+the bob, the wing beat, the hero's slide and the carousel's tween alone: they are motion, not
+luminance, exactly as on the hub. Nothing interactive leaves the 420×640 playfield, and the
+navigation routes use `ScreenManager.replace`, so the stack stays two deep.
 
 **MetaSim (E25).** `gameplay.harness.MetaSim` is the career-scale harness: a fresh profile plays
 run after run through the real progression stack under one of two purchase policies
@@ -703,10 +720,11 @@ Flapforge/
     │   │               AssetManager AssetResolver Sprite SpriteSheet Animation Camera ParticleSystem [M2]  PickupRenderer [M3]  ObstacleRendererRegistry [M7]
     │   ├── audio/      AudioBackend SoftwareMixer NullAudio Voice SoundBank ToneSynth AudioManager [M2]  MusicSequencer [M8]
     │   └── ui/         Screen ScreenManager UiNode FocusRing [M0]
-    │       ├── component/  Button Label Panel [M0]  Slider Toggle ListView Toast [M2]  ProgressBar CurrencyDisplay [M3]  Tooltip CardGrid TabBar [M4]  IconPainter IconButton NavButton NavBar CtaButton CurrencyChip [M10]
+    │       ├── component/  Button Label Panel [M0]  Slider Toggle ListView Toast [M2]  ProgressBar CurrencyDisplay [M3]  Tooltip CardGrid TabBar [M4]  IconPainter IconButton NavButton NavBar CtaButton CurrencyChip [M10]  HubHeader SectionNav Carousel AbilityCard AttributeBadge [M11]
     │       └── screens/    MainMenuScreen (minimal) SettingsScreen (stub) [M0]  GameScreen PauseOverlay GameOverOverlay SeededRunSource ClassicRunFactory ContentRunFactory SeedSequence [M1]  BootScreen [M2; MainMenu/Settings completed]
     │                       RunSummaryScreen StatisticsScreen [M3]  BirdSelectionScreen UpgradeTreeScreen ShopScreen [M4]  ModifierChoiceOverlay [M6]
     │                       RuleShiftBanner [M7]  BossBanner [M8]  GoalsScreen (Challenges+Achievements merged) WorldSelectScreen PlayerCard WorldPlaque NextUnlockCard ForgeScene BirdPortrait [M10; MainMenuScreen = home hub, StatisticsScreen = Profile]
+    │                       BirdHero BirdAttributes AbilityIcons RunSetupBar RunSetupPanel DetailsPanel [M11; BirdSelectionScreen in the hub's language]
     ├── main/resources/
     │   ├── assets/manifest.json [M2, empty asset list]  assets/sprites/{birds,obstacles,worlds,ui}/.gitkeep assets/audio/{sfx,music}/.gitkeep [M2]  assets/fonts/{<ofl-font>.ttf,LICENSE} [M8]
     │   ├── data/birds.json difficulty.json [M1]  economy.json [M3]  upgrades.json aliases.json [M4]  abilities.json [M5]  modifiers.json [M6]  worlds.json patterns.json [M7]  challenges.json achievements.json [M8]
