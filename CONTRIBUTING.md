@@ -60,10 +60,26 @@ Use a short, lowercase, hyphen-separated description with a type prefix:
 | `chore/` | build, CI, tooling, dependency updates |
 | `content/` | JSON content and balancing changes |
 
-The rewrite is merged: `main` is it. The `rewrite/flapforge` branch survives only for the
-M10 P5 Android test suite that was never merged (tip `7b26868`, about 3,000 lines whose
-functions were re-implemented on `main`). Archive it as the `archive/rewrite-flapforge`
-tag before deleting the branch, so the suite stays reachable.
+The rewrite is merged: `main` is it, and it is the only branch on the remote.
+
+`rewrite/flapforge` was archived as the annotated tag `archive/rewrite-flapforge`
+(tip `7b26868`) and then deleted. The tag is worth keeping because that branch carried an
+M10 P5 Android test suite that never reached `main` — `GoldenRenderTest`,
+`Graphics2DAllocationTest`, `AndroidDeterminismTest`, `ManifestContractTest`,
+`SuiteInventoryTest`, `MainActivityStartupFailureTest`, the golden PNG fixtures under
+`android/src/test/resources/golden/` and `android/tools/GoldenRender.java` — plus the
+`jrecord` record-reflection shim, which `main` replaced with a binder that never touches
+`java.lang.Record`. `main` covers some of that ground with its own Android tests; the tag
+keeps the originals reachable. Read it with:
+
+```bash
+git fetch origin tag archive/rewrite-flapforge
+git show archive/rewrite-flapforge          # what the branch held and why
+```
+
+The other two branches needed no archive: `claude/game-apk-issues-d0384o` was the exact
+commit behind the `v0.1.1` tag, and `claude/flapforge-menu-visual-hub-thpftv` was an
+ancestor of `main`.
 
 ## Commit messages
 
