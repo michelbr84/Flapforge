@@ -58,7 +58,6 @@ public final class BootScreen implements Screen {
     private static final Color BAR_FILL = new Color(0x6F, 0xD1, 0xA8);
 
     private final ScreenManager screens;
-    private final GameContext context;
     private final BootSequence boot;
     private final Supplier<Screen> next;
     private final Strings strings;
@@ -90,7 +89,6 @@ public final class BootScreen implements Screen {
     private BootScreen(ScreenManager screens, GameContext context, BootSequence boot,
             Supplier<Screen> next) {
         this.screens = Objects.requireNonNull(screens, "screens");
-        this.context = context;
         this.boot = Objects.requireNonNull(boot, "boot");
         this.next = Objects.requireNonNull(next, "next");
         this.strings = context != null && context.strings() != null

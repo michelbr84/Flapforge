@@ -549,7 +549,6 @@ class ModifierDirectorTest {
         private boolean bossPending;
         private boolean bossActive;
         private double deferred;
-        private int iFrames;
         private RuleSet rules = RuleSet.EMPTY;
 
         @Override
@@ -569,7 +568,7 @@ class ModifierDirectorTest {
 
         @Override
         public void grantIFrames(int ticks) {
-            iFrames = ticks;
+            // Recorded by the real world; nothing these tests assert reads it back.
         }
 
         @Override

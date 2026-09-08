@@ -1,6 +1,5 @@
 package io.github.michelbr84.flapforge.app;
 
-import io.github.michelbr84.flapforge.input.InputQueue;
 
 /**
  * Feeds a host's input events into the {@link InputQueue} as {@code RawInput} records (D2,

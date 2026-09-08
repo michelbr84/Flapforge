@@ -12,13 +12,76 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+## 0.2.1 — 2026-09-08
+
+The bird-selection release: the Birds screen stops reading like a settings
+list and becomes a collection screen in the home hub's own visual language.
+Nothing was taken away — the world, tier and mode rows, the ability list and
+the stat breakdown are the same rows with the same ids, moved into two panels
+that give them the height to be read.
+
 ### Added
 
+- The **Birds screen is rebuilt** in the hub's language (M11). The
+  `HubHeader` names it and shows the wallet (the coin chip opens the Shop, as
+  on the hub). Under it the **hero**: the bird being browsed, large, bobbing
+  on an anvil on a floating island, with its name, what it is
+  ("Guardian · Selected") and three headline attributes — **Mobility**,
+  **Defence** and **Control**, each out of ten, resolved by
+  `BirdAttributes.of` from the bird's own profile and its innate abilities, so
+  they describe the bird alone and never move when an upgrade is bought. Below
+  it a **carousel** of the seven birds walked with Left/Right, the arrows at
+  its ends or the wheel: a locked tile carries its padlock and its price and
+  nudges the padlock when it is tapped, and the selected tile carries the same
+  gold border as the hub's call to action. Then the palette swatches of the
+  browsed bird, a one-line **run-setup bar** ("Green Fields · Normal ·
+  Standard ›") whose panel holds the world, tier and mode rows, the loadout as
+  **ability cards** (icon, role, name, "Lv 1/3") with the ability list and the
+  stat breakdown behind **See details**, one gold call to action naming the
+  single thing to do (*Use Ironbeak*, *Buy · 150 coins*, *Bird selected*,
+  *Locked · Play 3 runs*), and the hub's own five-item navigation with
+  **Birds** on the gold plate.
+- Two reusable hub components, so the other section screens can adopt the same
+  shell: `HubHeader` (title plus a currency chip that is focusable only when it
+  has a route) and `SectionNav.build(nav, primaryId, routes)`, which fills a
+  `NavBar` with Shop · Birds · Play · Forge · Goals and marks one item as
+  primary — Play on the hub, the section itself on a section screen. With them
+  come `Carousel`, `AbilityCard` and `AttributeBadge`.
 - The release workflow names the GitHub release and fills its notes from the
   version's section of this changelog (`scripts/release-notes.sh`: the
   section, a download table and the compare link against the previous tag),
   and a dispatchable *Release notes* workflow (`release-notes.yml`) re-applies
   them to an existing release.
+
+### Changed
+
+- The world, tier and mode rows moved from the Birds screen's body into the
+  panel its run-setup bar opens, and the ability list and stat breakdown into
+  the panel *See details* opens. Each panel owns its own focus ring and is the
+  ring taking input while it is up, so nothing under the veil can be hovered,
+  clicked or reached with an arrow; `Esc` closes the panel before it leaves the
+  screen. Under a settled daily the world and tier rows go read-only and show
+  the pick's own world and tier, because that is what the daily will play
+  whatever the rows said.
+- The Birds screen has **no Back button**: `Esc` (or the Android back gesture)
+  returns to the hub, exactly as on the hub's other section screens, and the
+  bottom navigation replaces the screen instead of stacking one.
+- Reduce flashing on the Birds screen caps the three glows and leaves the
+  motion alone — the bob, the wing beat, the hero's slide and the carousel's
+  tween are motion, not luminance, the same line the hub already draws with its
+  own bob.
+- The gold call to action ellipsises its title when even its smallest font size
+  overflows the plate, so a long translation at a large text scale can no
+  longer spill past it.
+
+### Fixed
+
+- Every warning the Eclipse compiler's default set reported over the tree is
+  gone (29 of them: unused imports, fields, locals and one private method, five
+  missing `serialVersionUID`s, two dead-code guards and two deprecated
+  `Thread.getId()` calls). The IDE Problems panel showing hundreds of markers
+  is stale language-server state from older checkouts, not this tree: run
+  *Java: Clean Java Language Server Workspace* and reload after pulling.
 
 ## 0.2.0 — 2026-09-07
 

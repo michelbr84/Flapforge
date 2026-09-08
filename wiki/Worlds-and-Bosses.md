@@ -140,8 +140,8 @@ The plaque on the home hub ("World 1 · Green Fields") opens the screen titled *
   locked tiers marked; stepping onto a locked tier snaps the row back with the same toast.
 * A description line under the row describes the focused world.
 
-The world row of the Birds screen does the same job from the other side of the hub
-([[Birds and Abilities]]).
+The Birds screen sets the same world from the other side of the hub, in the panel behind its
+run-setup bar ([[Birds and Abilities]]).
 
 ## Picking a world from the command line
 

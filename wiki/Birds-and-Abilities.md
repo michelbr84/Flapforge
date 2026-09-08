@@ -49,35 +49,55 @@ Jackdaw with Score Multiplier is a high-risk economy build.
 ## The Birds screen
 
 ![The Birds screen](images/birds.png)
-*The Birds screen: the roster on the left, the loadout chips and the ability panel on the right.*
+*The Birds screen: the browsed bird on the anvil, the roster below it, and the run in one line.*
 
-The screen is titled **Birds** and has six parts:
+The screen wears the home hub's clothes: the same header, the same gold call to action, the same
+bottom navigation with **Birds** on the gold plate. It has seven parts, top to bottom:
 
-* **The roster.** Seven cards, each with a procedural portrait in the palette you selected for
-  that bird and its archetype. A locked card carries a padlock and says the cheapest way in, in
-  words: a beginner reads "Play 3 runs" under Ironbeak, a player with 150 coins reads
-  "150 coins". Activating an owned card selects it and saves at once; **Buy** pays for a locked
-  one and unlocks it on the spot.
-* **Colours.** One swatch per palette the bird ships, with the condition under each locked one.
-  Every bird has a default palette and a golden **Prestige** palette (granted by a prestige, see
+* **The header.** The title on the left and your coins on the right. The coin chip opens the
+  [[Shop and Upgrades|Shop-and-Upgrades]], exactly as it does on the hub.
+* **The bird.** The bird you are browsing, large, bobbing on an anvil on a floating island: its
+  name, a line saying what it is (`Guardian · Selected`, `Heavy · Locked`), and three badges —
+  **Mobility**, **Defence** and **Control**, each out of ten. The three numbers describe the
+  bird alone, read from its own data and its innate abilities: they are what separates Zephyr
+  (7 mobility) from Ironbeak (10 defence), and they never move when you buy an upgrade. What the
+  run would actually resolve to is the stat breakdown behind **See details**.
+* **The roster.** One tile per bird, in a strip you walk with Left/Right, the arrows at its ends
+  or the mouse wheel. A tile carries the portrait in the palette you selected for that bird, its
+  name and its archetype; a locked tile is dimmed under a padlock and says the cheapest way in,
+  in words or in coins. The selected bird's tile carries the same gold border as the hub's call
+  to action. Walking onto a tile shows that bird above; tapping an owned tile selects it and
+  saves at once, and tapping a locked one nudges its padlock.
+* **Colours.** One swatch per palette the bird ships, with the locked ones marked. Every bird has
+  a default palette and a golden **Prestige** palette (granted by a prestige, see
   [[Game Modes and Difficulty]]); the others are listed below. Switching birds repairs the
   palette, because a palette belongs to one bird.
-* **The world row, the tier row and the mode row.** The world row lists the five worlds in order
-  with "Hazards: …" for an owned one and "Locked: …" with the cheapest way in for a locked one;
-  the tier row lists Normal, Hard and Nightmare with the locked tiers marked; the mode row lists
-  Standard, Seeded and Daily. Stepping onto something locked snaps the row back with a toast.
-  See [[Worlds and Bosses]] and [[Game Modes and Difficulty]].
-* **The loadout row.** One chip per slot: **Active**, **Passive 1** to **Passive N**, and a
-  fixed **Innate** chip for each passive the bird grants by itself. Enter cycles a chip through
-  the abilities that slot may hold; an empty chip reads **Empty**.
-* **Abilities and stats.** The panel beside the chips lists every ability with its kind, tags,
-  level, the price of the next level and what each level does; the equipped ones are marked
-  **Equipped**, and one the run's rules would remove is greyed out as "Stripped by …".
-* **Stat breakdown.** The resolved physics of the run that would start right now, one row per
+* **The run setup bar.** One line — `Green Fields · Normal · Standard ›` — with the world's
+  colours beside it and the hazards, the seed hint or the daily's setup underneath. Activating it
+  opens a panel with the world row, the tier row and the mode row and a **Done** button; Esc
+  closes it too. The world row lists the five worlds in order with "Hazards: …" for an owned one
+  and "Locked: …" with the cheapest way in for a locked one; the tier row lists Normal, Hard and
+  Nightmare; the mode row lists Standard, Seeded and Daily. Stepping onto something locked snaps
+  the row back with a toast. Under a settled **Daily** the world and tier rows are read-only and
+  say so: the daily picks them, not you. See [[Worlds and Bosses]] and
+  [[Game Modes and Difficulty]].
+* **Abilities.** One card per slot — **Active**, **Passive 1** to **Passive N**, and a fixed
+  **Innate** card for each passive the bird grants by itself — each with its icon, its level and
+  the ability's name; an empty card reads **Empty**. Enter cycles a card through the abilities
+  that slot may hold. **See details** opens the panel that lists every ability with its kind,
+  tags, level, the price of the next level and what each level does (the equipped ones marked
+  **Equipped**, one the run's rules would remove greyed out as "Stripped by …"), followed by the
+  stat breakdown: the resolved physics of the run that would start right now, one row per
   contribution (bird, upgrade node, synergy, world, tier). Buying Feather Weight in the upgrade
-  trees adds a line under Gravity here and drops it from 1800 to 1746.
-
-**Play** at the bottom starts the run with everything shown; **Back** returns to the hub.
+  trees adds a line under Gravity there and drops it from 1800 to 1746. The panel scrolls with
+  the wheel, the arrows or Page Up/Page Down.
+* **The call to action and the navigation.** The gold button says the one thing to do with the
+  bird above it: **Use \<bird\>** for an owned bird, **Bird selected** when it is already yours
+  to fly, **Buy · \<price\>** when you can afford it, or **Locked · \<condition\>** when you
+  cannot. Below it the hub's five items — Shop, Birds, Play, Forge, Goals — with **Birds** on the
+  gold plate: **Play** starts the run with everything shown, the other three change section.
+  There is no Back button: Esc or the back gesture returns to the hub, and closes an open panel
+  first.
 
 | Bird | Palette | Unlocked by |
 | --- | --- | --- |

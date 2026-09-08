@@ -51,38 +51,59 @@ Gralha com Multiplicador de Pontos é uma combinação de economia com risco alt
 ## A tela Aves
 
 ![A tela Aves](images/birds.png)
-*A tela Aves: o elenco à esquerda, os chips do equipamento e o painel de habilidades à direita
+*A tela Aves: a ave em exibição sobre a bigorna, o elenco abaixo dela e a partida em uma linha
 (interface em inglês).*
 
-A tela se chama **Aves** e tem seis partes:
+A tela veste a roupa da tela inicial: o mesmo cabeçalho, o mesmo botão dourado e a mesma
+navegação de rodapé, com **Aves** na placa dourada. Ela tem sete partes, de cima para baixo:
 
-* **O elenco.** Sete cartões, cada um com um retrato procedural na paleta que você escolheu para
-  aquela ave e o arquétipo dela. Um cartão bloqueado traz um cadeado e diz, em palavras, o
-  caminho mais barato: quem está começando lê "Jogue 3 partidas" sob o Bico-de-ferro; quem tem
-  150 moedas na carteira lê "150 moedas". Ativar um cartão adquirido seleciona a ave e salva na
-  hora; **Comprar** paga por uma ave bloqueada e a desbloqueia ali mesmo.
-* **Cores.** Uma amostra por paleta da ave, com a condição embaixo de cada uma bloqueada. Toda ave
-  tem a paleta Padrão e uma paleta dourada **Prestígio** (concedida por um prestígio, veja
+* **O cabeçalho.** O título à esquerda e suas moedas à direita. O chip de moedas abre a
+  [[Loja e melhorias|Loja-e-Melhorias-(pt-BR)]], como na tela inicial.
+* **A ave.** A ave que você está vendo, grande, balançando sobre uma bigorna numa ilha
+  flutuante: o nome, uma linha dizendo o que ela é (`Guardiã · Selecionado`,
+  `Pesada · Bloqueado`) e três selos — **Mobilidade**, **Defesa** e **Controle**, cada um de
+  dez. Os três números descrevem a ave sozinha, lidos dos dados dela e das habilidades inatas:
+  são eles que separam o Zéfiro (7 de mobilidade) do Bico-de-ferro (10 de defesa), e não se
+  movem quando você compra uma melhoria. O que a partida realmente resolveria está no
+  detalhamento atrás de **Ver detalhes**.
+* **O elenco.** Um cartão por ave, numa faixa que você percorre com Esquerda/Direita, com as
+  setas nas pontas ou com a roda do mouse. O cartão traz o retrato na paleta que você escolheu
+  para aquela ave, o nome e o arquétipo; um cartão bloqueado fica escurecido sob um cadeado e
+  diz o caminho mais barato, em palavras ou em moedas. O cartão da ave selecionada usa a mesma
+  borda dourada do botão da tela inicial. Passar por um cartão mostra aquela ave acima; tocar um
+  cartão adquirido seleciona a ave e salva na hora, e tocar um bloqueado sacode o cadeado dele.
+* **Cores.** Uma amostra por paleta da ave, com as bloqueadas marcadas. Toda ave tem a paleta
+  Padrão e uma paleta dourada **Prestígio** (concedida por um prestígio, veja
   [[Modos de jogo e dificuldade|Modos-de-Jogo-e-Dificuldade-(pt-BR)]]); as outras estão na
   tabela abaixo. Trocar de ave corrige a paleta, porque cada paleta pertence a uma ave.
-* **As linhas Mundo, Dificuldade e Modo.** A linha Mundo lista os cinco mundos em ordem, com
-  "Perigos: …" para um mundo adquirido e "Bloqueado: …" com o caminho mais barato para um
-  bloqueado; a linha Dificuldade lista Normal, Difícil e Pesadelo com os níveis bloqueados
-  marcados; a linha Modo lista Padrão, Com semente e Diária. Passar para algo bloqueado faz a
-  linha voltar, com um aviso. Veja [[Mundos e chefes|Mundos-e-Chefes-(pt-BR)]] e
+* **A barra da partida.** Uma linha — `Campos Verdes · Normal · Padrão ›` — com as cores do
+  mundo ao lado e, embaixo, os perigos, a dica da semente ou a configuração da diária. Ativá-la
+  abre um painel com as linhas Mundo, Dificuldade e Modo e um botão **Concluir**; Esc também
+  fecha. A linha Mundo lista os cinco mundos em ordem, com "Perigos: …" para um mundo adquirido
+  e "Bloqueado: …" com o caminho mais barato para um bloqueado; a linha Dificuldade lista Normal,
+  Difícil e Pesadelo; a linha Modo lista Padrão, Com semente e Diária. Passar para algo
+  bloqueado faz a linha voltar, com um aviso. Com a **Diária** definida, as linhas Mundo e
+  Dificuldade ficam somente para leitura e dizem isso: a diária escolhe por você. Veja
+  [[Mundos e chefes|Mundos-e-Chefes-(pt-BR)]] e
   [[Modos de jogo e dificuldade|Modos-de-Jogo-e-Dificuldade-(pt-BR)]].
-* **A linha Equipamento.** Um chip por espaço: **Ativa**, **Passiva 1** a **Passiva N**, e um
-  chip fixo **Inata** para cada passiva que a ave concede por conta própria. Enter alterna o chip
-  entre as habilidades que aquele espaço aceita; um chip sem nada mostra **Vazio**.
-* **Habilidades e status.** O painel ao lado dos chips lista cada habilidade com tipo, etiquetas,
-  nível, preço do próximo nível e o que cada nível faz; as equipadas aparecem como **Equipada**,
-  e uma que as regras da partida removeriam fica acinzentada como "Removida por …".
-* **Detalhamento dos atributos.** A física resolvida da partida que começaria agora, uma linha
-  por contribuição (ave, nó de melhoria, sinergia, mundo, dificuldade). Comprar Peso Pena nas
-  árvores de melhorias acrescenta uma linha sob Gravidade aqui e baixa o valor de 1800 para 1746.
-
-**Jogar**, no rodapé, inicia a partida com tudo o que está na tela; **Voltar** retorna à tela
-inicial.
+* **Habilidades.** Um cartão por espaço — **Ativa**, **Passiva 1** a **Passiva N**, e um cartão
+  fixo **Inata** para cada passiva que a ave concede por conta própria — cada um com o ícone, o
+  nível e o nome da habilidade; um cartão sem nada mostra **Vazio**. Enter alterna o cartão
+  entre as habilidades que aquele espaço aceita. **Ver detalhes** abre o painel que lista cada
+  habilidade com tipo, etiquetas, nível, preço do próximo nível e o que cada nível faz (as
+  equipadas aparecem como **Equipada**, e uma que as regras da partida removeriam fica
+  acinzentada como "Removida por …"), seguido do detalhamento dos atributos: a física resolvida
+  da partida que começaria agora, uma linha por contribuição (ave, nó de melhoria, sinergia,
+  mundo, dificuldade). Comprar Peso Pena nas árvores de melhorias acrescenta uma linha sob
+  Gravidade ali e baixa o valor de 1800 para 1746. O painel rola com a roda, com as setas ou com
+  Page Up/Page Down.
+* **O botão e a navegação.** O botão dourado diz a única coisa a fazer com a ave acima dele:
+  **Usar \<ave\>** para uma ave adquirida, **Ave selecionada** quando ela já é a sua,
+  **Comprar · \<preço\>** quando você pode pagar, ou **Bloqueado · \<condição\>** quando não
+  pode. Abaixo dele, os cinco itens da tela inicial — Loja, Aves, Jogar, Forja, Metas — com
+  **Aves** na placa dourada: **Jogar** inicia a partida com tudo o que está na tela, e os outros
+  três trocam de seção. Não há botão Voltar: Esc ou o gesto de voltar retorna à tela inicial, e
+  fecha antes um painel aberto.
 
 | Ave | Paleta | Desbloqueada por |
 | --- | --- | --- |

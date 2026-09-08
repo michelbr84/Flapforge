@@ -122,6 +122,14 @@ class ProceduralRenderTest {
             + " \"license\": \"CC0-1.0\", \"source\": \"drawn for this test\"}]}";
     /** Per-frame allocation budget of the game screen, in bytes. */
     private static final long ALLOCATION_BUDGET_BYTES = 24 * 1024;
+    /**
+     * Per-frame allocation budget of a menu screen, in bytes. A menu is plates and text, and
+     * Java2D charges for every rounded rectangle it fills, so the number is several times the
+     * game frame's: the home hub itself measures around 40 KiB. The budget is here to catch a
+     * screen that allocates <em>its own</em> garbage — a {@code new Color} in a render method, a
+     * string rebuilt per frame — not to make a menu as cheap as a run.
+     */
+    private static final long MENU_ALLOCATION_BUDGET_BYTES = 96 * 1024;
 
     @Test
     void iconIsNonBlankAtEverySize() {
@@ -177,6 +185,72 @@ class ProceduralRenderTest {
             }
             assertTrue(distinctColours(img, 1) >= 2, icon.getKey() + " is uniform");
         }
+    }
+
+    @Test
+    void theBirdSelectionIconsRenderNonBlank() {
+        Map<String, java.util.function.Consumer<Graphics2D>> icons = new LinkedHashMap<>();
+        Color gold = ProceduralArt.COIN_GOLD;
+        icons.put("shield", g -> ProceduralArt.drawShield(g, 24, 24, 30, gold));
+        icons.put("wing", g -> ProceduralArt.drawWing(g, 24, 24, 30, gold));
+        icons.put("heart", g -> ProceduralArt.drawHeart(g, 24, 24, 30, gold));
+        icons.put("magnet", g -> ProceduralArt.drawMagnet(g, 24, 24, 30, gold));
+        icons.put("hourglass", g -> ProceduralArt.drawHourglass(g, 24, 24, 30, gold));
+        icons.put("check", g -> ProceduralArt.drawCheck(g, 24, 24, 30, gold));
+        icons.put("slot ring", g -> ProceduralArt.drawSlotRing(g, 24, 24, 30, gold));
+        icons.put("chevron right", g -> ProceduralArt.drawChevron(g, 24, 24, 16, gold, false));
+        icons.put("chevron left", g -> ProceduralArt.drawChevron(g, 24, 24, 16, gold, true));
+        icons.put("island", g -> ProceduralArt.drawIsland(g, 24, 16, 44, 20,
+                ProceduralArt.WOOD, gold, ProceduralArt.TEXT_DARK));
+        // The badge and card glyphs are drawn at 12 and 16 px, so they are swept small as well.
+        for (int size : new int[] {12, 16}) {
+            icons.put("shield " + size, g -> ProceduralArt.drawShield(g, 24, 24, size, gold));
+            icons.put("wing " + size, g -> ProceduralArt.drawWing(g, 24, 24, size, gold));
+            icons.put("magnet " + size, g -> ProceduralArt.drawMagnet(g, 24, 24, size, gold));
+            icons.put("heart " + size, g -> ProceduralArt.drawHeart(g, 24, 24, size, gold));
+            icons.put("hourglass " + size,
+                    g -> ProceduralArt.drawHourglass(g, 24, 24, size, gold));
+            icons.put("check " + size, g -> ProceduralArt.drawCheck(g, 24, 24, size, gold));
+            icons.put("slot ring " + size,
+                    g -> ProceduralArt.drawSlotRing(g, 24, 24, size, gold));
+        }
+        try {
+            for (boolean highContrast : new boolean[] {false, true}) {
+                Accessibility.setHighContrast(highContrast);
+                for (Map.Entry<String, java.util.function.Consumer<Graphics2D>> icon
+                        : icons.entrySet()) {
+                    BufferedImage img = new BufferedImage(48, 48, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g = img.createGraphics();
+                    try {
+                        ProceduralArt.prepare(g);
+                        icon.getValue().accept(g);
+                    } finally {
+                        g.dispose();
+                    }
+                    assertTrue(distinctColours(img, 1) >= 2,
+                            icon.getKey() + " is uniform (high contrast " + highContrast + ")");
+                }
+            }
+        } finally {
+            Accessibility.clear();
+        }
+        // A zero size is a no-op, never an exception: a collapsed layout still draws a frame.
+        BufferedImage empty = new BufferedImage(48, 48, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = empty.createGraphics();
+        try {
+            ProceduralArt.prepare(g);
+            ProceduralArt.drawShield(g, 24, 24, 0, gold);
+            ProceduralArt.drawWing(g, 24, 24, 0, gold);
+            ProceduralArt.drawHeart(g, 24, 24, 0, gold);
+            ProceduralArt.drawMagnet(g, 24, 24, 0, gold);
+            ProceduralArt.drawHourglass(g, 24, 24, 0, gold);
+            ProceduralArt.drawCheck(g, 24, 24, 0, gold);
+            ProceduralArt.drawSlotRing(g, 24, 24, 0, gold);
+            ProceduralArt.drawIsland(g, 24, 16, 0, 0, gold, gold, gold);
+        } finally {
+            g.dispose();
+        }
+        assertEquals(1, distinctColours(empty, 1), "a zero size drew something");
     }
 
     @Test
@@ -273,16 +347,50 @@ class ProceduralRenderTest {
         for (int i = 0; i < 50; i++) {
             rig.frame(0.5); // warm up the font, glyph and paint caches
         }
-        long id = Thread.currentThread().getId();
-        long before = threads.getThreadAllocatedBytes(id);
+        long before = threads.getCurrentThreadAllocatedBytes();
         int frames = 300;
         for (int i = 0; i < frames; i++) {
             rig.frame(0.5);
         }
-        long perFrame = (threads.getThreadAllocatedBytes(id) - before) / frames;
+        long perFrame = (threads.getCurrentThreadAllocatedBytes() - before) / frames;
         System.out.println("[render] game frame allocates " + perFrame + " bytes");
         assertTrue(perFrame < ALLOCATION_BUDGET_BYTES, "a game frame allocated " + perFrame
                 + " bytes, budget " + ALLOCATION_BUDGET_BYTES);
+    }
+
+    @Test
+    @Tag("perf")
+    void aBirdSelectionFrameStaysWithinItsAllocationBudget() {
+        // The redesigned screen (M11) adds nothing of its own to a steady frame: the glow ramps
+        // and strokes are constants, the swatch and bar colours are cached when they are bound,
+        // and every measured string is cached on its text, its room and the text scale. What is
+        // left is what Java2D charges for the plates, so the frame is pinned under the menu
+        // budget rather than the game frame's. In `perfTest` for the same reason as the frame
+        // above.
+        com.sun.management.ThreadMXBean threads = allocationCounter();
+        assumeTrue(threads != null, "no per-thread allocation counter on this JVM");
+        Meta rich = Meta.spent();
+        Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
+        ScreenManager screens = new ScreenManager(viewport);
+        NullPresenter presenter = new NullPresenter(screens, viewport, Playfield.WIDTH,
+                Playfield.HEIGHT);
+        screens.setPresenter(presenter);
+        screens.push(rich.birds(screens));
+        screens.applyPending();
+        for (int i = 0; i < 50; i++) {
+            screens.tick(InputFrame.EMPTY);
+            presenter.present(0.5); // warm up the font, glyph, string and paint caches
+        }
+        long before = threads.getCurrentThreadAllocatedBytes();
+        int frames = 300;
+        for (int i = 0; i < frames; i++) {
+            screens.tick(InputFrame.EMPTY);
+            presenter.present(0.5);
+        }
+        long perFrame = (threads.getCurrentThreadAllocatedBytes() - before) / frames;
+        System.out.println("[render] bird selection frame allocates " + perFrame + " bytes");
+        assertTrue(perFrame < MENU_ALLOCATION_BUDGET_BYTES, "a bird selection frame allocated "
+                + perFrame + " bytes, budget " + MENU_ALLOCATION_BUDGET_BYTES);
     }
 
     @Test
@@ -1274,6 +1382,9 @@ class ProceduralRenderTest {
                 screens.push(birds);
                 screens.applyPending();
                 screens.tick(InputFrame.EMPTY);
+                // The three pickers live on the run-setup panel the summary bar opens (M11).
+                birds.openRunSetup();
+                screens.tick(InputFrame.EMPTY);
                 assertEquals(Strings.active().get(StringKey.BIRDS_WORLD),
                         birds.worldList().label(), "the picker is labelled in " + language);
                 assertEquals(5, birds.worldIds().size(), "five worlds in the picker");
@@ -1298,14 +1409,12 @@ class ProceduralRenderTest {
      * world, with obstacles placed by hand so every family is on screen at once.
      */
     private static final class WorldRig {
-        final GameContent content;
         final Run run;
         final GameRenderer renderer;
         final BufferedImage image = new BufferedImage(Playfield.WIDTH, Playfield.HEIGHT,
                 BufferedImage.TYPE_INT_RGB);
 
         WorldRig(GameContent content, String worldId) {
-            this.content = content;
             RunConfig config = RunConfig.builder(7).worldId(worldId).build();
             run = new RunFactory(content).newRun(config);
             WorldDef def = content.worlds().get(worldId);

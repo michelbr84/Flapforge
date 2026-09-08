@@ -1258,6 +1258,9 @@ class SmokeWindowTest {
             rig.frames(GRACE);
             assertEquals("green_fields", birds.currentWorldId(), "a fresh profile flies the fields");
             driver.parkPointerAt(Playfield.WIDTH / 2.0, 30);
+            // The world, tier and mode rows live on the run-setup panel (M11).
+            birds.openRunSetup();
+            rig.frames(2);
             birds.focusRing().focus(birds.worldList());
             rig.frames(3);
             driver.tap(KeyEvent.VK_RIGHT, () -> "wind_valley".equals(profile.selected.worldId));
@@ -1269,6 +1272,10 @@ class SmokeWindowTest {
                     "the forge lists its gears: " + birds.worldDetail());
             assertTrue(Files.exists(rig.save.file()), "the selection reached the disk");
             assertTrue(saveShot("world-picker", rig) >= 2, "the picker frame is uniform");
+            // Esc closes the panel before it leaves the screen, so it is closed by hand here
+            // rather than leaning on the driver's retry to send a second Esc.
+            birds.closeRunSetup();
+            rig.frames(2);
             driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);
             rig.frames(GRACE);
             String forgeName = ProgressionText.name(strings, ContentKind.WORLD, "iron_forge");

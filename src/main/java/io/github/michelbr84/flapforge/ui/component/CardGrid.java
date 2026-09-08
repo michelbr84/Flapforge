@@ -353,6 +353,16 @@ public class CardGrid extends UiNode {
         }
 
         /**
+         * Whether the badge is drawn with the coin icon in front of it (a price rather than a
+         * state).
+         *
+         * @return {@code true} when the badge carries a coin
+         */
+        public boolean hasCoinBadge() {
+            return coinBadge;
+        }
+
+        /**
          * The text a {@link Tooltip} shows for this card.
          *
          * @return the text, possibly empty

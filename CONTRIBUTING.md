@@ -60,7 +60,10 @@ Use a short, lowercase, hyphen-separated description with a type prefix:
 | `chore/` | build, CI, tooling, dependency updates |
 | `content/` | JSON content and balancing changes |
 
-The rewrite itself lives on `rewrite/flapforge` until it is merged.
+The rewrite is merged: `main` is it. The `rewrite/flapforge` branch survives only for the
+M10 P5 Android test suite that was never merged (tip `7b26868`, about 3,000 lines whose
+functions were re-implemented on `main`). Archive it as the `archive/rewrite-flapforge`
+tag before deleting the branch, so the suite stays reachable.
 
 ## Commit messages
 

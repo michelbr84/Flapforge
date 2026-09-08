@@ -94,11 +94,6 @@ class ProgressionManagerTest {
             return this;
         }
 
-        Builder world(String worldId) {
-            config = config.worldId(worldId);
-            return this;
-        }
-
         Builder tier(String tierId) {
             config = config.tierId(tierId);
             return this;

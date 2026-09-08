@@ -490,6 +490,9 @@ public final class SaveInspector {
      * it fails the Gradle task and leaves an embedding JVM alive.
      */
     static final class ToolFailure extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
         private final int status;
 
         ToolFailure(int status) {

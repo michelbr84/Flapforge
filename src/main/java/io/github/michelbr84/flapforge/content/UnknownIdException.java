@@ -8,6 +8,8 @@ package io.github.michelbr84.flapforge.content;
  */
 public final class UnknownIdException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     private final String kind;
     private final String id;
 

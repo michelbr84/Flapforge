@@ -89,7 +89,6 @@ class CollectionProgressTest {
     @Test
     void theUpgradeCategoryCountsLevels() {
         int levels = 0;
-        long spent = 0;
         Wallet wallet = Wallet.of(profile);
         for (int i = 0; i < content.upgrades().size(); i++) {
             String id = content.upgrades().ids().get(i);
@@ -97,7 +96,6 @@ class CollectionProgressTest {
             for (int level = 1; level <= Math.min(2, max); level++) {
                 wallet.add(COINS, 1000);
                 profile.upgrades.put(id, level);
-                spent++;
                 levels++;
             }
         }

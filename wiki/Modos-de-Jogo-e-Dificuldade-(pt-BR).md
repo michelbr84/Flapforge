@@ -9,7 +9,8 @@ prestígio. O modo de demonstração, que toca quando você deixa a tela inicial
 
 ## Onde o modo é escolhido
 
-A linha Modo fica na tela Aves, ao lado das linhas Mundo e Dificuldade
+A linha Modo fica no painel da partida da tela Aves, embaixo das linhas Mundo e Dificuldade: a
+barra mostra `Mundo · Dificuldade · Modo ›` e ativá-la abre as três linhas
 ([[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]]). Padrão e Com semente estão sempre na lista;
 Diária aparece quando o jogo tem um relógio, e enquanto `feature:seeded_runs` ainda está
 bloqueado tanto Com semente quanto Diária avisam, com a condição de desbloqueio. A linha sob o
@@ -74,7 +75,8 @@ desbloqueio: três paletas de aves, a habilidade Invulnerabilidade (Uma Vida I) 
 ## Níveis de dificuldade
 
 Um nível se empilha sobre qualquer modo, exceto onde um desafio fixa o seu. Ele é escolhido na
-linha Dificuldade da tela Aves ou na linha Dificuldade da tela Escolha um mundo (a captura está
+linha Dificuldade do painel da partida da tela Aves ou na linha Dificuldade da tela Escolha um
+mundo (a captura está
 em [[Mundos e chefes|Mundos-e-Chefes-(pt-BR)]]); no desktop, `--tier <id>` escolhe o nível para
 uma execução.
 

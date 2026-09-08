@@ -36,7 +36,10 @@ import io.github.michelbr84.flapforge.progression.UnlockManager;
 import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.Fonts;
+import io.github.michelbr84.flapforge.render.Overscan;
+import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
+import io.github.michelbr84.flapforge.render.ProceduralArt.ButtonState;
 import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.render.TextPainter.Align;
 import io.github.michelbr84.flapforge.render.WorldPalette;
@@ -45,127 +48,130 @@ import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiCues;
 import io.github.michelbr84.flapforge.ui.UiNode;
+import io.github.michelbr84.flapforge.ui.component.AbilityCard;
+import io.github.michelbr84.flapforge.ui.component.AttributeBadge;
 import io.github.michelbr84.flapforge.ui.component.Button;
+import io.github.michelbr84.flapforge.ui.component.Carousel;
 import io.github.michelbr84.flapforge.ui.component.CardGrid;
+import io.github.michelbr84.flapforge.ui.component.CtaButton;
 import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
+import io.github.michelbr84.flapforge.ui.component.HubHeader;
+import io.github.michelbr84.flapforge.ui.component.IconPainter;
 import io.github.michelbr84.flapforge.ui.component.ListView;
+import io.github.michelbr84.flapforge.ui.component.NavBar;
+import io.github.michelbr84.flapforge.ui.component.NavButton;
+import io.github.michelbr84.flapforge.ui.component.SectionNav;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Tooltip;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.Shape;
 import java.awt.Stroke;
+import java.awt.geom.Ellipse2D;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * The bird selection (D17, M4/M5): the roster, the colours, the tier of the next run, the ability
- * loadout and — the other point of the screen — the stat breakdown of the build the player is
- * about to fly.
+ * The bird selection (D17, M4/M5, redesigned in M11): the bird the next run flies with, shown as
+ * a character rather than as a row of a settings list.
  *
- * <p>The roster is a {@link CardGrid} of all seven birds. An owned bird shows its name, its
- * archetype and its portrait in the palette the profile has selected for it; a locked one is
- * dimmed and says, in words, the <em>cheapest</em> way to open it ({@code Play 3 runs},
- * {@code 150 coins}), which is {@link ProgressionText#cheapestBranch} measured against this very
- * profile. Activating an owned card writes {@code profile.selected} through
- * {@link SelectionManager} and saves; Buy pays for a locked one through {@link UnlockManager},
- * which is the only path that grants a {@code purchase} branch (D13).
+ * <p>The screen reads top to bottom as one sentence. The {@link HubHeader} names it and shows the
+ * wallet. The {@link BirdHero} under it is the bird being browsed, large, bobbing on an anvil on
+ * a floating island, with its name, what it is, and its three headline attributes
+ * ({@link BirdAttributes}). The {@link Carousel} below is the whole roster in one scrolling row —
+ * a locked tile carries its padlock and its price, and nudges the padlock when it is tapped. Then
+ * the palette swatches of the browsed bird, the one-line {@link RunSetupBar} summarising the run
+ * ("Green Fields · Normal · Standard"), the loadout as {@link AbilityCard}s with a
+ * <em>See details</em> next to them, one gold {@link CtaButton} naming the single thing to do
+ * (<em>Use Ironbeak</em>, <em>Buy · 150 coins</em>, <em>Bird selected</em>, <em>Locked · Play 3
+ * runs</em>), and the hub's own five-item {@link NavBar} with Birds on the gold plate: on a
+ * section screen the primary item is where you are.
  *
- * <p>The panel below is not a second implementation of the stat pipeline: it reads
- * {@link RunLoadout#previewRun} — the very run that would start right now — and lists, per stat,
- * the resolved value and every contributing modifier with the thing it came from (the bird, an
- * upgrade node, the bird's synergy with the nodes owned, the world, the tier, the difficulty
- * curve). Buying {@code feather_1} in the upgrade screen therefore shows up here as a new line
- * under Gravity and a lower number next to it (D8, D17).
+ * <p>Nothing was taken away. The world, the tier and the run mode are the same three rows they
+ * always were — with the same refusals, the same snap-back and the same daily settlement (E27) —
+ * on the {@link RunSetupPanel} the bar opens; the ability list and the stat breakdown are the same
+ * rows, with the same ids, in the {@link DetailsPanel} that <em>See details</em> opens, where they
+ * finally have the height to be read. Each panel owns its own {@link FocusRing} and is the ring
+ * taking input while it is up, so nothing under the veil can be hovered, clicked or reached with
+ * an arrow; {@code Esc} closes the panel before it leaves the screen.
  *
- * <p><b>The loadout (M5, D9, E3).</b> Above the panel sits one chip per slot: the active ability,
- * the bird's passive slots ({@code BirdDef.passiveSlots + profile.passiveSlotBonus}) and the
- * passives the bird grants innately, which are shown fixed because nothing can unequip them.
- * Activating a chip steps to the next ability the slot may hold and writes
- * {@code profile.selected} through {@link SelectionManager}, which saves at once. The panel then
- * lists every unlocked ability with its level, its kind, its tags, the description of the level
- * the profile owns and what that level does — greyed out, with the rule named, when the run the
- * screen is previewing would strip it ({@code NO_DEFENSIVE_ABILITIES}, {@code NO_REVIVE}). A
- * greyed-out ability is not offered by any chip either: {@code Run.start()} would strip it
- * anyway, and a slot that accepted it would be lying.
+ * <p><b>What the bird selection writes.</b> Activating an owned tile or the call to action writes
+ * {@code profile.selected} through {@link SelectionManager} and saves at once; Buy pays for a
+ * locked bird through {@link UnlockManager}, which is the only path that grants a {@code purchase}
+ * branch (D13); a swatch writes the palette; the three rows write the world and the tier and
+ * refuse what the profile has not unlocked; a chip cycles the loadout. Under a settled daily the
+ * world and tier rows go read-only and show the pick's own world and tier, because that is what
+ * {@code DailyRunSource} will play whatever the rows said.
  *
- * <p><b>The world (M7, D17).</b> Between the actions and the tier sits the world picker: the
- * five worlds of {@code worlds.json} in order, each with a swatch of its palette and, under the
- * name, the hazards it spawns (the kinds with a positive spawn weight) — or, for a locked one,
- * the cheapest way to open it. Stepping to an owned world writes {@code profile.selected} through
- * {@link SelectionManager#selectWorld}; stepping to a locked one is refused with a toast and the
- * row snaps back, exactly like the tier picker.
+ * <p><b>Motion and accessibility.</b> Everything moves on the tick, never on the clock: the bob
+ * and the wing beat are the hub's triangle waves, a bird change slides the portraits over
+ * {@value BirdHero#SLIDE_TICKS} ticks and the carousel eases over
+ * {@value Carousel#SCROLL_TICKS}, and the selected tile and the call to action pulse gold over 90.
+ * Reduce flashing caps the three glows and leaves the motion alone — the hub draws the same line
+ * with its own bob — and high contrast reaches the plates, the role strokes and the island
+ * outline through {@link io.github.michelbr84.flapforge.render.Accessibility}. The screen itself
+ * adds nothing to a steady frame: the ramps and strokes are constants, the swatch and bar colours
+ * are cached when they are bound, and every measured string is cached on its text, its room and
+ * the text scale, so what a frame costs is what Java2D charges for the plates. Menu frames are
+ * not held to the game frame's 24 KiB budget — this one measures near the hub's, and
+ * {@code ProceduralRenderTest} pins it under a menu budget so a stray {@code new Color} in a
+ * render method shows up.
  */
 public final class BirdSelectionScreen implements Screen {
 
-    /** Top of the card grid. */
-    public static final int GRID_TOP = 48;
-    /** Height of one bird card. */
-    public static final int CARD_HEIGHT = 46;
-    /** Columns of the roster. */
-    public static final int COLUMNS = 2;
-    /** Side margin of everything on the screen. */
-    public static final int MARGIN = 12;
-    /** Width of the content column. */
-    public static final int CONTENT_W = Playfield.WIDTH - 2 * MARGIN;
-    /** Side of a palette swatch. */
-    public static final int SWATCH = 26;
     /** How many swatches the row can hold (the widest bird ships four palettes). */
     public static final int MAX_SWATCHES = 6;
-    /** Height of one breakdown row. */
-    public static final int ROW_H = 15;
-    /** Height of a breakdown stat header. */
-    public static final int HEADER_H = 17;
-    /** Logical pixels one wheel notch scrolls the breakdown. */
-    public static final int WHEEL_STEP = 30;
-    /** Columns of the loadout row. */
-    public static final int SLOT_COLUMNS = 3;
-    /**
-     * Chips the loadout row holds: the active slot, up to four passive slots (Oracle's three plus
-     * the {@code passive_slot} grant of E3) and one innate passive. A bird that grants more innate
-     * passives than fit still lists them in the ability panel below.
-     */
-    public static final int MAX_SLOTS = 6;
+
+    /** Side margin of everything on the screen. */
+    private static final int MARGIN = 12;
+    /** Width of the content column. */
+    private static final int CONTENT_W = Playfield.WIDTH - 2 * MARGIN;
+    /** Chips the loadout row holds: the active slot, up to four passive slots and one innate. */
+    private static final int MAX_SLOTS = 6;
     /** Highest number of passive slots any bird plus the E3 bonus can reach. */
-    public static final int MAX_PASSIVE_SLOTS = 4;
+    private static final int MAX_PASSIVE_SLOTS = 4;
+    /** Columns of the loadout row. */
+    private static final int SLOT_COLUMNS = 3;
     /** Characters a detail row fits before it is wrapped onto the next one. */
-    public static final int WRAP_CHARS = 62;
+    private static final int WRAP_CHARS = 62;
 
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
-    private static final int TITLE_BASELINE = 34;
-    private static final int WALLET_W = 130;
-    private static final int PALETTE_LABEL_BASELINE = 264;
-    private static final int SWATCH_TOP = 268;
-    private static final int ACTION_TOP = 302;
-    private static final int ACTION_H = 30;
-    /** Top of the world picker row (M7). */
-    public static final int WORLD_TOP = 338;
-    /** Height of the world picker row: the name line and the hazard line. */
-    public static final int WORLD_H = 40;
-    private static final int TIER_TOP = 382;
-    private static final int TIER_H = 24;
-    private static final int ABILITY_BASELINE = 422;
+    private static final int SWATCH = 32;
+    private static final int SWATCH_TOP = 326;
+    private static final int SWATCH_LEFT = 96;
+    private static final int SWATCH_STEP = 36;
+    private static final int PALETTE_LABEL_BASELINE = 347;
+    private static final int CAROUSEL_TOP = 238;
+    private static final int CAROUSEL_H = 84;
+    private static final int BAR_TOP = 362;
+    private static final int BAR_H = 36;
+    private static final int ABILITY_PANEL_TOP = 402;
+    private static final int ABILITY_PANEL_H = 104;
+    private static final int ABILITY_BASELINE = 418;
+    private static final int DETAILS_BUTTON_TOP = 402;
+    private static final int DETAILS_BUTTON_W = 152;
+    private static final int DETAILS_BUTTON_H = 28;
     private static final int SLOT_TOP = 426;
-    private static final int SLOT_H = 22;
-    private static final int SLOT_VGAP = 4;
+    private static final int SLOT_H = 34;
+    private static final int SLOT_VGAP = 6;
     private static final int SLOT_HGAP = 6;
-    private static final int BREAKDOWN_LABEL_BASELINE = 496;
-    private static final int VIEW_TOP = 502;
-    private static final int VIEW_BOTTOM = Playfield.HEIGHT - 76;
-    /** Top of the run-mode row (M9), directly above the two footer buttons. */
-    public static final int MODE_TOP = Playfield.HEIGHT - 70;
-    /** Height of the run-mode row: the mode line and the line that says what it will play. */
-    public static final int MODE_H = 36;
-    private static final int FOOTER_TOP = Playfield.HEIGHT - 32;
-    private static final int FOOTER_H = 26;
-    private static final Color SCROLLBAR = new Color(0xF4, 0xF8, 0xF8, 0x50);
+    private static final int CTA_TOP = 512;
+    private static final int CTA_W = 340;
+    private static final int CTA_H = 44;
+    private static final Color DIM = new Color(0, 0, 0, 0x8C);
     private static final Stroke SWATCH_STROKE = new BasicStroke(2f);
-    private static final Color SLOT_BACK = new Color(0x10, 0x1C, 0x1E, 0x9C);
-    private static final Color SLOT_BLOCKED = new Color(0xE8, 0x5A, 0x4A);
-    private static final Color SLOT_FIXED = new Color(0x6F, 0xD1, 0xA8);
+
+    /** Which panel is up, if any. */
+    private enum PanelKind {
+        /** The screen itself. */
+        NONE,
+        /** The world, tier and mode rows. */
+        RUN_SETUP,
+        /** The ability list and the stat breakdown. */
+        DETAILS
+    }
 
     private final ScreenManager screens;
     private final GameContext context;
@@ -179,31 +185,40 @@ public final class BirdSelectionScreen implements Screen {
     private final TimeSource clock;
     private final Runnable save;
     private final FocusRing ring = new FocusRing();
-    private final CardGrid roster = new CardGrid();
+    private final HubHeader header;
+    private final BirdHero hero = new BirdHero();
+    private final Carousel carousel = new Carousel();
     private final List<Swatch> swatches = new ArrayList<>();
     private final List<AbilitySlot> slots = new ArrayList<>();
     private final List<Row> rows = new ArrayList<>();
-    private final CurrencyDisplay wallet = new CurrencyDisplay();
     private final Tooltip tooltip = new Tooltip();
-    private final Button select;
-    private final Button buy;
+    private final CtaButton cta;
+    private final RunSetupBar bar = new RunSetupBar();
+    private final ChipButton seeDetails = new ChipButton();
     private final WorldRow world;
-    private final ListView tier;
+    private final WorldRow tier;
     private final WorldRow mode;
-    private final Button play;
-    private final Button back;
+    private final RunSetupPanel runSetup;
+    private final DetailsPanel details;
+    private final NavBar nav = new NavBar();
+    private final Ellipse2D.Double coinScratch = new Ellipse2D.Double();
+    private final IconPainter coinIcon = AbilityIcons.coin(coinScratch);
     private final List<String> tierIds = new ArrayList<>();
     private final List<String> worldIds = new ArrayList<>();
     private final List<RunMode> modes = new ArrayList<>();
     private RunMode runMode = RunMode.STANDARD;
     private DailyChallenge.Pick dailyPick;
+    private PanelKind panel = PanelKind.NONE;
     private String currentBirdId;
     private String shownLanguage;
     private String abilityLine = "";
     private RuleSet previewRules = RuleSet.EMPTY;
     private double contentHeight;
-    private double scroll;
     private long ticks;
+    private double prevBob;
+    private double bob;
+    private boolean reduceShown;
+    private String ctaTooltip = "";
 
     /**
      * Creates the screen for a wired application.
@@ -278,33 +293,40 @@ public final class BirdSelectionScreen implements Screen {
         this.toasts = toasts == null ? new ToastLayer() : toasts;
         this.currentBirdId = profile.selected.birdId;
 
+        header = new HubHeader(context != null ? this::openShop : null);
+        header.setOutline(ProceduralArt.letterboxColor(PALETTE));
+        header.registerFocusables(ring);
+        hero.setOutline(ProceduralArt.letterboxColor(PALETTE));
+
         for (BirdDef bird : content.birds()) {
-            CardGrid.Card card = new CardGrid.Card(bird.id(), "", null);
-            card.setOnAction(() -> activate(bird.id()));
-            card.setArt((g, c, cx, cy, size) -> paintPortrait(g, bird, cx, cy, size));
-            roster.add(card);
+            Carousel.Tile tile = new Carousel.Tile(bird.id(), "", null);
+            tile.setOnAction(() -> activate(bird.id()));
+            tile.setArt((g, c, cx, cy, size) -> paintPortrait(g, bird, cx, cy, size));
+            carousel.add(tile);
         }
-        roster.setColumns(COLUMNS);
-        roster.setCellHeight(CARD_HEIGHT);
-        roster.setGap(8, 6);
-        roster.setBounds(MARGIN, GRID_TOP, CONTENT_W,
-                CardGrid.heightFor(roster.size(), COLUMNS, CARD_HEIGHT, 6));
-        roster.layout();
-        roster.registerFocusables(ring);
+        carousel.setBounds(4, CAROUSEL_TOP, Playfield.WIDTH - 8, CAROUSEL_H);
+        carousel.setTileSize(Carousel.DEFAULT_TILE_WIDTH, Carousel.DEFAULT_TILE_HEIGHT);
+        carousel.setGap(Carousel.DEFAULT_GAP);
+        carousel.layout();
+        carousel.registerFocusables(ring);
 
         for (int i = 0; i < MAX_SWATCHES; i++) {
             Swatch swatch = new Swatch();
-            swatch.setBounds(MARGIN + i * (SWATCH + 8.0), SWATCH_TOP, SWATCH, SWATCH);
+            swatch.setBounds(SWATCH_LEFT + i * (double) SWATCH_STEP, SWATCH_TOP, SWATCH, SWATCH);
             swatches.add(swatch);
             ring.add(swatch);
         }
+
+        bar.setBounds(MARGIN, BAR_TOP, CONTENT_W, BAR_H);
+        bar.setOnAction(this::openRunSetup);
+        ring.add(bar);
 
         for (int i = 0; i < MAX_SLOTS; i++) {
             AbilitySlot slot = new AbilitySlot();
             int column = i % SLOT_COLUMNS;
             int row = i / SLOT_COLUMNS;
             double width = (CONTENT_W - (SLOT_COLUMNS - 1.0) * SLOT_HGAP) / SLOT_COLUMNS;
-            slot.setBounds(MARGIN + column * (width + SLOT_HGAP),
+            slot.setBounds(MARGIN + 4 + column * (width + SLOT_HGAP),
                     SLOT_TOP + row * (SLOT_H + SLOT_VGAP), width, SLOT_H);
             int index = i;
             slot.setOnAction(() -> cycleSlot(index));
@@ -312,50 +334,40 @@ public final class BirdSelectionScreen implements Screen {
             ring.add(slot);
         }
 
-        select = new Button("", this::selectCurrent);
-        select.setFontSize(15);
-        select.setBounds(MARGIN, ACTION_TOP, (CONTENT_W - 8) / 2.0, ACTION_H);
-        buy = new Button("", this::buyCurrent);
-        buy.setFontSize(15);
-        buy.setBounds(MARGIN + (CONTENT_W - 8) / 2.0 + 8, ACTION_TOP, (CONTENT_W - 8) / 2.0,
-                ACTION_H);
-        ring.add(select);
-        ring.add(buy);
+        seeDetails.setBounds(Playfield.WIDTH - MARGIN - DETAILS_BUTTON_W, DETAILS_BUTTON_TOP,
+                DETAILS_BUTTON_W, DETAILS_BUTTON_H);
+        seeDetails.setOnAction(this::openDetails);
+        ring.add(seeDetails);
+
+        cta = new CtaButton("", this::activateCta);
+        cta.setBounds((Playfield.WIDTH - CTA_W) / 2.0, CTA_TOP, CTA_W, CTA_H);
+        ring.add(cta);
 
         world = new WorldRow("", worldOptions(), worldIndex());
         world.setWrapping(false);
         world.setFontSize(14);
-        world.setBounds(MARGIN, WORLD_TOP, CONTENT_W, WORLD_H);
         world.setOnChange(this::selectWorld);
-        ring.add(world);
-
-        tier = new ListView("", tierOptions(), tierIndex());
+        tier = new WorldRow("", tierOptions(), tierIndex());
         tier.setWrapping(false);
         tier.setFontSize(14);
-        tier.setBounds(MARGIN, TIER_TOP, CONTENT_W, TIER_H);
         tier.setOnChange(this::selectTier);
-        ring.add(tier);
-
         mode = new WorldRow("", modeOptions(), modeIndex());
         mode.setWrapping(false);
         mode.setFontSize(14);
-        mode.setBounds(MARGIN, MODE_TOP, CONTENT_W, MODE_H);
         mode.setOnChange(this::selectMode);
-        ring.add(mode);
+        runSetup = new RunSetupPanel(world, tier, mode, this::closeRunSetup);
+        details = new DetailsPanel(this::closeDetails);
 
-        double half = (CONTENT_W - 8) / 2.0;
-        play = new Button("", this::play);
-        play.setFontSize(16);
-        play.setBounds(MARGIN, FOOTER_TOP, half, FOOTER_H);
-        ring.add(play);
-        back = new Button("", screens::pop);
-        back.setFontSize(16);
-        back.setBounds(MARGIN + half + 8, FOOTER_TOP, half, FOOTER_H);
-        ring.add(back);
+        SectionNav.build(nav, SectionNav.BIRDS, new SectionNav.Routes(this::openShop,
+                this::focusSelectedTile, this::play, this::openForge, this::openGoals));
+        nav.button(SectionNav.SHOP).setEnabled(context != null);
+        nav.button(SectionNav.FORGE).setEnabled(context != null);
+        nav.button(SectionNav.GOALS).setEnabled(context != null);
+        nav.registerFocusables(ring);
 
-        wallet.setBounds(Playfield.WIDTH - WALLET_W - 14.0, 14, WALLET_W, 26);
-        wallet.setAlign(Align.RIGHT);
-        wallet.setAmountNow(coins());
+        reduceShown = !ParticleSystem.defaultReduceFlashing();
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
+        header.display().setAmountNow(coins());
         shownLanguage = strings.language();
         refreshTexts();
     }
@@ -372,8 +384,8 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * The bird the palette row, the actions and the tooltip are about: the focused card, falling
-     * back to the selected bird.
+     * The bird the hero, the palette row and the call to action are about: the tile the player
+     * is browsing, which is the selected bird on entry.
      *
      * @return the bird id
      */
@@ -391,12 +403,30 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * The roster grid.
+     * The roster: one scrolling row of tiles, one per bird.
      *
-     * @return the grid
+     * @return the carousel
      */
-    public CardGrid roster() {
-        return roster;
+    public Carousel roster() {
+        return carousel;
+    }
+
+    /**
+     * The hero: the bird being browsed, large.
+     *
+     * @return the hero
+     */
+    public BirdHero hero() {
+        return hero;
+    }
+
+    /**
+     * The header band.
+     *
+     * @return the header
+     */
+    public HubHeader header() {
+        return header;
     }
 
     /**
@@ -410,34 +440,44 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * The Select button.
+     * The one call to action, which is both the Select and the Buy of the old layout: it names
+     * the single thing the browsed bird needs (use it, buy it, or what opens it).
+     *
+     * @return the button
+     */
+    public CtaButton cta() {
+        return cta;
+    }
+
+    /**
+     * The call to action, under the name the Select button had.
      *
      * @return the button
      */
     public Button selectButton() {
-        return select;
+        return cta;
     }
 
     /**
-     * The Buy button.
+     * The call to action, under the name the Buy button had.
      *
      * @return the button
      */
     public Button buyButton() {
-        return buy;
+        return cta;
     }
 
     /**
-     * The tier picker.
+     * The tier picker, on the run-setup panel.
      *
-     * @return the list
+     * @return the row
      */
     public ListView tierList() {
         return tier;
     }
 
     /**
-     * The world picker (M7).
+     * The world picker (M7), on the run-setup panel.
      *
      * @return the row
      */
@@ -465,7 +505,7 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * The run-mode picker (M9).
+     * The run-mode picker (M9), on the run-setup panel.
      *
      * @return the row
      */
@@ -511,21 +551,75 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * The Play button (D17: the selection screen starts the run it is configuring).
+     * The Play item of the navigation, which starts the run the screen is configuring (D17).
      *
-     * @return the button
+     * @return the item
      */
-    public Button playButton() {
-        return play;
+    public NavButton playButton() {
+        return nav.button(SectionNav.PLAY);
     }
 
     /**
-     * The Back button.
+     * The bottom navigation, with Birds on the gold plate.
+     *
+     * @return the bar
+     */
+    public NavBar nav() {
+        return nav;
+    }
+
+    /**
+     * The bar summarising the run, which opens the run-setup panel.
+     *
+     * @return the bar
+     */
+    public UiNode runSetupBar() {
+        return bar;
+    }
+
+    /**
+     * The run in one line, as the bar draws it.
+     *
+     * @return the text
+     */
+    public String runSetupText() {
+        return bar.line1();
+    }
+
+    /**
+     * The entry that opens the ability list and the stat breakdown.
+     *
+     * @return the node
+     */
+    public UiNode seeDetailsButton() {
+        return seeDetails;
+    }
+
+    /**
+     * The Done button of the run-setup panel.
      *
      * @return the button
      */
-    public Button backButton() {
-        return back;
+    public Button runSetupDoneButton() {
+        return runSetup.doneButton();
+    }
+
+    /**
+     * The Done button of the details panel.
+     *
+     * @return the button
+     */
+    public Button detailsDoneButton() {
+        return details.doneButton();
+    }
+
+    /**
+     * How far the details panel is scrolled.
+     *
+     * @return the offset in logical pixels
+     */
+    public double detailsScroll() {
+        return details.scroll();
     }
 
     /**
@@ -534,7 +628,7 @@ public final class BirdSelectionScreen implements Screen {
      * @return the display
      */
     public CurrencyDisplay walletDisplay() {
-        return wallet;
+        return header.display();
     }
 
     /**
@@ -547,11 +641,28 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * The focus ring.
+     * The focus ring taking input right now: the screen's own, or the one of whichever panel is
+     * up.
+     *
+     * @return the active ring
+     */
+    public FocusRing focusRing() {
+        switch (panel) {
+            case RUN_SETUP:
+                return runSetup.ring();
+            case DETAILS:
+                return details.ring();
+            default:
+                return ring;
+        }
+    }
+
+    /**
+     * The screen's own focus ring, whether or not a panel is up.
      *
      * @return the ring
      */
-    public FocusRing focusRing() {
+    public FocusRing mainRing() {
         return ring;
     }
 
@@ -638,19 +749,157 @@ public final class BirdSelectionScreen implements Screen {
         return previewRules;
     }
 
+    // ------------------------------------------------------------------ panels
+
+    /** Opens the run-setup panel: the world, the tier and the run mode. */
+    public void openRunSetup() {
+        if (panel == PanelKind.RUN_SETUP) {
+            return;
+        }
+        closeDetails();
+        panel = PanelKind.RUN_SETUP;
+        clearHover();
+        runSetup.setOpen(true);
+    }
+
+    /** Closes the run-setup panel and puts the focus back on the bar that opened it. */
+    public void closeRunSetup() {
+        if (panel != PanelKind.RUN_SETUP) {
+            return;
+        }
+        runSetup.setOpen(false);
+        panel = PanelKind.NONE;
+        refreshSetupBar();
+        tooltip.hide();
+        ring.focus(bar);
+    }
+
+    /**
+     * Whether the run-setup panel is up.
+     *
+     * @return {@code true} while it is shown
+     */
+    public boolean isRunSetupOpen() {
+        return panel == PanelKind.RUN_SETUP;
+    }
+
+    /** Opens the details panel: the ability list and the stat breakdown. */
+    public void openDetails() {
+        if (panel == PanelKind.DETAILS) {
+            return;
+        }
+        closeRunSetup();
+        panel = PanelKind.DETAILS;
+        clearHover();
+        details.setOpen(true);
+    }
+
+    /** Closes the details panel and puts the focus back on the entry that opened it. */
+    public void closeDetails() {
+        if (panel != PanelKind.DETAILS) {
+            return;
+        }
+        details.setOpen(false);
+        panel = PanelKind.NONE;
+        tooltip.hide();
+        ring.focus(seeDetails);
+    }
+
+    /**
+     * Whether the details panel is up.
+     *
+     * @return {@code true} while it is shown
+     */
+    public boolean isDetailsOpen() {
+        return panel == PanelKind.DETAILS;
+    }
+
+    /**
+     * Clears the hover flag of every node of the screen's own ring: the flags are refreshed only
+     * while a ring handles input, so a node hovered when a panel opens would keep its hover fill
+     * under the veil.
+     */
+    private void clearHover() {
+        for (UiNode node : ring.nodes()) {
+            node.setHovered(false);
+        }
+    }
+
     // ------------------------------------------------------------------ actions
 
     /**
-     * What activating a card does: select an owned bird, or leave a locked one to the Buy button.
+     * What activating a tile does: select an owned bird, or nudge the padlock of a locked one and
+     * leave it to the call to action, which now says what opens it.
      *
      * @param birdId the bird id
      */
     private void activate(String birdId) {
-        currentBirdId = birdId;
+        browse(birdId);
         if (profile.isUnlocked(BirdDef.NAMESPACE + birdId)) {
             selectBird(birdId);
+            return;
+        }
+        Carousel.Tile tile = carousel.card(birdId);
+        if (tile != null) {
+            tile.nudge();
+        }
+    }
+
+    /**
+     * Points the hero and the call to action at another bird, sliding the portraits in the
+     * direction the roster moved.
+     *
+     * <p>The guard is what keeps a tile <em>click</em> from sliding twice: activating a tile
+     * routes through here and the focus change the same click causes arrives in the same tick.
+     *
+     * @param birdId the bird id
+     */
+    private void browse(String birdId) {
+        if (birdId == null || birdId.equals(currentBirdId)) {
+            return;
+        }
+        int from = carousel.indexOf(currentBirdId);
+        int to = carousel.indexOf(birdId);
+        currentBirdId = birdId;
+        refreshCurrent(from < 0 || to < 0 ? 0 : Integer.signum(to - from));
+    }
+
+    /** What the one call to action does: use the browsed bird, or buy it. */
+    private void activateCta() {
+        if (profile.isUnlocked(BirdDef.NAMESPACE + currentBirdId)) {
+            selectCurrent();
         } else {
-            refreshCurrent();
+            buyCurrent();
+        }
+    }
+
+    /** Puts the focus back on the selected bird's tile (the Birds item of the navigation). */
+    private void focusSelectedTile() {
+        Carousel.Tile tile = carousel.card(profile.selected.birdId);
+        if (tile != null) {
+            ring.focus(tile);
+            carousel.scrollIntoView(tile, true);
+        }
+    }
+
+    /** Opens the shop, replacing this section rather than stacking on top of it. */
+    private void openShop() {
+        if (context != null) {
+            screens.replace(new ShopScreen(context));
+        }
+    }
+
+    /** Opens the upgrade trees, replacing this section. */
+    private void openForge() {
+        if (context != null) {
+            screens.replace(new UpgradeTreeScreen(context));
+        }
+    }
+
+    /** Opens the goals, replacing this section. */
+    private void openGoals() {
+        if (context != null) {
+            screens.replace(new GoalsScreen(context));
         }
     }
 
@@ -881,6 +1130,26 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
+     * Points the tier row's detail line at the tier it shows: what the tier does for an owned
+     * one, the cheapest way in for a locked one.
+     */
+    private void refreshTierRow() {
+        int index = tier.selectedIndex();
+        String id = index >= 0 && index < tierIds.size() ? tierIds.get(index) : null;
+        if (id == null || !content.tiers().contains(id)) {
+            tier.bind(null, "", false, "");
+            return;
+        }
+        TierDef def = content.tiers().get(id);
+        boolean owned = profile.isUnlocked(def.unlockableId());
+        String detail = owned
+                ? ProgressionText.description(strings, ContentKind.TIER, id)
+                : strings.format(StringKey.BIRDS_WORLD_LOCKED,
+                        ProgressionText.unlockText(strings, content, def.unlock(), profile));
+        tier.bind(null, detail, !owned, detail);
+    }
+
+    /**
      * The tier options: every tier the content ships, with the locked ones marked.
      *
      * @return one label per tier
@@ -999,13 +1268,51 @@ public final class BirdSelectionScreen implements Screen {
             }
             String detail = dailySetup(dailyPick);
             mode.bind(null, detail, false, detail + " - " + dailyRecordText());
+            forceDailyRows(dailyPick);
             return;
         }
         dailyPick = null;
+        releaseDailyRows();
         String detail = shown == RunMode.SEEDED
                 ? strings.format(StringKey.BIRDS_MODE_SEEDED_HINT, profile.lastSeed)
                 : strings.get(StringKey.BIRDS_MODE_STANDARD_HINT);
         mode.bind(null, detail, false, detail);
+    }
+
+    /**
+     * Shows the world and the tier today's daily forces, read-only (D28, E27).
+     *
+     * <p>The two rows used to stay live under a settled daily and still wrote the profile's
+     * selection, while {@code DailyRunSource} replaced both at run start — so the screen said one
+     * thing and the run played another. They now say what the run will actually be and refuse to
+     * be stepped; leaving Daily gives them back.
+     *
+     * @param pick today's pick
+     */
+    private void forceDailyRows(DailyChallenge.Pick pick) {
+        String forced = strings.get(StringKey.BIRDS_DAILY_FORCED);
+        WorldPaletteDef palette = content.has(GameContent.WORLDS)
+                && content.worlds().contains(pick.worldId())
+                ? content.worlds().get(pick.worldId()).palette() : null;
+        world.setShownOverride(ProgressionText.name(strings, ContentKind.WORLD, pick.worldId()));
+        world.setEnabled(false);
+        world.bind(palette, forced, false, forced);
+        tier.setShownOverride(ProgressionText.name(strings, ContentKind.TIER, pick.tierId()));
+        tier.setEnabled(false);
+        tier.bind(null, forced, false, forced);
+    }
+
+    /** Gives the world and tier rows back after the mode leaves Daily. */
+    private void releaseDailyRows() {
+        boolean wasForced = world.shownOverride() != null || tier.shownOverride() != null;
+        world.setShownOverride(null);
+        tier.setShownOverride(null);
+        world.setEnabled(true);
+        tier.setEnabled(true);
+        if (wasForced) {
+            refreshWorldRow();
+            refreshTierRow();
+        }
     }
 
     /**
@@ -1039,11 +1346,21 @@ public final class BirdSelectionScreen implements Screen {
 
     /** Re-reads every label from the string table (a language switch, D25). */
     public void refreshTexts() {
-        wallet.setFormat(strings.get(StringKey.HUD_COINS));
-        select.setText(strings.get(StringKey.COMMON_SELECT));
-        buy.setText(strings.get(StringKey.COMMON_BUY));
-        play.setText(strings.get(StringKey.MENU_PLAY));
-        back.setText(strings.get(StringKey.COMMON_BACK));
+        header.setTitle(strings.get(StringKey.BIRDS_TITLE));
+        header.display().setFormat(strings.get(StringKey.HUD_COINS));
+        hero.setLabels(strings.get(StringKey.BIRDS_ATTR_MOBILITY),
+                strings.get(StringKey.BIRDS_ATTR_DEFENCE),
+                strings.get(StringKey.BIRDS_ATTR_CONTROL));
+        seeDetails.setText(strings.get(StringKey.BIRDS_SEE_DETAILS));
+        runSetup.setTitle(strings.get(StringKey.BIRDS_RUN_SETUP));
+        runSetup.setDoneText(strings.get(StringKey.COMMON_DONE));
+        details.setTitle(strings.get(StringKey.BIRDS_PANEL));
+        details.setDoneText(strings.get(StringKey.COMMON_DONE));
+        nav.button(SectionNav.SHOP).setText(strings.get(StringKey.MENU_SHOP));
+        nav.button(SectionNav.BIRDS).setText(strings.get(StringKey.MENU_BIRDS));
+        nav.button(SectionNav.PLAY).setText(strings.get(StringKey.MENU_PLAY));
+        nav.button(SectionNav.FORGE).setText(strings.get(StringKey.MENU_NAV_FORGE));
+        nav.button(SectionNav.GOALS).setText(strings.get(StringKey.MENU_NAV_GOALS));
         mode.setLabel(strings.get(StringKey.BIRDS_MODE));
         mode.setOptions(modeOptions());
         mode.selectQuietly(modeIndex());
@@ -1063,9 +1380,8 @@ public final class BirdSelectionScreen implements Screen {
      * entry, which is what makes a node bought elsewhere visible here.
      */
     public void refreshState() {
-        long balance = coins();
         for (BirdDef bird : content.birds()) {
-            CardGrid.Card card = roster.card(bird.id());
+            CardGrid.Card card = carousel.card(bird.id());
             if (card == null) {
                 continue;
             }
@@ -1085,16 +1401,17 @@ public final class BirdSelectionScreen implements Screen {
             }
             card.setTooltip(tooltipFor(bird, owned, price));
         }
-        roster.select(profile.selected.birdId);
+        carousel.select(profile.selected.birdId);
         tier.setOptions(tierOptions());
         tier.selectQuietly(tierIndex());
         world.setOptions(worldOptions());
         world.selectQuietly(worldIndex());
         refreshWorldRow();
+        refreshTierRow();
         mode.setOptions(modeOptions());
         mode.selectQuietly(modeIndex());
         refreshModeRow();
-        wallet.setAmount(balance);
+        header.display().setAmount(coins());
         // One preview run answers both questions the panels below ask: what the stats resolve to
         // and which rules the run carries (D8, D9). Building it twice could not disagree, but
         // building it once means it cannot.
@@ -1102,7 +1419,84 @@ public final class BirdSelectionScreen implements Screen {
         previewRules = preview.simulation().rules();
         refreshLoadout();
         buildBreakdown(preview.simulation().stats());
+        refreshSetupBar();
         refreshCurrent();
+    }
+
+    /**
+     * Points the summary bar at the run the call to action would start: the world, the tier and
+     * the mode in one line, and under it what that run actually is.
+     *
+     * <p>Under a settled daily the line names the <em>pick's</em> world and tier rather than the
+     * profile's selection, because that is what will be played.
+     */
+    private void refreshSetupBar() {
+        RunMode shown = shownMode();
+        boolean daily = shown == RunMode.DAILY && dailyPick != null;
+        String worldId = daily ? dailyPick.worldId() : currentWorldId();
+        int tierAt = tier.selectedIndex();
+        String tierId = daily ? dailyPick.tierId()
+                : (tierAt >= 0 && tierAt < tierIds.size() ? tierIds.get(tierAt) : null);
+        String worldName = worldId == null ? strings.get(StringKey.COMMON_NONE)
+                : ProgressionText.name(strings, ContentKind.WORLD, worldId);
+        String tierName = tierId == null ? strings.get(StringKey.COMMON_NONE)
+                : ProgressionText.name(strings, ContentKind.TIER, tierId);
+        String modeName = strings.get(modeKey(shown));
+        String line1 = strings.format(StringKey.BIRDS_SETUP, worldName, tierName, modeName);
+        boolean locked = shown != RunMode.STANDARD && !DailyChallenge.isAvailable(profile);
+        String line2;
+        boolean warn = false;
+        if (locked) {
+            line2 = strings.format(StringKey.BIRDS_MODE_LOCKED, seededUnlockText());
+            warn = true;
+        } else if (daily) {
+            line2 = dailySetup(dailyPick) + " - " + dailyRecordText();
+        } else if (shown == RunMode.SEEDED) {
+            line2 = strings.format(StringKey.BIRDS_MODE_SEEDED_HINT, profile.lastSeed);
+        } else {
+            line2 = worldLine(worldId);
+        }
+        WorldPaletteDef palette = worldId != null && content.has(GameContent.WORLDS)
+                && content.worlds().contains(worldId)
+                ? content.worlds().get(worldId).palette() : null;
+        bar.bind(palette, line1, line2, warn, line1 + " - " + line2);
+    }
+
+    /**
+     * The hazards of a world, or how it is opened.
+     *
+     * @param worldId the world id, may be {@code null}
+     * @return the line
+     */
+    private String worldLine(String worldId) {
+        if (worldId == null || !content.has(GameContent.WORLDS)
+                || !content.worlds().contains(worldId)) {
+            return "";
+        }
+        WorldDef def = content.worlds().get(worldId);
+        return profile.isUnlocked(def.unlockableId())
+                ? strings.format(StringKey.BIRDS_WORLD_HAZARDS, hazardsOf(def))
+                : strings.format(StringKey.BIRDS_WORLD_LOCKED,
+                        ProgressionText.unlockText(strings, content, def.unlock(), profile));
+    }
+
+    /**
+     * The name of one run mode.
+     *
+     * @param runMode the mode
+     * @return the string key of its name
+     */
+    private static StringKey modeKey(RunMode runMode) {
+        switch (runMode) {
+            case SEEDED:
+                return StringKey.MODE_SEEDED;
+            case DAILY:
+                return StringKey.MODE_DAILY;
+            case CHALLENGE:
+                return StringKey.MODE_CHALLENGE;
+            default:
+                return StringKey.MODE_STANDARD;
+        }
     }
 
     /**
@@ -1112,6 +1506,16 @@ public final class BirdSelectionScreen implements Screen {
      * card the player is looking at.
      */
     public void refreshCurrent() {
+        refreshCurrent(0);
+    }
+
+    /**
+     * Rebuilds what depends on the browsed bird, sliding the hero when the bird changed.
+     *
+     * @param direction {@code +1} when the new bird sits right of the old one in the roster,
+     *     {@code -1} left, {@code 0} for a refresh that is not a bird change
+     */
+    private void refreshCurrent(int direction) {
         if (currentBirdId == null || !content.birds().contains(currentBirdId)) {
             currentBirdId = profile.selected.birdId;
         }
@@ -1139,14 +1543,44 @@ public final class BirdSelectionScreen implements Screen {
         }
 
         boolean owned = profile.isUnlocked(BirdDef.NAMESPACE + currentBirdId);
+        boolean isSelected = currentBirdId.equals(profile.selected.birdId);
         long price = UnlockEvaluator.priceOf(evaluator.conditionOf(
                 BirdDef.NAMESPACE + currentBirdId));
-        select.setEnabled(owned && selection != null
-                && !currentBirdId.equals(profile.selected.birdId));
-        buy.setEnabled(!owned && unlocks != null && price >= 0 && balance >= price);
-        buy.setText(price >= 0 && !owned
-                ? strings.get(StringKey.COMMON_BUY) + "  " + ProgressionText.price(strings, price)
-                : strings.get(StringKey.COMMON_BUY));
+        String name = ProgressionText.name(strings, ContentKind.BIRD, currentBirdId);
+        String how = ProgressionText.unlockText(strings, content, current.unlock(), profile);
+        // One button, one sentence: what this bird needs from the player right now.
+        if (!owned && price >= 0 && balance >= price) {
+            cta.setText(strings.format(StringKey.BIRDS_BUY_FOR,
+                    ProgressionText.price(strings, price)));
+            cta.setIcon(coinIcon);
+            cta.setEnabled(unlocks != null);
+        } else if (!owned) {
+            cta.setText(strings.format(StringKey.BIRDS_LOCKED_CTA, how));
+            cta.setIcon(AbilityIcons.PADLOCK);
+            cta.setEnabled(false);
+        } else if (isSelected) {
+            cta.setText(strings.get(StringKey.BIRDS_SELECTED_CTA));
+            cta.setIcon(AbilityIcons.CHECK);
+            cta.setEnabled(false);
+        } else {
+            cta.setText(strings.format(StringKey.BIRDS_USE, name));
+            cta.setIcon(AbilityIcons.BIRD);
+            cta.setEnabled(selection != null);
+        }
+        ctaTooltip = owned ? "" : tooltipFor(current, false, price);
+        BirdHero.Status status = !owned ? BirdHero.Status.LOCKED
+                : isSelected ? BirdHero.Status.SELECTED : BirdHero.Status.OWNED;
+        String statusLine = archetypeName(current);
+        if (isSelected) {
+            statusLine = statusLine + " \u00b7 " + strings.get(StringKey.COMMON_SELECTED);
+        } else if (!owned) {
+            statusLine = statusLine + " \u00b7 " + strings.get(StringKey.COMMON_LOCKED);
+        }
+        hero.bind(current, paletteOf(current), name, statusLine, status,
+                BirdAttributes.of(current, content), direction);
+        hero.setLabels(strings.get(StringKey.BIRDS_ATTR_MOBILITY),
+                strings.get(StringKey.BIRDS_ATTR_DEFENCE),
+                strings.get(StringKey.BIRDS_ATTR_CONTROL));
         // The innate passives are named because they are half of what a bird trades for: Ironbeak
         // pays -20 % coins for a shield it grants for free, and a line that only counted the
         // slots would present that as a straight upgrade.
@@ -1201,7 +1635,7 @@ public final class BirdSelectionScreen implements Screen {
         while (used < MAX_SLOTS) {
             AbilitySlot slot = slots.get(used++);
             slot.setVisible(false);
-            slot.bind(SlotRole.PASSIVE, null, "", "", "", false);
+            slot.bind(SlotRole.PASSIVE, null, "", "", "", false, "", null);
         }
     }
 
@@ -1260,9 +1694,12 @@ public final class BirdSelectionScreen implements Screen {
                 : ProgressionText.name(strings, ContentKind.ABILITY, def.id());
         RuleFlag blocked = def == null ? null
                 : ProgressionText.strippedBy(def, previewRules);
+        String level = def == null ? ""
+                : strings.format(StringKey.BIRDS_LEVEL_SHORT, abilityLevelOf(def),
+                        def.levels().size());
         slot.setVisible(true);
         slot.bind(role, def == null ? null : def.id(), label, value,
-                slotTooltip(def, blocked), blocked != null);
+                slotTooltip(def, blocked), blocked != null, level, AbilityIcons.of(def));
         // An innate passive is granted by the bird and cannot be traded away (D9), so its chip is
         // there to be read, not to be pressed.
         slot.setEnabled(role != SlotRole.INNATE && selection != null);
@@ -1470,7 +1907,7 @@ public final class BirdSelectionScreen implements Screen {
         buildAbilityRows();
         rows.add(new Row("stats", strings.get(StringKey.BIRDS_BREAKDOWN), "", true,
                 contentHeight));
-        contentHeight += HEADER_H;
+        contentHeight += DetailsPanel.HEADER_H;
         int shown = 0;
         for (StatId stat : StatId.values()) {
             StatBreakdown breakdown = sheet.breakdown(stat);
@@ -1482,24 +1919,24 @@ public final class BirdSelectionScreen implements Screen {
             shown++;
             rows.add(new Row("stat." + stat.name(), ProgressionText.statLabel(strings, stat),
                     ProgressionText.number(breakdown.value()), true, contentHeight));
-            contentHeight += HEADER_H;
+            contentHeight += DetailsPanel.HEADER_H;
             rows.add(new Row("stat." + stat.name() + ".base",
                     strings.get(StringKey.BIRDS_BREAKDOWN_BASE),
                     ProgressionText.number(breakdown.base()), false, contentHeight));
-            contentHeight += ROW_H;
+            contentHeight += DetailsPanel.ROW_H;
             for (EffectStack.Entry entry : breakdown.contributions()) {
                 rows.add(new Row("stat." + stat.name() + "." + entry.modifier().source(),
                         ProgressionText.sourceLabel(strings, content, entry.modifier().source()),
                         ProgressionText.effect(strings, entry.modifier()), false, contentHeight));
-                contentHeight += ROW_H;
+                contentHeight += DetailsPanel.ROW_H;
             }
         }
         if (shown == 0) {
             rows.add(new Row("empty", strings.get(StringKey.BIRDS_BREAKDOWN_EMPTY), "", false,
                     contentHeight));
-            contentHeight += ROW_H;
+            contentHeight += DetailsPanel.ROW_H;
         }
-        scroll = MathUtil.clamp(scroll, 0, maxScroll());
+        details.setRows(rows(), contentHeight);
     }
 
     /**
@@ -1513,7 +1950,7 @@ public final class BirdSelectionScreen implements Screen {
     private void buildAbilityRows() {
         rows.add(new Row("abilities", strings.get(StringKey.BIRDS_ABILITY_LIST), "", true,
                 contentHeight));
-        contentHeight += HEADER_H;
+        contentHeight += DetailsPanel.HEADER_H;
         int shown = 0;
         if (content.has(GameContent.ABILITIES)) {
             for (AbilityDef def : content.abilities()) {
@@ -1528,7 +1965,7 @@ public final class BirdSelectionScreen implements Screen {
             rows.add(new Row("abilities.empty",
                     strings.get(StringKey.BIRDS_ABILITY_NONE_OWNED), "", false, contentHeight,
                     true));
-            contentHeight += ROW_H;
+            contentHeight += DetailsPanel.ROW_H;
         }
     }
 
@@ -1548,7 +1985,7 @@ public final class BirdSelectionScreen implements Screen {
         String id = "ability." + def.id();
         rows.add(new Row(id, name, ProgressionText.abilityLevel(strings, def, level), true,
                 contentHeight, dimmed));
-        contentHeight += HEADER_H;
+        contentHeight += DetailsPanel.HEADER_H;
         String kinds = ProgressionText.abilityKind(strings, def.kind());
         String tags = ProgressionText.abilityTags(strings, def);
         addWrapped(id + ".kind", tags.isEmpty() ? kinds : kinds + " - " + tags, dimmed);
@@ -1557,7 +1994,7 @@ public final class BirdSelectionScreen implements Screen {
         if (blocked != null) {
             rows.add(new Row(id + ".blocked", strings.format(StringKey.BIRDS_ABILITY_BLOCKED,
                     ProgressionText.ruleName(strings, blocked)), "", false, contentHeight, true));
-            contentHeight += ROW_H;
+            contentHeight += DetailsPanel.ROW_H;
         }
     }
 
@@ -1593,7 +2030,7 @@ public final class BirdSelectionScreen implements Screen {
             }
             rows.add(new Row(line == 1 ? id : id + "." + line, text.substring(from, to).trim(), "",
                     false, contentHeight, dimmed));
-            contentHeight += ROW_H;
+            contentHeight += DetailsPanel.ROW_H;
             from = to + 1;
             line++;
         }
@@ -1621,14 +2058,42 @@ public final class BirdSelectionScreen implements Screen {
 
     // ------------------------------------------------------------------ behaviour
 
+    /**
+     * Forwards the reduce-flashing default to everything on the screen that pulses.
+     *
+     * <p>It caps the glows and nothing else: the bob, the wing beat, the hero's slide and the
+     * carousel's tween are motion rather than luminance, and the hub keeps its own bob under the
+     * same setting. Polled every tick, because the settings screen can change it while this
+     * screen is only one pop away.
+     *
+     * @param reduce the default
+     */
+    private void applyReduceFlashing(boolean reduce) {
+        if (reduce == reduceShown) {
+            return;
+        }
+        reduceShown = reduce;
+        cta.setReduceFlashing(reduce);
+        carousel.setReduceFlashing(reduce);
+        hero.setReduceFlashing(reduce);
+    }
+
     @Override
     public void onEnter() {
         ring.resetTransition();
-        ring.focus(roster.card(profile.selected.birdId));
+        closeDetails();
+        closeRunSetup();
+        panel = PanelKind.NONE;
+        runSetup.setOpen(false);
+        details.setOpen(false);
+        Carousel.Tile tile = carousel.card(profile.selected.birdId);
+        ring.focus(tile);
+        carousel.snapTo(tile);
+        hero.snap();
         screens.setLetterboxRgb(PALETTE.letterbox());
-        scroll = 0;
         tooltip.hide();
-        wallet.setAmountNow(coins());
+        header.display().setAmountNow(coins());
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
         } else {
@@ -1639,24 +2104,50 @@ public final class BirdSelectionScreen implements Screen {
     @Override
     public void tick(InputFrame input) {
         ticks++;
+        prevBob = bob;
+        bob = BirdHero.bobAt(ticks);
         toasts.tick();
-        wallet.tick();
-        UiNode focusedBefore = ring.focused();
-        ring.handle(input);
-        tier.tick(input);
-        if (world.tick(input) && world.selectedIndex() != worldIndex()) {
-            // A step onto a world the profile does not own: onChange refused it and snapped the
-            // row back; a step onto an owned one already wrote the selection.
-            refreshWorldRow();
-        }
-        mode.tick(input);
-        UiNode focused = ring.focused();
-        if (focused != focusedBefore && focused instanceof CardGrid.Card card) {
-            currentBirdId = card.id();
-            refreshCurrent();
-        }
-        if (input.wheel() != 0) {
-            scroll = MathUtil.clamp(scroll - input.wheel() * (double) WHEEL_STEP, 0, maxScroll());
+        header.tick();
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
+        cta.setTicks(ticks);
+        carousel.setTicks(ticks);
+        hero.tick(ticks);
+        switch (panel) {
+            case DETAILS:
+                details.ring().handle(input);
+                details.scrollBy(input.wheel());
+                details.scrollKeys(input);
+                break;
+            case RUN_SETUP: {
+                runSetup.ring().handle(input);
+                boolean changed = tier.tick(input);
+                if (world.tick(input) && world.selectedIndex() != worldIndex()) {
+                    // A step onto a world the profile does not own: onChange refused it and
+                    // snapped the row back; a step onto an owned one already wrote the selection.
+                    refreshWorldRow();
+                    changed = true;
+                }
+                changed |= mode.tick(input);
+                if (changed) {
+                    refreshTierRow();
+                    refreshSetupBar();
+                }
+                break;
+            }
+            default: {
+                ring.handle(input);
+                carousel.tick(input, ring);
+                // Whatever moved the focus — the pointer, an arrow, Tab or the navigation's own
+                // Birds item — the hero follows the tile it landed on. Comparing against the
+                // browsed bird rather than against the previous focus is what makes a focus set
+                // from outside a tick (onEnter, focusSelectedTile) arrive here too; browse()
+                // itself is a no-op when the id has not changed, so a tile click that already
+                // routed through activate() never slides twice.
+                if (ring.focused() instanceof Carousel.Tile tile) {
+                    browse(tile.id());
+                }
+                break;
+            }
         }
         updateTooltip(input);
         if (!strings.language().equals(shownLanguage)) {
@@ -1664,19 +2155,30 @@ public final class BirdSelectionScreen implements Screen {
         }
         if (input.isJustPressed(InputAction.BACK)) {
             UiCues.back();
-            screens.pop();
+            if (panel == PanelKind.RUN_SETUP) {
+                closeRunSetup();
+            } else if (panel == PanelKind.DETAILS) {
+                closeDetails();
+            } else {
+                screens.pop();
+            }
         }
     }
 
     /**
      * Points the tooltip at whatever the player is asking about: the node under the pointer, or
-     * the focused one when the pointer is elsewhere.
+     * the focused one when the pointer is elsewhere. The attribute badges are not ring nodes —
+     * they are read, not pressed — so the hero is asked for them directly.
      *
      * @param input the tick input
      */
     private void updateTooltip(InputFrame input) {
-        UiNode under = ring.nodeAt(input.mouseX(), input.mouseY());
-        UiNode target = under != null ? under : ring.focused();
+        FocusRing active = focusRing();
+        UiNode under = active.nodeAt(input.mouseX(), input.mouseY());
+        if (under == null && panel == PanelKind.NONE) {
+            under = hero.badgeAt(input.mouseX(), input.mouseY());
+        }
+        UiNode target = under != null ? under : active.focused();
         tooltip.update(target, tooltipText(target));
     }
 
@@ -1699,11 +2201,16 @@ public final class BirdSelectionScreen implements Screen {
         if (node instanceof WorldRow row) {
             return row.tooltip();
         }
+        if (node instanceof RunSetupBar setup) {
+            return setup.tooltip();
+        }
+        if (node instanceof AttributeBadge badge) {
+            return badge.label() + " " + badge.value() + "/" + AttributeBadge.MAX;
+        }
+        if (node == cta) {
+            return ctaTooltip;
+        }
         return "";
-    }
-
-    private double maxScroll() {
-        return Math.max(0, contentHeight - (VIEW_BOTTOM - VIEW_TOP));
     }
 
     // ------------------------------------------------------------------ rendering
@@ -1712,87 +2219,41 @@ public final class BirdSelectionScreen implements Screen {
     public void render(Graphics2D g, double alpha) {
         ProceduralArt.prepare(g);
         ProceduralArt.fillBackground(g, PALETTE);
-        g.setFont(Fonts.bold(26));
-        TextPainter.drawOutlined(g, strings.get(StringKey.BIRDS_TITLE), MARGIN, TITLE_BASELINE,
-                Align.LEFT, ProceduralArt.TEXT_LIGHT, ProceduralArt.letterboxColor(PALETTE), 2);
-        wallet.render(g);
-        roster.render(g);
-
+        hero.render(g, MathUtil.lerp(prevBob, bob, alpha), ticks);
+        header.render(g);
+        carousel.render(g);
         g.setFont(Fonts.bold(13));
-        g.setColor(ProceduralArt.accentColor(PALETTE));
-        TextPainter.draw(g, strings.get(StringKey.BIRDS_PALETTES), MARGIN,
-                PALETTE_LABEL_BASELINE);
+        TextPainter.drawOutlined(g, strings.get(StringKey.BIRDS_PALETTES), MARGIN,
+                PALETTE_LABEL_BASELINE, Align.LEFT, ProceduralArt.accentColor(PALETTE),
+                ProceduralArt.letterboxColor(PALETTE), 2);
         for (Swatch swatch : swatches) {
             if (swatch.isVisible()) {
                 swatch.render(g);
             }
         }
-        select.render(g);
-        buy.render(g);
-        ProceduralArt.panel(g, MARGIN - 4, WORLD_TOP - 4, CONTENT_W + 8,
-                SLOT_TOP + 2 * SLOT_H + SLOT_VGAP + 6 - (WORLD_TOP - 4));
-        world.render(g);
-        tier.render(g);
+        bar.render(g);
+        ProceduralArt.panel(g, MARGIN - 4, ABILITY_PANEL_TOP, CONTENT_W + 8, ABILITY_PANEL_H);
         g.setFont(Fonts.regular(11));
         g.setColor(ProceduralArt.TEXT_MUTED);
-        TextPainter.draw(g, abilityLine, MARGIN, ABILITY_BASELINE);
+        TextPainter.draw(g, abilityLine, MARGIN + 8.0, ABILITY_BASELINE);
+        seeDetails.render(g);
         for (AbilitySlot slot : slots) {
             if (slot.isVisible()) {
                 slot.render(g);
             }
         }
-
-        ProceduralArt.panel(g, MARGIN - 4, VIEW_TOP - 22, CONTENT_W + 8,
-                VIEW_BOTTOM - VIEW_TOP + 26);
-        g.setFont(Fonts.bold(13));
-        g.setColor(ProceduralArt.accentColor(PALETTE));
-        TextPainter.draw(g, strings.get(StringKey.BIRDS_PANEL), MARGIN,
-                BREAKDOWN_LABEL_BASELINE);
-        Shape oldClip = g.getClip();
-        g.clipRect(MARGIN - 4, VIEW_TOP, CONTENT_W + 8, VIEW_BOTTOM - VIEW_TOP);
-        double dy = VIEW_TOP - scroll;
-        g.translate(0.0, dy);
-        for (Row row : rows) {
-            renderRow(g, row);
+        cta.render(g);
+        nav.render(g);
+        if (panel != PanelKind.NONE) {
+            Overscan.fillVisible(g, DIM);
+            if (panel == PanelKind.RUN_SETUP) {
+                runSetup.render(g);
+            } else {
+                details.render(g);
+            }
         }
-        g.translate(0.0, -dy);
-        g.setClip(oldClip);
-        renderScrollbar(g);
-
-        mode.render(g);
-        play.render(g);
-        back.render(g);
         tooltip.render(g);
-        toasts.render(g);
-    }
-
-    private void renderRow(Graphics2D g, Row row) {
-        double baseline = row.y() + (row.header() ? HEADER_H - 5 : ROW_H - 4);
-        if (row.header()) {
-            g.setFont(Fonts.bold(12));
-            g.setColor(row.dimmed() ? SLOT_BLOCKED : ProceduralArt.TEXT_LIGHT);
-        } else {
-            g.setFont(Fonts.regular(11));
-            g.setColor(row.dimmed() ? SLOT_BLOCKED : ProceduralArt.TEXT_MUTED);
-        }
-        TextPainter.draw(g, row.label(), MARGIN + (row.header() ? 0.0 : 10.0), baseline);
-        if (!row.value().isEmpty()) {
-            g.setColor(row.header() ? ProceduralArt.COIN_GOLD : ProceduralArt.TEXT_LIGHT);
-            TextPainter.draw(g, row.value(), MARGIN + (double) CONTENT_W - 4, baseline,
-                    Align.RIGHT);
-        }
-    }
-
-    private void renderScrollbar(Graphics2D g) {
-        double max = maxScroll();
-        if (max <= 0) {
-            return;
-        }
-        int trackH = VIEW_BOTTOM - VIEW_TOP;
-        int thumbH = (int) Math.max(20, trackH * (trackH / contentHeight));
-        int thumbY = VIEW_TOP + (int) Math.round((trackH - thumbH) * (scroll / max));
-        g.setColor(SCROLLBAR);
-        g.fillRoundRect(Playfield.WIDTH - MARGIN, thumbY, 4, thumbH, 4, 4);
+        toasts.render(g, HubHeader.HEIGHT);
     }
 
     /**
@@ -1831,6 +2292,66 @@ public final class BirdSelectionScreen implements Screen {
             }
         }
         return bird.palettes().isEmpty() ? null : bird.palettes().get(0);
+    }
+
+    /**
+     * A small chip with a label and a chevron: the entry that opens a panel.
+     */
+    static final class ChipButton extends UiNode {
+
+        /** Point size of the label. */
+        static final int FONT_SIZE = 11;
+        /** Room the chevron takes at the right edge. */
+        static final int CHEVRON_ROOM = 22;
+
+        private String text = "";
+        private String shown = "";
+        private String shownSource;
+        private int shownWidth = -1;
+        private double shownScale;
+
+        /**
+         * The label, as drawn.
+         *
+         * @return the text
+         */
+        String text() {
+            return text;
+        }
+
+        /**
+         * Changes the label (a language switch).
+         *
+         * @param newText the text
+         */
+        void setText(String newText) {
+            this.text = newText == null ? "" : newText;
+        }
+
+        @Override
+        public void render(Graphics2D g) {
+            int bx = (int) Math.round(x());
+            int by = (int) Math.round(y());
+            int bw = (int) Math.round(width());
+            int bh = (int) Math.round(height());
+            ProceduralArt.chip(g, bx, by, bw, bh,
+                    ButtonState.of(isEnabled(), isFocused(), isHovered()));
+            int room = bw - CHEVRON_ROOM - 12;
+            g.setFont(Fonts.bold(FONT_SIZE));
+            double scale = Fonts.textScale();
+            if (shownSource != text || shownWidth != room || shownScale != scale) {
+                // Measured only when the label, the room or the text scale changed.
+                shown = TextPainter.ellipsise(g, text, Math.max(0, room));
+                shownSource = text;
+                shownWidth = room;
+                shownScale = scale;
+            }
+            g.setColor(isEnabled() ? ProceduralArt.TEXT_LIGHT : ProceduralArt.TEXT_MUTED);
+            TextPainter.draw(g, shown, bx + 10.0, TextPainter.centeredBaseline(g, centerY()));
+            ProceduralArt.drawChevron(g, bx + bw - 14.0, centerY(), 11,
+                    isFocused() || isHovered() ? ProceduralArt.TEXT_LIGHT
+                            : ProceduralArt.TEXT_MUTED);
+        }
     }
 
     /**
@@ -1877,14 +2398,13 @@ public final class BirdSelectionScreen implements Screen {
      * <p>Activating it (Enter, Space or a click) steps to the next ability the slot may hold;
      * arrows are left to the focus ring, so moving between chips and changing one never happen on
      * the same key. An innate chip is disabled: it says what the bird grants and refuses to be
-     * traded away.
+     * traded away. The drawing is {@link AbilityCard}'s — the glyph, the slot label, the ability
+     * name and its level — and this class adds what the slot <em>is</em>.
      */
-    public static final class AbilitySlot extends UiNode {
+    public static final class AbilitySlot extends AbilityCard {
 
         private SlotRole role = SlotRole.ACTIVE;
         private String abilityId;
-        private String label = "";
-        private String value = "";
         private String tooltip = "";
         private boolean blocked;
 
@@ -1901,15 +2421,26 @@ public final class BirdSelectionScreen implements Screen {
          * @param newValue the translated ability name, or the word for an empty slot
          * @param newTooltip the hover text
          * @param isBlocked whether the run's rules would strip what is in the slot
+         * @param levelText the level line, empty when the slot holds nothing
+         * @param icon the ability's glyph, or {@code null} for an empty slot
          */
         void bind(SlotRole newRole, String newAbilityId, String newLabel, String newValue,
-                String newTooltip, boolean isBlocked) {
+                String newTooltip, boolean isBlocked, String levelText, IconPainter icon) {
             this.role = newRole;
             this.abilityId = newAbilityId;
-            this.label = newLabel;
-            this.value = newValue;
             this.tooltip = newTooltip;
             this.blocked = isBlocked;
+            Tone tone;
+            if (isBlocked) {
+                tone = Tone.BLOCKED;
+            } else if (newRole == SlotRole.INNATE) {
+                tone = Tone.FIXED;
+            } else if (newAbilityId == null) {
+                tone = Tone.EMPTY;
+            } else {
+                tone = Tone.NORMAL;
+            }
+            bind(newLabel, newValue, levelText, icon, tone);
         }
 
         /**
@@ -1931,24 +2462,6 @@ public final class BirdSelectionScreen implements Screen {
         }
 
         /**
-         * The slot label, as drawn.
-         *
-         * @return the text
-         */
-        public String label() {
-            return label;
-        }
-
-        /**
-         * The ability name, as drawn.
-         *
-         * @return the text, the word for "empty" when the slot holds nothing
-         */
-        public String value() {
-            return value;
-        }
-
-        /**
          * Whether the run's rules would strip what the slot holds (D9).
          *
          * @return {@code true} when the ability is greyed out
@@ -1964,35 +2477,6 @@ public final class BirdSelectionScreen implements Screen {
          */
         public String tooltip() {
             return tooltip;
-        }
-
-        @Override
-        public void render(Graphics2D g) {
-            int bx = (int) Math.round(x());
-            int by = (int) Math.round(y());
-            int bw = (int) Math.round(width());
-            int bh = (int) Math.round(height());
-            g.setColor(SLOT_BACK);
-            g.fillRoundRect(bx, by, bw, bh, 8, 8);
-            Stroke old = g.getStroke();
-            g.setStroke(SWATCH_STROKE);
-            if (blocked) {
-                g.setColor(SLOT_BLOCKED);
-            } else if (role == SlotRole.INNATE) {
-                g.setColor(SLOT_FIXED);
-            } else {
-                g.setColor(isFocused() || isHovered() ? ProceduralArt.TEXT_LIGHT
-                        : ProceduralArt.TEXT_MUTED);
-            }
-            g.drawRoundRect(bx, by, bw, bh, 8, 8);
-            g.setStroke(old);
-            g.setFont(Fonts.regular(9));
-            g.setColor(ProceduralArt.TEXT_MUTED);
-            TextPainter.draw(g, label, bx + 6.0, by + 9.0);
-            g.setFont(Fonts.bold(11));
-            g.setColor(blocked ? SLOT_BLOCKED
-                    : (abilityId == null ? ProceduralArt.TEXT_MUTED : ProceduralArt.TEXT_LIGHT));
-            TextPainter.draw(g, value, bx + 6.0, by + bh - 5.0);
         }
     }
 
@@ -2012,6 +2496,8 @@ public final class BirdSelectionScreen implements Screen {
         private static final Color ARROW_OFF = new Color(0x6E, 0x7A, 0x7C);
         private static final Stroke FOCUS = new BasicStroke(2f);
         private static final int SWATCH_SIZE = 18;
+        /** Colour of a detail line that is a refusal. */
+        private static final Color WARN = new Color(0xE8, 0x5A, 0x4A);
 
         private final int[] arrowX = new int[3];
         private final int[] arrowY = new int[3];
@@ -2020,6 +2506,7 @@ public final class BirdSelectionScreen implements Screen {
         private String tooltip = "";
         private boolean locked;
         private int fontSize = 14;
+        private String shownOverride;
 
         WorldRow(String label, List<String> options, int selected) {
             super(label, options, selected);
@@ -2044,6 +2531,36 @@ public final class BirdSelectionScreen implements Screen {
         public void setFontSize(int size) {
             super.setFontSize(size);
             this.fontSize = size;
+        }
+
+        /**
+         * Shows a value the row does not step to, or clears it.
+         *
+         * <p>Today's daily forces its own world and tier: the rows show those, read-only, rather
+         * than a selection the run would ignore.
+         *
+         * @param value the text to draw instead of the selected option, or {@code null}
+         */
+        void setShownOverride(String value) {
+            this.shownOverride = value;
+        }
+
+        /**
+         * The override, if any.
+         *
+         * @return the text, or {@code null} when the row shows its own selection
+         */
+        String shownOverride() {
+            return shownOverride;
+        }
+
+        /**
+         * The value the row draws: the override when one is set, its selected option otherwise.
+         *
+         * @return the text
+         */
+        public String shownOption() {
+            return shownOverride != null ? shownOverride : selectedOption();
         }
 
         /**
@@ -2101,11 +2618,11 @@ public final class BirdSelectionScreen implements Screen {
             triangle(g, rightArrow, lineY, 1);
             g.setFont(Fonts.bold(fontSize));
             g.setColor(locked ? ProceduralArt.TEXT_MUTED : ProceduralArt.TEXT_LIGHT);
-            TextPainter.draw(g, selectedOption(), (leftArrow + rightArrow) / 2,
+            TextPainter.draw(g, shownOption(), (leftArrow + rightArrow) / 2,
                     TextPainter.centeredBaseline(g, lineY), Align.CENTER);
             if (!detail.isEmpty()) {
                 g.setFont(Fonts.regular(10));
-                g.setColor(locked ? SLOT_BLOCKED : ProceduralArt.TEXT_MUTED);
+                g.setColor(locked ? WARN : ProceduralArt.TEXT_MUTED);
                 TextPainter.draw(g, detail, x(), y() + height() - 5);
             }
             if (isFocused()) {
@@ -2132,7 +2649,12 @@ public final class BirdSelectionScreen implements Screen {
     /** One palette swatch: a square in the palette's body colour, with its wing as a corner. */
     private static final class Swatch extends UiNode {
 
+        /** Veil over a palette the profile has not earned. */
+        private static final Color VEIL = new Color(0x10, 0x1C, 0x1E, 0xC0);
+
         private PaletteDef palette;
+        private Color body;
+        private Color wing;
         private boolean owned;
         private boolean active;
         private String tooltip = "";
@@ -2150,6 +2672,12 @@ public final class BirdSelectionScreen implements Screen {
          * @param tip the tooltip text
          */
         void bind(PaletteDef newPalette, boolean isOwned, boolean isActive, String tip) {
+            if (newPalette != palette) {
+                // Cached here rather than in render: a swatch's palette changes with the
+                // browsed bird, never per frame.
+                body = newPalette == null ? null : new Color(newPalette.bodyRgb());
+                wing = newPalette == null ? null : new Color(newPalette.wingRgb());
+            }
             this.palette = newPalette;
             this.owned = isOwned;
             this.active = isActive;
@@ -2170,18 +2698,19 @@ public final class BirdSelectionScreen implements Screen {
             int by = (int) Math.round(y());
             int bw = (int) Math.round(width());
             int bh = (int) Math.round(height());
-            g.setColor(new Color(palette.bodyRgb()));
+            g.setColor(body);
             g.fillRoundRect(bx, by, bw, bh, 6, 6);
-            g.setColor(new Color(palette.wingRgb()));
+            g.setColor(wing);
             g.fillRoundRect(bx + bw / 2, by + bh / 2, bw / 2 - 2, bh / 2 - 2, 4, 4);
             if (!owned) {
-                g.setColor(new Color(0x10, 0x1C, 0x1E, 0xC0));
+                g.setColor(VEIL);
                 g.fillRoundRect(bx, by, bw, bh, 6, 6);
             }
             Stroke old = g.getStroke();
             g.setStroke(SWATCH_STROKE);
             g.setColor(active ? ProceduralArt.COIN_GOLD
-                    : (isFocused() ? ProceduralArt.TEXT_LIGHT : ProceduralArt.TEXT_MUTED));
+                    : (isFocused() || isHovered() ? ProceduralArt.TEXT_LIGHT
+                            : ProceduralArt.TEXT_MUTED));
             g.drawRoundRect(bx, by, bw, bh, 6, 6);
             g.setStroke(old);
         }

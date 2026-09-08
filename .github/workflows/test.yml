@@ -61,6 +61,13 @@ jobs:
           check_name: JUnit report
           require_tests: false
           detailed_summary: true
+          # The GUI smoke suite retries a test whose Robot click Xvfb swallowed
+          # (build.gradle: maxRetries = 2), and Gradle records every attempt in the XML. Without
+          # this the report calls a retried-then-passed test a failure and posts a red check over
+          # a green build; with it only the last attempt of a test counts, so the check says what
+          # the smoke task said. A test that still fails on its last attempt is still a failure.
+          check_retries: true
+          flaky_summary: true
 
       - name: Upload test reports and smoke screenshots
         if: always()

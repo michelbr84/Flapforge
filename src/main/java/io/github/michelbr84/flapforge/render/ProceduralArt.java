@@ -282,6 +282,32 @@ public final class ProceduralArt {
     private static final Shape CHEVRON_UPPER = new Line2D.Double(-0.3, -0.5, 0.3, 0);
     private static final Shape CHEVRON_LOWER = new Line2D.Double(0.3, 0, -0.3, 0.5);
 
+    /* Unit-space ability and attribute icons (M11); 1 unit = the icon size, centre origin. */
+    private static final Shape SHIELD = polygon(-0.42, -0.46, 0.42, -0.46, 0.42, 0.06, 0.0, 0.5,
+            -0.42, 0.06);
+    private static final Shape SHIELD_INNER = polygon(-0.20, -0.26, 0.20, -0.26, 0.20, 0.02,
+            0.0, 0.26, -0.20, 0.02);
+    /** The bird's wing, re-centred and filled out to the icon box (mobility). */
+    private static final Shape WING = polygon(0.21, -0.24, -0.45, -0.03, -0.30, 0.24, 0.45, 0.06);
+    private static final Shape HEART_LEFT = new Ellipse2D.Double(-0.46, -0.46, 0.50, 0.50);
+    private static final Shape HEART_RIGHT = new Ellipse2D.Double(-0.04, -0.46, 0.50, 0.50);
+    private static final Shape HEART_TIP = polygon(-0.44, -0.14, 0.44, -0.14, 0.0, 0.50);
+    private static final Shape MAGNET_LEG_LEFT = new Rectangle2D.Double(-0.48, -0.06, 0.22, 0.54);
+    private static final Shape MAGNET_LEG_RIGHT = new Rectangle2D.Double(0.26, -0.06, 0.22, 0.54);
+    private static final Shape HOURGLASS_TOP = polygon(-0.32, -0.38, 0.32, -0.38, 0.0, 0.0);
+    private static final Shape HOURGLASS_BOTTOM = polygon(-0.32, 0.38, 0.32, 0.38, 0.0, 0.0);
+    private static final Shape HOURGLASS_BAR_TOP = new Rectangle2D.Double(-0.42, -0.5, 0.84, 0.12);
+    private static final Shape HOURGLASS_BAR_BOTTOM = new Rectangle2D.Double(-0.42, 0.38, 0.84,
+            0.12);
+    private static final Shape CHECK_SHORT = new Line2D.Double(-0.38, 0.04, -0.10, 0.32);
+    private static final Shape CHECK_LONG = new Line2D.Double(-0.10, 0.32, 0.42, -0.32);
+    private static final Shape SLOT_RING = new Ellipse2D.Double(-0.40, -0.40, 0.80, 0.80);
+    private static final Shape SLOT_PLUS_H = new Line2D.Double(-0.18, 0.0, 0.18, 0.0);
+    private static final Shape SLOT_PLUS_V = new Line2D.Double(0.0, -0.18, 0.0, 0.18);
+    private static final Stroke ICON_STROKE = new BasicStroke(0.12f, BasicStroke.CAP_ROUND,
+            BasicStroke.JOIN_ROUND);
+    private static final Stroke ICON_STROKE_THIN = new BasicStroke(0.08f);
+
     private static final Map<PaletteKey, Resolved> RESOLVED = new ConcurrentHashMap<>();
 
     /** Cache key: the palette plus the high-contrast flag, which changes the derived colours. */
@@ -1438,6 +1464,250 @@ public final class ProceduralArt {
         g.drawArc((int) Math.round(cx - size * 0.3), (int) Math.round(cy - size * 0.65),
                 (int) Math.round(size * 0.6), (int) Math.round(size * 0.7), 0, 180);
         g.setStroke(old);
+    }
+
+    /**
+     * Draws a chevron, pointing right or left (the "there is more" affordance of a row that
+     * opens something).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the height
+     * @param color the stroke colour
+     * @param pointsLeft whether the chevron points left instead of right
+     */
+    public static void drawChevron(Graphics2D g, double cx, double cy, double size, Color color,
+            boolean pointsLeft) {
+        if (!pointsLeft) {
+            drawChevron(g, cx, cy, size, color);
+            return;
+        }
+        g.translate(cx, 0.0);
+        g.scale(-1.0, 1.0);
+        drawChevron(g, 0.0, cy, size, color);
+        g.scale(-1.0, 1.0);
+        g.translate(-cx, 0.0);
+    }
+
+    /**
+     * Draws a shield (a defensive ability, the defence attribute).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the icon size
+     * @param color the fill
+     */
+    public static void drawShield(Graphics2D g, double cx, double cy, double size, Color color) {
+        if (size <= 0) {
+            return;
+        }
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(color);
+        g.fill(SHIELD);
+        Stroke old = g.getStroke();
+        g.setStroke(ICON_STROKE_THIN);
+        g.setColor(TEXT_DARK);
+        g.draw(SHIELD_INNER);
+        g.setStroke(old);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a wing (a movement ability, the mobility attribute).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the icon size
+     * @param color the fill
+     */
+    public static void drawWing(Graphics2D g, double cx, double cy, double size, Color color) {
+        if (size <= 0) {
+            return;
+        }
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(color);
+        g.fill(WING);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a heart (a revive ability).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the icon size
+     * @param color the fill
+     */
+    public static void drawHeart(Graphics2D g, double cx, double cy, double size, Color color) {
+        if (size <= 0) {
+            return;
+        }
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(color);
+        g.fill(HEART_LEFT);
+        g.fill(HEART_RIGHT);
+        g.fill(HEART_TIP);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a horseshoe magnet (an economy ability). The arc is stroked with
+     * {@link Graphics2D#drawArc}, as the padlock's shackle is, so it stays inside the drawing
+     * surface the Android port implements.
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the icon size
+     * @param color the fill
+     */
+    public static void drawMagnet(Graphics2D g, double cx, double cy, double size, Color color) {
+        if (size <= 0) {
+            return;
+        }
+        g.setColor(color);
+        int arcW = (int) Math.round(size * 0.74);
+        int arcH = (int) Math.round(size * 0.74);
+        Stroke old = g.getStroke();
+        g.setStroke(new BasicStroke((float) Math.max(1.0, size * 0.22)));
+        g.drawArc((int) Math.round(cx - arcW / 2.0), (int) Math.round(cy - size * 0.42), arcW,
+                arcH, 0, 180);
+        g.setStroke(old);
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.fill(MAGNET_LEG_LEFT);
+        g.fill(MAGNET_LEG_RIGHT);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws an hourglass (a tempo ability).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the icon size
+     * @param color the fill
+     */
+    public static void drawHourglass(Graphics2D g, double cx, double cy, double size,
+            Color color) {
+        if (size <= 0) {
+            return;
+        }
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setColor(color);
+        g.fill(HOURGLASS_TOP);
+        g.fill(HOURGLASS_BOTTOM);
+        g.fill(HOURGLASS_BAR_TOP);
+        g.fill(HOURGLASS_BAR_BOTTOM);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+    }
+
+    /**
+     * Draws a check mark (the bird the profile already flies with).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the icon size
+     * @param color the stroke colour
+     */
+    public static void drawCheck(Graphics2D g, double cx, double cy, double size, Color color) {
+        if (size <= 0) {
+            return;
+        }
+        Stroke old = g.getStroke();
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setStroke(ICON_STROKE);
+        g.setColor(color);
+        g.draw(CHECK_SHORT);
+        g.draw(CHECK_LONG);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+        g.setStroke(old);
+    }
+
+    /**
+     * Draws the empty-slot glyph: a ring with a plus in it.
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param cy the centre y
+     * @param size the icon size
+     * @param color the stroke colour
+     */
+    public static void drawSlotRing(Graphics2D g, double cx, double cy, double size,
+            Color color) {
+        if (size <= 0) {
+            return;
+        }
+        Stroke old = g.getStroke();
+        g.translate(cx, cy);
+        g.scale(size, size);
+        g.setStroke(ICON_STROKE_THIN);
+        g.setColor(color);
+        g.draw(SLOT_RING);
+        g.draw(SLOT_PLUS_H);
+        g.draw(SLOT_PLUS_V);
+        g.scale(1 / size, 1 / size);
+        g.translate(-cx, -cy);
+        g.setStroke(old);
+    }
+
+    /**
+     * Draws a floating island: an under-shadow, the soil, a grass rim and two rocks (the pedestal
+     * the hub's forge scene and the bird selection's hero both stand a bird on).
+     *
+     * @param g the context
+     * @param cx the centre x
+     * @param topY the top edge
+     * @param w the width
+     * @param h the height
+     * @param soil the soil colour
+     * @param grass the grass colour
+     * @param rock the rock colour
+     */
+    public static void drawIsland(Graphics2D g, double cx, double topY, double w, double h,
+            Color soil, Color grass, Color rock) {
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        int x = (int) Math.round(cx - w / 2);
+        int y = (int) Math.round(topY);
+        int iw = (int) Math.round(w);
+        int ih = (int) Math.round(h);
+        g.setColor(SHADOW);
+        g.fillOval(x + 6, y + 8, iw, ih);
+        g.setColor(soil);
+        g.fillOval(x, y, iw, ih);
+        g.setColor(grass);
+        g.fillOval(x, y, iw, (int) Math.round(ih * 0.55));
+        g.setColor(rock);
+        g.fillOval(x + (int) Math.round(iw * 0.16), y + (int) Math.round(ih * 0.2),
+                (int) Math.round(iw * 0.1), (int) Math.round(ih * 0.24));
+        g.fillOval(x + (int) Math.round(iw * 0.68), y + (int) Math.round(ih * 0.32),
+                (int) Math.round(iw * 0.12), (int) Math.round(ih * 0.28));
+        if (Accessibility.isHighContrast()) {
+            Stroke old = g.getStroke();
+            g.setStroke(THICK);
+            g.setColor(TEXT_DARK);
+            g.drawOval(x, y, iw, ih);
+            g.setStroke(old);
+        }
     }
 
     /**

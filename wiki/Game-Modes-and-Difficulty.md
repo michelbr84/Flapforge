@@ -9,7 +9,8 @@ demo that plays when you leave the hub alone, is at the end.
 
 ## Where the mode is chosen
 
-The mode row sits on the Birds screen, beside the world row and the tier row
+The mode row sits in the run-setup panel of the Birds screen, under the world row and the tier
+row: the bar reads `World · Tier · Mode ›` and activating it opens the three rows
 ([[Birds and Abilities]]). Standard and Seeded are always listed; Daily is listed when the game
 has a clock, and while `feature:seeded_runs` is still locked both Seeded and Daily say so with
 their unlock condition. The line under the mode names what Play would start: "A fresh seed
@@ -69,8 +70,9 @@ The full list, with objectives and rewards, is on [[Challenges and Goals]].
 ## Difficulty tiers
 
 A tier stacks on top of every mode, except where a challenge fixes its own. It is chosen on the
-tier row of the Birds screen or on the Difficulty row of the World Select screen (the screenshot
-is on [[Worlds and Bosses]]); on desktop `--tier <id>` picks it for one launch.
+tier row of the Birds screen's run-setup panel or on the Difficulty row of the World Select
+screen (the screenshot is on [[Worlds and Bosses]]); on desktop `--tier <id>` picks it for one
+launch.
 
 | `id` | Name | Effects | Flags | Reward multiplier | Unlocked by |
 | --- | --- | --- | --- | --- | --- |

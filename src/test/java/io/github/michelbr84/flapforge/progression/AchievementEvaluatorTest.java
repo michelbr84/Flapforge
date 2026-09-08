@@ -165,10 +165,8 @@ class AchievementEvaluatorTest {
         AchievementDef def = evaluator.definition("collect_all_birds");
         assertFalse(evaluator.isSatisfied(def, profile, null));
 
-        int birds = 0;
         for (int i = 0; i < content.birds().size() - 1; i++) {
             profile.unlock("bird:" + content.birds().ids().get(i));
-            birds++;
         }
         assertEquals(85, evaluator.collections().percent("birds", profile),
                 "6 of 7 birds floors to 85");

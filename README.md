@@ -8,7 +8,7 @@
 [![Gradle](https://img.shields.io/badge/Gradle-9.7-02303A?logo=gradle&logoColor=white)](https://gradle.org/)
 ![Genre](https://img.shields.io/badge/Genre-Arcade%20Roguelite-blueviolet)
 ![Meta Progression](https://img.shields.io/badge/Progression-Persistent-success)
-![Release](https://img.shields.io/badge/Release-v0.2.0-blue)
+![Release](https://img.shields.io/badge/Release-v0.2.1-blue)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **Flapforge** reimagines the classic Flappy Bird formula as a **Skill-Based Arcade Roguelite with Persistent Meta-Progression**.
@@ -588,8 +588,9 @@ and
 
 ## Game Modes
 
-The bird selection screen has a run-mode row beside the world and tier rows.
-Four modes exist; Challenges live on the first tab of the Goals screen.
+The bird selection screen has a run-mode row under the world and tier rows,
+in the panel its `World · Tier · Mode ›` bar opens. Four modes exist;
+Challenges live on the first tab of the Goals screen.
 
 ### Standard
 
@@ -692,9 +693,9 @@ honours the text scale and colour-blind settings. `Esc` on the hub asks
 "Press again to quit"; a second press closes the game (Settings › About has
 a Quit row too).
 
-The world is picked on the hub's plaque, in the bird selection screen (the
-world row lists the five worlds, what each spawns and, for a locked one, the
-cheapest way in) or for one launch with `--world <id>` — see
+The world is picked on the hub's plaque, in the bird selection screen (its
+run-setup panel lists the five worlds, what each spawns and, for a locked
+one, the cheapest way in) or for one launch with `--world <id>` — see
 [Running the Game](#running-the-game).
 
 Input is sampled per simulation tick (60 Hz), so a tap shorter than a frame
@@ -757,9 +758,9 @@ if you want to send a change.
 
 ```bash
 ./gradlew fatJar
-java -jar build/libs/flapforge-0.2.0-all.jar
-java -jar build/libs/flapforge-0.2.0-all.jar --fullscreen --no-audio
-java -jar build/libs/flapforge-0.2.0-all.jar --lang pt_BR
+java -jar build/libs/flapforge-0.2.1-all.jar
+java -jar build/libs/flapforge-0.2.1-all.jar --fullscreen --no-audio
+java -jar build/libs/flapforge-0.2.1-all.jar --lang pt_BR
 ```
 
 The jar bundles Gson and needs only a JRE/JDK 17+.
@@ -939,7 +940,8 @@ It is:
 
 ## Roadmap
 
-Version 0.1.0 shipped the complete first pass of the design, and 0.2.0 adds the home hub, the Goals screen, the Profile, the World Select and the player wiki: the classic core,
+Version 0.1.0 shipped the complete first pass of the design, 0.2.0 added the home hub, the Goals screen, the Profile, the World Select and the player wiki, and 0.2.1 rebuilds the bird
+selection in the hub's visual language: the classic core,
 the meta-progression (coins, XP, seven birds, eight abilities, three upgrade
 trees, shops), the roguelite layer (modifier drafts, synergies), five worlds
 with bosses, seven challenges, 41 achievements, difficulty tiers, the daily

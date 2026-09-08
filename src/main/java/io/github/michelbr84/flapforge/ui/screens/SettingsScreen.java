@@ -28,7 +28,6 @@ import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiCues;
 import io.github.michelbr84.flapforge.ui.UiNode;
-import io.github.michelbr84.flapforge.ui.component.Adjustable;
 import io.github.michelbr84.flapforge.ui.component.Button;
 import io.github.michelbr84.flapforge.ui.component.Label;
 import io.github.michelbr84.flapforge.ui.component.ListView;

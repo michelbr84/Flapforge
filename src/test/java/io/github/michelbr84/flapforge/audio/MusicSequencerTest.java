@@ -169,7 +169,6 @@ class MusicSequencerTest {
     void aScreenChangeCrossfadesAndTheOldLoopFadesOut() {
         CaptureAudioBackend backend = new CaptureAudioBackend();
         AudioManager manager = new AudioManager(backend);
-        GameContent content = content();
         List<WorldDef> all = worlds();
         String first = MusicSequencer.idForWorld(all.get(0).id());
         String second = MusicSequencer.idForWorld(all.get(1).id());

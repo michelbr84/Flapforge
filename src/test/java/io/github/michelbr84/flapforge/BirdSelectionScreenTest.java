@@ -3,6 +3,7 @@ package io.github.michelbr84.flapforge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -42,8 +43,10 @@ import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
 import io.github.michelbr84.flapforge.ui.component.CardGrid;
+import io.github.michelbr84.flapforge.ui.component.Carousel;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Tooltip;
+import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.ProgressionText;
 import java.util.LinkedHashMap;
@@ -112,6 +115,7 @@ class BirdSelectionScreenTest {
     @AfterEach
     void tearDown() {
         Strings.use(Strings.load("en"));
+        ParticleSystem.setDefaultReduceFlashing(true);
     }
 
     private void open() {
@@ -189,10 +193,11 @@ class BirdSelectionScreenTest {
         assertSame(screen.roster().card("classic"), screen.focusRing().focused(),
                 "the selected bird is focused on entry");
 
-        // The roster is two columns in content order: classic, swift / heavy, guardian / ...
-        tap(Keys.DOWN);
+        // The carousel is one row in content order: classic, swift, heavy, guardian, ...
+        tap(Keys.RIGHT);
+        tap(Keys.RIGHT);
         assertSame(screen.roster().card("heavy"), screen.focusRing().focused(),
-                "Down moves one row");
+                "Right walks the row");
         assertEquals("heavy", screen.currentBirdId());
 
         int savesBefore = saves;
@@ -617,6 +622,7 @@ class BirdSelectionScreenTest {
 
         // Wind Valley is locked: the row says how to open it (the cheapest branch, D13).
         int savesBefore = saves;
+        screen.openRunSetup();
         screen.focusRing().focus(screen.worldList());
         tap(Keys.RIGHT);
         assertEquals("green_fields", profile.selected.worldId,
@@ -631,6 +637,7 @@ class BirdSelectionScreenTest {
     void steppingOntoAnOwnedWorldSelectsItAndTheSelectionPersists() {
         profile.unlock("world:iron_forge");
         open();
+        screen.openRunSetup();
         screen.focusRing().focus(screen.worldList());
         // green_fields -> wind_valley (locked, refused) ... the row cannot pass a locked world,
         // so the owned one is reached by selecting its index directly, as a click on it would.
@@ -653,6 +660,7 @@ class BirdSelectionScreenTest {
         screens.pop();
         ticks(GRACE);
         open();
+        screen.openRunSetup();
         assertEquals("iron_forge", screen.currentWorldId(), "the selection survived");
 
         // A locked world reached by index is refused and reported.
@@ -670,10 +678,11 @@ class BirdSelectionScreenTest {
     void arrowKeysStepTheWorldAndTierRowsInsteadOfMovingTheFocus() {
         profile.unlock("world:wind_valley");
         open();
+        screen.openRunSetup();
         screen.focusRing().focus(screen.worldList());
         tap(Keys.RIGHT);
         assertSame(screen.worldList(), screen.focusRing().focused(),
-                "Right on the world row steps the row; the Buy button beside it does not take "
+                "Right on the world row steps the row; the Done button below it does not take "
                         + "the focus");
         assertEquals("wind_valley", profile.selected.worldId, "the owned world was selected");
         assertEquals("wind_valley", screen.currentWorldId());
@@ -702,5 +711,179 @@ class BirdSelectionScreenTest {
         assertEquals(pt.name("world", "green_fields"), screen.worldList().selectedOption());
         assertTrue(screen.worldDetail().startsWith(
                 pt.format(StringKey.BIRDS_WORLD_HAZARDS, "").trim()), screen.worldDetail());
+    }
+
+    // ------------------------------------------------------------------ the redesign (M11)
+
+    @Test
+    void theCallToActionNamesTheOneThingToDoWithTheBrowsedBird() {
+        open();
+        assertSame(screen.cta(), screen.selectButton(), "Select and Buy are one button now");
+        assertSame(screen.cta(), screen.buyButton());
+        assertEquals(strings.get(StringKey.BIRDS_SELECTED_CTA), screen.cta().text(),
+                "a fresh profile is already flying Forgewing");
+        assertFalse(screen.cta().isEnabled(), "there is nothing to do");
+
+        // Ironbeak is locked and unaffordable: the button says what opens it.
+        click(screen.roster().card("guardian"));
+        assertEquals("guardian", screen.currentBirdId());
+        assertEquals(strings.format(StringKey.BIRDS_LOCKED_CTA,
+                strings.format(StringKey.UNLOCK_RUNS, 3)), screen.cta().text());
+        assertFalse(screen.cta().isEnabled());
+        assertFalse(profile.isUnlocked("bird:guardian"), "browsing buys nothing");
+
+        // With the coins in the wallet it says what it costs, and buying it works.
+        credit(150);
+        screen.refreshCurrent();
+        assertEquals(strings.format(StringKey.BIRDS_BUY_FOR,
+                ProgressionText.price(strings, 150)), screen.cta().text());
+        assertTrue(screen.cta().isEnabled());
+        click(screen.cta());
+        assertTrue(profile.isUnlocked("bird:guardian"), "the call to action bought it");
+
+        // Activating an owned tile selects it outright.
+        click(screen.roster().card("guardian"));
+        assertEquals("guardian", profile.selected.birdId, "activating an owned tile selects it");
+
+        // Browsing back to Forgewing without activating it: the button offers to fly it, and does.
+        screen.mainRing().focus(screen.roster().card("classic"));
+        ticks(1);
+        assertEquals("classic", screen.currentBirdId(), "the focus moved the browsing");
+        assertEquals("guardian", profile.selected.birdId, "browsing selects nothing");
+        assertEquals(strings.format(StringKey.BIRDS_USE,
+                ProgressionText.name(strings, ContentKind.BIRD, "classic")),
+                screen.cta().text());
+        assertTrue(screen.cta().isEnabled());
+        click(screen.cta());
+        assertEquals("classic", profile.selected.birdId, "and the call to action flies it");
+    }
+
+    @Test
+    void theRunSetupBarOpensThePanelAndBackClosesItBeforeLeaving() {
+        open();
+        assertFalse(screen.isRunSetupOpen());
+        String line = screen.runSetupText();
+        assertTrue(line.contains(ProgressionText.name(strings, ContentKind.WORLD,
+                "green_fields")), line);
+        assertTrue(line.contains(ProgressionText.name(strings, ContentKind.TIER, "normal")), line);
+        assertTrue(line.contains(strings.get(StringKey.MODE_STANDARD)), line);
+
+        click(screen.runSetupBar());
+        assertTrue(screen.isRunSetupOpen(), "the bar opens the panel");
+        assertSame(screen.worldList(), screen.focusRing().focused(),
+                "the panel's own ring takes the focus");
+        assertSame(screen.focusRing(), screen.focusRing(), "and it is the ring taking input");
+
+        tap(Keys.ESCAPE);
+        assertFalse(screen.isRunSetupOpen(), "Back closes the panel");
+        assertSame(screen, screens.top(), "and does not leave the screen");
+        ticks(2);
+        tap(Keys.ESCAPE);
+        ticks(2);
+        assertNotSame(screen, screens.top(), "a second Back leaves");
+    }
+
+    @Test
+    void seeDetailsOpensTheBreakdownAndTheWheelScrollsIt() {
+        // Eight unlocked abilities plus the stat blocks are more rows than even the tall panel
+        // shows at once, which is what makes the scroll worth asserting.
+        for (int i = 0; i < content.abilities().size(); i++) {
+            profile.unlock("ability:" + content.abilities().ids().get(i));
+        }
+        open();
+        assertFalse(screen.isDetailsOpen());
+        assertNotNull(screen.row("stat.GRAVITY"), "the rows exist whether or not they are shown");
+        click(screen.seeDetailsButton());
+        assertTrue(screen.isDetailsOpen());
+        assertSame(screen.detailsDoneButton(), screen.focusRing().focused());
+        assertEquals(0, screen.detailsScroll(), 0.001);
+        input.offer(new RawInput.Wheel(-3));
+        ticks(1);
+        assertTrue(screen.detailsScroll() > 0, "the wheel scrolls the rows");
+        click(screen.detailsDoneButton());
+        assertFalse(screen.isDetailsOpen(), "Done closes it");
+        assertSame(screen.seeDetailsButton(), screen.mainRing().focused(),
+                "and the focus is back where it came from");
+    }
+
+    @Test
+    void theNavigationCarriesBirdsAsPrimaryAndPlayStartsARun() {
+        open();
+        assertTrue(screen.nav().button("birds").isPrimary(),
+                "on a section screen the gold plate says which section you are on");
+        assertFalse(screen.nav().button("play").isPrimary());
+        assertFalse(screen.nav().button("shop").isEnabled(),
+                "without an application context there is no shop to open");
+        assertFalse(screen.nav().button("forge").isEnabled());
+        assertFalse(screen.nav().button("goals").isEnabled());
+        assertEquals(strings.get(StringKey.MENU_PLAY), screen.playButton().text());
+        click(screen.playButton());
+        ticks(2);
+        assertTrue(screens.top() instanceof io.github.michelbr84.flapforge.ui.screens.GameScreen,
+                "Play starts the run the screen is configuring");
+    }
+
+    @Test
+    void tappingALockedTileNudgesItsPadlockAndSelectsNothing() {
+        open();
+        Carousel.Tile guardian = screen.roster().card("guardian");
+        assertTrue(guardian.isLocked());
+        click(guardian);
+        assertTrue(guardian.isNudging(), "the padlock answers the tap");
+        assertEquals("classic", profile.selected.birdId, "and nothing was selected");
+        ticks(Carousel.NUDGE_TICKS + 1);
+        assertFalse(guardian.isNudging(), "the nudge is bounded");
+    }
+
+    @Test
+    void reduceFlashingCapsTheGlowsAndLeavesTheMotionAlone() {
+        ParticleSystem.setDefaultReduceFlashing(false);
+        open();
+        assertFalse(screen.roster().isReduceFlashing());
+        assertFalse(screen.cta().isReduceFlashing());
+        tap(Keys.RIGHT);
+        assertTrue(screen.hero().isSliding(), "browsing slides the portraits");
+
+        ParticleSystem.setDefaultReduceFlashing(true);
+        ticks(2);
+        assertTrue(screen.roster().isReduceFlashing(), "the setting is polled every tick");
+        assertTrue(screen.cta().isReduceFlashing());
+        for (int i = 0; i < 40; i++) {
+            ticks(1);
+        }
+        tap(Keys.RIGHT);
+        assertTrue(screen.hero().isSliding(),
+                "reduce flashing caps the glows; the slide is motion, not a flash");
+    }
+
+    @Test
+    void theHeroShowsTheBrowsedBirdWithItsThreeAttributes() {
+        open();
+        assertEquals("classic", screen.hero().birdId());
+        assertEquals(5, screen.hero().attributes().mobility(), "Forgewing is the reference");
+        assertEquals(3, screen.hero().badges().size());
+        assertEquals(strings.get(StringKey.BIRDS_ATTR_MOBILITY),
+                screen.hero().badges().get(0).label());
+        assertEquals(5, screen.hero().badges().get(0).value());
+
+        click(screen.roster().card("guardian"));
+        assertEquals("guardian", screen.hero().birdId(), "the hero follows the browsing");
+        assertEquals(10, screen.hero().attributes().defence(),
+                "Ironbeak's innate shield is what the badge is about");
+    }
+
+    @Test
+    void everyControlIsOnTheRingInVisualOrder() {
+        open();
+        List<UiNode> nodes = screen.mainRing().nodes();
+        assertEquals(content.birds().size() + BirdSelectionScreen.MAX_SWATCHES + 1
+                + screen.abilitySlots().size() + 1 + 1 + screen.nav().buttons().size(),
+                nodes.size(), "tiles, swatches, the bar, the chips, See details, the CTA, the nav");
+        for (int i = 0; i < content.birds().size(); i++) {
+            assertEquals(content.birds().ids().get(i), ((CardGrid.Card) nodes.get(i)).id(),
+                    "the tiles come first, in content order");
+        }
+        assertSame(screen.nav().buttons().get(0), nodes.get(nodes.size() - 5),
+                "and the navigation last");
     }
 }

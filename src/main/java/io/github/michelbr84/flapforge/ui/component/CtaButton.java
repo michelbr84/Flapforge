@@ -18,7 +18,8 @@ import java.util.Objects;
  * <p>The glow is a triangle wave on the tick the screen hands in through {@link #setTicks}, so
  * it is deterministic and the same on every refresh rate; under reduce flashing its peak is
  * capped below the particle system's reduced peak. The title steps its font down until it fits
- * the plate, so a long translation or a large text scale never overflows.
+ * the plate and is ellipsised when even the smallest size overflows, so a long translation or a
+ * large text scale never spills past the plate.
  */
 public class CtaButton extends Button {
 
@@ -51,6 +52,7 @@ public class CtaButton extends Button {
     private long ticks;
     private boolean reduceFlashing;
     private Font titleFont;
+    private String shownTitle = "";
     private String titleFor;
     private int titleRoom = -1;
     private double titleScale;
@@ -143,6 +145,16 @@ public class CtaButton extends Button {
         return (reduceFlashing ? GLOW_PEAK_REDUCED : GLOW_PEAK) * wave;
     }
 
+    /**
+     * The title as last drawn: the text, or an ellipsised prefix of it when even the smallest
+     * size overflowed the plate.
+     *
+     * @return the drawn title (empty before the first render)
+     */
+    public String shownTitle() {
+        return shownTitle;
+    }
+
     @Override
     public void render(Graphics2D g) {
         ButtonState state = state();
@@ -159,6 +171,7 @@ public class CtaButton extends Button {
         if (titleFont == null || titleFor != title || titleRoom != room || titleScale != scale) {
             // Measured only when the title, the room or the text scale changed.
             titleFont = Fonts.bold(TITLE_SIZES[TITLE_SIZES.length - 1]);
+            shownTitle = title;
             for (int size : TITLE_SIZES) {
                 Font candidate = Fonts.bold(size);
                 if (TextPainter.width(g, candidate, title) <= room) {
@@ -166,11 +179,19 @@ public class CtaButton extends Button {
                     break;
                 }
             }
+            if (TextPainter.width(g, titleFont, title) > room) {
+                // The smallest size still overflows: the plate ellipsises rather than spills.
+                // The font is set here because ellipsise measures the context's current one, and
+                // the draw below sets it again anyway (the Android shim has no getFont).
+                g.setFont(titleFont);
+                shownTitle = TextPainter.ellipsise(g, title, Math.max(0, room));
+            }
             titleFor = title;
             titleRoom = room;
             titleScale = scale;
         }
         g.setFont(titleFont);
+        title = shownTitle;
         double cy = centerY();
         double titleBaseline = subtitle.isEmpty()
                 ? TextPainter.centeredBaseline(g, cy) : cy - TITLE_LIFT;

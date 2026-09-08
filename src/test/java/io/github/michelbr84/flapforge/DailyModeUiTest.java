@@ -129,6 +129,8 @@ class DailyModeUiTest {
 
     /** Steps the mode row one to the right, the way the keyboard does. */
     private void stepMode() {
+        // The three rows live on the run-setup panel the summary bar opens (M11).
+        screen.openRunSetup();
         screen.focusRing().focus(screen.modeList());
         input.offer(new RawInput.KeyDown(Keys.RIGHT, stamp++));
         input.offer(new RawInput.KeyUp(Keys.RIGHT, stamp++));

@@ -108,8 +108,8 @@ public final class Toast {
      */
     public double alpha() {
         int elapsed = totalTicks - ticksLeft;
-        double in = FADE_IN_TICKS <= 0 ? 1 : Math.min(1, elapsed / (double) FADE_IN_TICKS);
-        double out = FADE_OUT_TICKS <= 0 ? 1 : Math.min(1, ticksLeft / (double) FADE_OUT_TICKS);
+        double in = Math.min(1, elapsed / (double) FADE_IN_TICKS);
+        double out = Math.min(1, ticksLeft / (double) FADE_OUT_TICKS);
         return Math.max(0, Math.min(in, out));
     }
 

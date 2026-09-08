@@ -378,6 +378,8 @@ public enum StringKey {
     COMMON_NONE("common.none"),
     /** Content that ships in a later milestone, {@code {0}} is the milestone. */
     COMMON_SOON("common.soon"),
+    /** Closes a panel that is done with. */
+    COMMON_DONE("common.done"),
 
     /** Bird selection: title. */
     BIRDS_TITLE("birds.title"),
@@ -433,6 +435,30 @@ public enum StringKey {
     BIRDS_ABILITY_BLOCKED("birds.ability.blocked"),
     /** Bird selection: an ability is equipped. */
     BIRDS_ABILITY_EQUIPPED("birds.ability.equipped"),
+    /** Bird selection: the call to action that flies a bird, {@code {0}} is its name. */
+    BIRDS_USE("birds.use"),
+    /** Bird selection: the call to action when the bird already is the selected one. */
+    BIRDS_SELECTED_CTA("birds.selected_cta"),
+    /** Bird selection: the call to action that buys a bird, {@code {0}} is the price. */
+    BIRDS_BUY_FOR("birds.buy_for"),
+    /** Bird selection: the call to action of a locked bird, {@code {0}} is the way in. */
+    BIRDS_LOCKED_CTA("birds.locked_cta"),
+    /** Bird selection: the mobility attribute of a bird. */
+    BIRDS_ATTR_MOBILITY("birds.attr_mobility"),
+    /** Bird selection: the defence attribute of a bird. */
+    BIRDS_ATTR_DEFENCE("birds.attr_defence"),
+    /** Bird selection: the control attribute of a bird. */
+    BIRDS_ATTR_CONTROL("birds.attr_control"),
+    /** Bird selection: the title of the panel that configures the run. */
+    BIRDS_RUN_SETUP("birds.run_setup"),
+    /** Bird selection: the run in one line, {@code {0}} world, {@code {1}} tier, {@code {2}} mode. */
+    BIRDS_SETUP("birds.setup"),
+    /** Bird selection: opens the abilities and the stat breakdown. */
+    BIRDS_SEE_DETAILS("birds.see_details"),
+    /** Bird selection: an ability's level on its card, {@code {0}} of {@code {1}}. */
+    BIRDS_LEVEL_SHORT("birds.level_short"),
+    /** Bird selection: the world and tier today's daily forces. */
+    BIRDS_DAILY_FORCED("birds.daily_forced"),
 
     /** An active ability, triggered by the player. */
     ABILITY_KIND_ACTIVE("ability.kind.active"),
