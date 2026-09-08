@@ -10,9 +10,12 @@ import io.github.michelbr84.flapforge.render.Accessibility;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.ProceduralArt.ButtonState;
+import io.github.michelbr84.flapforge.ui.component.AbilityCard;
+import io.github.michelbr84.flapforge.ui.component.AttributeBadge;
 import io.github.michelbr84.flapforge.ui.component.CtaButton;
 import io.github.michelbr84.flapforge.ui.component.CurrencyChip;
 import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
+import io.github.michelbr84.flapforge.ui.component.HubHeader;
 import io.github.michelbr84.flapforge.ui.component.IconButton;
 import io.github.michelbr84.flapforge.ui.component.IconPainter;
 import java.awt.Graphics2D;
@@ -24,9 +27,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * The hub's smaller components (D17): the call to action's glow, subtitle and font stepping,
- * the icon button's accessible name, and the currency chip's roll-up, each also rendered
- * non-blank.
+ * The hub's smaller components (D17, M11): the call to action's glow, subtitle and font
+ * stepping, the icon button's accessible name, the currency chip's roll-up, and the header,
+ * ability card and attribute badge the section screens share, each also rendered non-blank.
  */
 class HubComponentsTest {
 
@@ -131,6 +134,98 @@ class HubComponentsTest {
         assertNonBlank("chip", chip::render, chip);
         assertTrue(chip.display().x() > chip.x(), "the readout sits inside the plate");
         assertTrue(chip.display().x() + chip.display().width() < chip.x() + chip.width());
+    }
+
+    @Test
+    void theCallToActionEllipsisesATitleTheSmallestSizeCannotFit() {
+        CtaButton cta = new CtaButton("USE IRONBEAK", null);
+        cta.setBounds(40, 512, 340, 44);
+        BufferedImage img = new BufferedImage(420, 640, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        try {
+            ProceduralArt.prepare(g);
+            cta.render(g);
+            assertEquals("USE IRONBEAK", cta.shownTitle(), "it fits at the designed scale");
+            Fonts.setTextScale(1.5);
+            cta.setText("COMPRAR POR TRESENTAS E CINQUENTA MOEDAS DE OURO");
+            cta.render(g);
+            String shown = cta.shownTitle();
+            assertTrue(shown.endsWith("\u2026"), "ellipsised, not spilled: " + shown);
+            assertTrue(shown.length() < "COMPRAR POR TRESENTAS E CINQUENTA MOEDAS DE OURO".length());
+        } finally {
+            g.dispose();
+        }
+    }
+
+    @Test
+    void theHeaderPutsTheTitleLeftAndTheCoinsRight() {
+        HubHeader plain = new HubHeader(null);
+        plain.setTitle("Birds");
+        assertEquals("Birds", plain.title());
+        assertEquals(HubHeader.HEIGHT, plain.height(), 1e-9, "the band is the hub's own");
+        assertFalse(plain.chip().isFocusable(), "without a route the chip is a readout");
+        assertFalse(plain.chip().isEnabled());
+        int[] hits = {0};
+        HubHeader routed = new HubHeader(() -> hits[0]++);
+        routed.setTitle("Aves");
+        assertTrue(routed.chip().isFocusable(), "with a route it opens the shop");
+        assertTrue(routed.chip().activate());
+        assertEquals(1, hits[0]);
+        assertSame(routed.chip().display(), routed.display());
+        assertEquals(HubHeader.CHIP_X, routed.chip().x(), 1e-9);
+        assertEquals(HubHeader.CHIP_W, routed.chip().width(), 1e-9);
+        assertTrue(routed.chip().x() > HubHeader.TITLE_X, "the coins sit right of the title");
+        routed.display().setFormat("{0}");
+        routed.display().setAmountNow(692);
+        routed.tick();
+        assertEquals(692, routed.display().displayedAmount());
+        assertNonBlank("header", routed::render, routed);
+        Accessibility.setHighContrast(true);
+        assertNonBlank("header in high contrast", routed::render, routed);
+    }
+
+    @Test
+    void theAbilityCardShowsItsRoleNameLevelAndTone() {
+        AbilityCard card = new AbilityCard();
+        card.setBounds(16, 426, 126, 34);
+        assertEquals(AbilityCard.Tone.EMPTY, card.tone(), "a fresh card is an empty slot");
+        card.bind("Active", "Double Flap", "Lv 1/3", ICON, AbilityCard.Tone.NORMAL);
+        assertEquals("Active", card.label());
+        assertEquals("Double Flap", card.value());
+        assertEquals("Lv 1/3", card.levelText());
+        assertSame(ICON, card.icon());
+        assertEquals(AbilityCard.Tone.NORMAL, card.tone());
+        for (AbilityCard.Tone tone : AbilityCard.Tone.values()) {
+            card.bind("Passive 1", "Coin Magnet", "Lv 2/3", ICON, tone);
+            assertNonBlank("card " + tone, card::render, card);
+        }
+        Fonts.setTextScale(1.5);
+        card.bind("Passiva 1", "Ima de Moedas Reforcado", "Nv 2/3", ICON,
+                AbilityCard.Tone.NORMAL);
+        assertNonBlank("scaled card", card::render, card);
+        Accessibility.setHighContrast(true);
+        assertNonBlank("card in high contrast", card::render, card);
+    }
+
+    @Test
+    void theAttributeBadgeClampsItsValueAndKeepsTheLabelReadable() {
+        AttributeBadge badge = new AttributeBadge(ICON);
+        badge.setBounds(12, 212, 128, 22);
+        assertFalse(badge.isFocusable(), "a badge states a number, it does not do anything");
+        assertSame(ICON, badge.icon());
+        badge.bind("Mobility", 6);
+        assertEquals("Mobility", badge.label());
+        assertEquals(6, badge.value());
+        badge.bind("Defence", 99);
+        assertEquals(AttributeBadge.MAX, badge.value(), "clamped to the top of the scale");
+        badge.bind("Control", -4);
+        assertEquals(0, badge.value(), "clamped to the bottom");
+        badge.bind("Mobilidade", 10);
+        assertNonBlank("badge", badge::render, badge);
+        Fonts.setTextScale(1.5);
+        assertNonBlank("scaled badge", badge::render, badge);
+        Accessibility.setHighContrast(true);
+        assertNonBlank("badge in high contrast", badge::render, badge);
     }
 
     private static void assertNonBlank(String what, Consumer<Graphics2D> draw,

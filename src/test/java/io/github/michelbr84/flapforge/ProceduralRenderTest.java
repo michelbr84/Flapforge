@@ -180,6 +180,72 @@ class ProceduralRenderTest {
     }
 
     @Test
+    void theBirdSelectionIconsRenderNonBlank() {
+        Map<String, java.util.function.Consumer<Graphics2D>> icons = new LinkedHashMap<>();
+        Color gold = ProceduralArt.COIN_GOLD;
+        icons.put("shield", g -> ProceduralArt.drawShield(g, 24, 24, 30, gold));
+        icons.put("wing", g -> ProceduralArt.drawWing(g, 24, 24, 30, gold));
+        icons.put("heart", g -> ProceduralArt.drawHeart(g, 24, 24, 30, gold));
+        icons.put("magnet", g -> ProceduralArt.drawMagnet(g, 24, 24, 30, gold));
+        icons.put("hourglass", g -> ProceduralArt.drawHourglass(g, 24, 24, 30, gold));
+        icons.put("check", g -> ProceduralArt.drawCheck(g, 24, 24, 30, gold));
+        icons.put("slot ring", g -> ProceduralArt.drawSlotRing(g, 24, 24, 30, gold));
+        icons.put("chevron right", g -> ProceduralArt.drawChevron(g, 24, 24, 16, gold, false));
+        icons.put("chevron left", g -> ProceduralArt.drawChevron(g, 24, 24, 16, gold, true));
+        icons.put("island", g -> ProceduralArt.drawIsland(g, 24, 16, 44, 20,
+                ProceduralArt.WOOD, gold, ProceduralArt.TEXT_DARK));
+        // The badge and card glyphs are drawn at 12 and 16 px, so they are swept small as well.
+        for (int size : new int[] {12, 16}) {
+            icons.put("shield " + size, g -> ProceduralArt.drawShield(g, 24, 24, size, gold));
+            icons.put("wing " + size, g -> ProceduralArt.drawWing(g, 24, 24, size, gold));
+            icons.put("magnet " + size, g -> ProceduralArt.drawMagnet(g, 24, 24, size, gold));
+            icons.put("heart " + size, g -> ProceduralArt.drawHeart(g, 24, 24, size, gold));
+            icons.put("hourglass " + size,
+                    g -> ProceduralArt.drawHourglass(g, 24, 24, size, gold));
+            icons.put("check " + size, g -> ProceduralArt.drawCheck(g, 24, 24, size, gold));
+            icons.put("slot ring " + size,
+                    g -> ProceduralArt.drawSlotRing(g, 24, 24, size, gold));
+        }
+        try {
+            for (boolean highContrast : new boolean[] {false, true}) {
+                Accessibility.setHighContrast(highContrast);
+                for (Map.Entry<String, java.util.function.Consumer<Graphics2D>> icon
+                        : icons.entrySet()) {
+                    BufferedImage img = new BufferedImage(48, 48, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g = img.createGraphics();
+                    try {
+                        ProceduralArt.prepare(g);
+                        icon.getValue().accept(g);
+                    } finally {
+                        g.dispose();
+                    }
+                    assertTrue(distinctColours(img, 1) >= 2,
+                            icon.getKey() + " is uniform (high contrast " + highContrast + ")");
+                }
+            }
+        } finally {
+            Accessibility.clear();
+        }
+        // A zero size is a no-op, never an exception: a collapsed layout still draws a frame.
+        BufferedImage empty = new BufferedImage(48, 48, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = empty.createGraphics();
+        try {
+            ProceduralArt.prepare(g);
+            ProceduralArt.drawShield(g, 24, 24, 0, gold);
+            ProceduralArt.drawWing(g, 24, 24, 0, gold);
+            ProceduralArt.drawHeart(g, 24, 24, 0, gold);
+            ProceduralArt.drawMagnet(g, 24, 24, 0, gold);
+            ProceduralArt.drawHourglass(g, 24, 24, 0, gold);
+            ProceduralArt.drawCheck(g, 24, 24, 0, gold);
+            ProceduralArt.drawSlotRing(g, 24, 24, 0, gold);
+            ProceduralArt.drawIsland(g, 24, 16, 0, 0, gold, gold, gold);
+        } finally {
+            g.dispose();
+        }
+        assertEquals(1, distinctColours(empty, 1), "a zero size drew something");
+    }
+
+    @Test
     void mainMenuRendersNonBlank() {
         BufferedImage frame = renderScreen(MainMenuScreen::new, 30);
         assertTrue(distinctColours(frame, 2) >= 2, "main menu is uniform");
@@ -273,13 +339,12 @@ class ProceduralRenderTest {
         for (int i = 0; i < 50; i++) {
             rig.frame(0.5); // warm up the font, glyph and paint caches
         }
-        long id = Thread.currentThread().getId();
-        long before = threads.getThreadAllocatedBytes(id);
+        long before = threads.getCurrentThreadAllocatedBytes();
         int frames = 300;
         for (int i = 0; i < frames; i++) {
             rig.frame(0.5);
         }
-        long perFrame = (threads.getThreadAllocatedBytes(id) - before) / frames;
+        long perFrame = (threads.getCurrentThreadAllocatedBytes() - before) / frames;
         System.out.println("[render] game frame allocates " + perFrame + " bytes");
         assertTrue(perFrame < ALLOCATION_BUDGET_BYTES, "a game frame allocated " + perFrame
                 + " bytes, budget " + ALLOCATION_BUDGET_BYTES);
@@ -1274,6 +1339,9 @@ class ProceduralRenderTest {
                 screens.push(birds);
                 screens.applyPending();
                 screens.tick(InputFrame.EMPTY);
+                // The three pickers live on the run-setup panel the summary bar opens (M11).
+                birds.openRunSetup();
+                screens.tick(InputFrame.EMPTY);
                 assertEquals(Strings.active().get(StringKey.BIRDS_WORLD),
                         birds.worldList().label(), "the picker is labelled in " + language);
                 assertEquals(5, birds.worldIds().size(), "five worlds in the picker");
@@ -1298,14 +1366,12 @@ class ProceduralRenderTest {
      * world, with obstacles placed by hand so every family is on screen at once.
      */
     private static final class WorldRig {
-        final GameContent content;
         final Run run;
         final GameRenderer renderer;
         final BufferedImage image = new BufferedImage(Playfield.WIDTH, Playfield.HEIGHT,
                 BufferedImage.TYPE_INT_RGB);
 
         WorldRig(GameContent content, String worldId) {
-            this.content = content;
             RunConfig config = RunConfig.builder(7).worldId(worldId).build();
             run = new RunFactory(content).newRun(config);
             WorldDef def = content.worlds().get(worldId);
