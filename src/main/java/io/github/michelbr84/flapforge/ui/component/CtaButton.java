@@ -181,10 +181,10 @@ public class CtaButton extends Button {
             }
             if (TextPainter.width(g, titleFont, title) > room) {
                 // The smallest size still overflows: the plate ellipsises rather than spills.
-                Font previous = g.getFont();
+                // The font is set here because ellipsise measures the context's current one, and
+                // the draw below sets it again anyway (the Android shim has no getFont).
                 g.setFont(titleFont);
                 shownTitle = TextPainter.ellipsise(g, title, Math.max(0, room));
-                g.setFont(previous);
             }
             titleFor = title;
             titleRoom = room;
