@@ -29,6 +29,18 @@ Settings › About with Quit, the bilingual player wiki under `wiki/`, and the
 0.1.1 Android line (launch-crash fixes, the APK in every release) merged back
 into `main`. See `CHANGELOG.md`.
 
+## What shipped in 0.2.1
+
+The bird-selection release (2026-09-08): the Birds screen rebuilt in the hub's
+visual language — the browsed bird as a hero on the anvil with three headline
+attributes (`BirdAttributes`), the roster as a carousel, the world/tier/mode
+rows moved into a run-setup panel behind a one-line bar, the loadout as ability
+cards with the ability list and the stat breakdown behind *See details*, one
+gold call to action and the hub's five-item navigation with Birds on the gold
+plate. `HubHeader` and `SectionNav` are the reusable half, so the Shop, Forge
+and Goals screens can adopt the same shell next. Also: every default Eclipse
+compiler warning over the tree removed. See `CHANGELOG.md`.
+
 ## Deferred, with next-step anchors
 
 * **Leaderboards** — needs online infrastructure 1.0 does not have. `runHistory` (capped

@@ -60,9 +60,9 @@ warning treated as an error and runs the default test suite — see
 
 ```bash
 ./gradlew fatJar
-java -jar build/libs/flapforge-0.2.0-all.jar
-java -jar build/libs/flapforge-0.2.0-all.jar --fullscreen --no-audio
-java -jar build/libs/flapforge-0.2.0-all.jar --lang pt_BR
+java -jar build/libs/flapforge-0.2.1-all.jar
+java -jar build/libs/flapforge-0.2.1-all.jar --fullscreen --no-audio
+java -jar build/libs/flapforge-0.2.1-all.jar --lang pt_BR
 ```
 
 `scripts/package.sh` (Linux/macOS, or Git Bash on Windows) builds the fat jar, exports the
