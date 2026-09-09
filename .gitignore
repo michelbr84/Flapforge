@@ -29,6 +29,10 @@ Thumbs.db
 # Ephemeral git worktrees created by tooling
 .claude/worktrees/
 
+# Design references: local screenshots are large machine-local binaries.
+# The specs the vision agent writes next to them (docs/design/**/*.md, *.json) ARE tracked.
+docs/design/**/*.png
+
 # Android SDK path (machine-local)
 android/local.properties
 android/.gradle/
