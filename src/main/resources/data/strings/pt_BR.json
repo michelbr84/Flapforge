@@ -324,6 +324,13 @@
   "shop.ability.cap": "Limite de nível {0}",
   "shop.ability.capped": "Limite atingido",
   "shop.ability.maxed": "Totalmente evoluída",
+  "shop.cta.bird": "Comprar ave",
+  "shop.cta.ability": "Desbloquear habilidade",
+  "shop.cta.ability_upgrade": "Melhorar habilidade",
+  "shop.cta.world": "Desbloquear mundo",
+  "shop.cta.feature": "Desbloquear recurso",
+  "shop.earn": "Ou conquiste: {0}",
+  "shop.next_level_effect": "Próximo nível: {0}",
 
   "toast.purchased": "{0} desbloqueado",
   "toast.upgraded": "{0} está no nível {1}",

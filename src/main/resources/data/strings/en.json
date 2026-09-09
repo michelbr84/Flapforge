@@ -324,6 +324,13 @@
   "shop.ability.cap": "Level cap {0}",
   "shop.ability.capped": "Cap reached",
   "shop.ability.maxed": "Fully upgraded",
+  "shop.cta.bird": "Buy bird",
+  "shop.cta.ability": "Unlock ability",
+  "shop.cta.ability_upgrade": "Upgrade ability",
+  "shop.cta.world": "Unlock world",
+  "shop.cta.feature": "Unlock feature",
+  "shop.earn": "Or earn it: {0}",
+  "shop.next_level_effect": "Next level: {0}",
 
   "toast.purchased": "{0} unlocked",
   "toast.upgraded": "{0} is now level {1}",

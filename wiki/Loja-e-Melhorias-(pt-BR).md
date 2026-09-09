@@ -38,28 +38,43 @@ que aumenta o XP.
 ## O que a Loja vende
 
 ![A Loja](images/shop.png)
-*A Loja: quatro abas, a oferta mais barata primeiro, o preço em cada cartão e a carteira no alto
-(interface em inglês).*
+*A Loja: quatro abas, uma grade de cartões com o preço numa etiqueta de madeira, a placa do cartão
+em foco, um botão dourado com o verbo da aba e a carteira no alto — uma só vez (interface em
+inglês).*
 
-A Loja abre pelo item **Loja** da tela inicial ou pelo chip de moedas. Ela lista tudo o que tem
-preço e você ainda não possui, em quatro abas, do mais barato para o mais caro, e cada cartão diz
-se a sua carteira cobre o valor. Tudo o que se vende aqui também pode ser conquistado, então a
-Loja é um atalho, nunca o único caminho: as condições estão em
+A Loja abre pelo item **Loja** da tela inicial ou pelo chip de moedas. Ela é um catálogo de tudo
+o que tem preço, em quatro abas, numa grade de cartões que rola quando a aba tem mais linhas do
+que cabem. O que ainda está à venda vem primeiro, do mais barato para o mais caro; o que você já
+comprou continua lá, no fim, marcado **Adquirido** com um visto e sem preço. Tudo o que se vende
+aqui também pode ser conquistado, então a Loja é um atalho, nunca o único caminho — e cada cartão
+diz isso: sob o nome, um cartão que ainda não é seu traz o caminho que não custa moedas, *Jogue 3
+partidas*, *Chegue ao nível 8*, *Vença Campos Verdes*. As condições completas estão em
 [[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]], [[Mundos e chefes|Mundos-e-Chefes-(pt-BR)]] e
 [[Modos de jogo e dificuldade|Modos-de-Jogo-e-Dificuldade-(pt-BR)]], e o cartão **Próximo
 desbloqueio** da tela inicial sempre indica o mais perto.
 
 | Aba | O que lista | Preços |
 | --- | --- | --- |
-| Aves | as aves que você ainda não possui | Bico-de-ferro (Ironbeak) 150, Bigorna (Anvil) 200, Zéfiro (Zephyr) 300, Gralha (Jackdaw) 500, Oráculo (Oracle) 600, Brasa (Cinder) 800 |
+| Aves | as seis aves que têm preço (a ave inicial nunca esteve à venda) | Bico-de-ferro (Ironbeak) 150, Bigorna (Anvil) 200, Zéfiro (Zephyr) 300, Gralha (Jackdaw) 500, Oráculo (Oracle) 600, Brasa (Cinder) 800 |
 | Habilidades | as habilidades que você não possui e o próximo nível das que possui | Ímã de Moedas (Coin Magnet) 120, Escudo (Shield) 200, Arranco (Dash) 250, Tempo Lento (Slow Time) 350, Recuperação de Emergência (Emergency Recovery) 400, Multiplicador de Pontos (Score Multiplier) 450, Invulnerabilidade (Invulnerability) 700; o nível 2 custa o dobro do preço e o nível 3, o quádruplo |
-| Mundos | os mundos que você não possui (níveis de dificuldade e desafios também pertencem a esta aba, mas não têm preço: só se conquistam) | Vale do Vento (Wind Valley) 350, Forja de Ferro (Iron Forge) 700, Céu de Tempestade (Storm Sky) 1200, O Vazio (The Void) 2000 |
+| Mundos | os quatro mundos depois de Campos Verdes (níveis de dificuldade e desafios não têm preço: só se conquistam) | Vale do Vento (Wind Valley) 350, Forja de Ferro (Iron Forge) 700, Céu de Tempestade (Storm Sky) 1200, O Vazio (The Void) 2000 |
 | Recursos | as árvores de melhorias, os dois recursos e as três cartas lendárias de modificador | Partidas com Semente 100, a árvore Economia 120, Modificadores de Partida 150, Corrida do Ouro (Gold Rush), Fênix (Phoenix) e Cavaleiro da Tempestade (Stormrider) 300 cada, a árvore Forja 900 |
 
-Um cartão de habilidade mostra "Próximo nível 2" e o limite em vigor ("Limite de nível 2"); no
-limite ele diz "Limite atingido" e, no nível 3, "Totalmente evoluída". O limite começa em 2 e só
-o nó Mestre-forja o sobe para 3 (veja [[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]]). Uma aba
-sem nada para vender diz "Nada para comprar aqui".
+A etiqueta de um cartão diz uma de quatro coisas: o **preço**, quando está à venda e a sua
+carteira cobre; o mesmo preço sobre um cartão escurecido quando não cobre (nada aqui fica
+bloqueado — o cartão está à venda, faltam moedas); um **visto e "Adquirido"** quando já é seu; e,
+para uma habilidade que você possui, o **nível e o preço do próximo** — "Nível 1/3 · Limite de
+nível 2" — ou "Limite atingido" no limite e "Totalmente evoluída" no nível 3. O limite começa em
+2 e só o nó Mestre-forja o sobe para 3 (veja [[Aves e habilidades|Aves-e-Habilidades-(pt-BR)]]).
+Uma aba sem nada para vender diz "Nada para comprar aqui" e continua mostrando o que você possui.
+
+Toque num cartão e a placa de madeira sob a grade o descreve — o que faz, o caminho que não
+custa moedas e, para uma habilidade sua, o que o próximo nível acrescenta — sem repetir o preço,
+que está no cartão. O botão dourado diz o que a aba faz: **Comprar ave**, **Desbloquear
+habilidade** e depois **Melhorar habilidade**, **Desbloquear mundo**, **Desbloquear recurso**;
+ele se cala quando a coisa já é sua. Não há botão Voltar: `Esc` (ou o gesto de voltar do
+celular) retorna à tela inicial, e a navegação inferior — Loja · Aves · Jogar · Forja · Metas,
+com Loja na placa dourada — troca de seção diretamente.
 
 > **Dica:** a Loja lista o Bico-de-ferro por 150 moedas e as Partidas com Semente por 100. Com o
 > bônus da primeira partida e alguns portões, os dois cabem na primeira noite de jogo; o exemplo

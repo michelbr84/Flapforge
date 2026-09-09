@@ -3,6 +3,7 @@ package io.github.michelbr84.flapforge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,6 +35,8 @@ import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
 import io.github.michelbr84.flapforge.ui.component.CardGrid;
+import io.github.michelbr84.flapforge.ui.component.CtaButton;
+import io.github.michelbr84.flapforge.ui.component.SectionNav;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.screens.ProgressionText;
 import io.github.michelbr84.flapforge.ui.screens.ShopScreen;
@@ -43,12 +46,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * The shop (M4), driven headlessly through the input queue and the loop.
+ * The shop (M4, rebuilt in M12), driven headlessly through the input queue and the loop.
  *
- * <p>The list is derived from the content — everything with a {@code purchase} branch the profile
- * does not own — so the assertions are about that rule and about the money: the four tabs group
- * what the rule produces, the cheapest offer of a tab comes first, a purchase that can be paid for
- * moves the wallet and the profile and drops out of the list, and one that cannot changes nothing.
+ * <p>The catalogue is derived from the content — everything with a {@code purchase} branch,
+ * whether or not the profile owns it — so the assertions are about that rule and about the money:
+ * the four tabs group what the rule produces, what is for sale comes first and cheapest first, a
+ * purchase that can be paid for moves the wallet and the profile and turns its card into an owned
+ * one, and one that cannot changes nothing.
  */
 class ShopScreenTest {
 
@@ -67,6 +71,7 @@ class ShopScreenTest {
     private ToastLayer toasts;
     private ShopScreen screen;
     private int saves;
+    private long stamp;
 
     @BeforeEach
     void setUp() {
@@ -115,6 +120,20 @@ class ShopScreenTest {
         clickAt(node.centerX(), node.centerY());
     }
 
+    private void tap(int keyCode) {
+        input.offer(new RawInput.KeyDown(keyCode, stamp++));
+        input.offer(new RawInput.KeyUp(keyCode, stamp++));
+        ticks(1);
+    }
+
+    private void wheel(int rotation) {
+        Vec2 w = viewport.toWindow(Playfield.WIDTH / 2.0,
+                (ShopScreen.GRID_TOP + ShopScreen.GRID_BOTTOM) / 2.0);
+        input.offer(new RawInput.MouseMove((int) Math.round(w.x()), (int) Math.round(w.y())));
+        input.offer(new RawInput.Wheel(rotation));
+        ticks(1);
+    }
+
     private void clickAt(double x, double y) {
         Vec2 w = viewport.toWindow(x, y);
         int wx = (int) Math.round(w.x());
@@ -149,10 +168,13 @@ class ShopScreenTest {
         assertEquals("bird:guardian", offers.get(0).id(), "the cheapest bird comes first");
         assertEquals(150, offers.get(0).cost());
         assertEquals("bird:forge", offers.get(offers.size() - 1).id());
-        assertNull(screen.offer("bird:classic"), "an owned bird is not for sale");
+        assertNull(screen.offer("bird:classic"),
+                "the bird the profile starts with was never for sale, so it is not in the shop");
         assertEquals("150", screen.offerGrid().cards().get(0).badge());
-        assertEquals(strings.get(StringKey.SHOP_TAB_BIRDS),
-                screen.offerGrid().cards().get(0).subtitle());
+        // The second line of a card that is not yours yet is the road that costs no coins, which
+        // is the shop's honest answer to "why is this not mine": everything for sale is also
+        // earnable, so nothing here is ever shut.
+        assertEquals("Play 3 runs", screen.offerGrid().cards().get(0).subtitle());
     }
 
     @Test
@@ -170,7 +192,7 @@ class ShopScreenTest {
     }
 
     @Test
-    void buyingAnOfferMovesTheWalletAndDropsItFromTheList() {
+    void buyingAnOfferMovesTheWalletAndMarksTheCardOwned() {
         credit(200);
         open();
         long toastsBefore = toasts.pushedCount();
@@ -180,8 +202,16 @@ class ShopScreenTest {
         assertEquals(50, coins(), "the price left the wallet");
         assertTrue(saves > 0, "the purchase was written to the disk at once (D15)");
         assertTrue(toasts.pushedCount() > toastsBefore, "and raised a toast");
-        assertNull(screen.offer("bird:guardian"), "an owned bird leaves the shop");
-        assertEquals(5, screen.offers().size());
+        ShopScreen.Offer bought = screen.offer("bird:guardian");
+        assertNotNull(bought, "an owned bird stays in the catalogue");
+        assertFalse(bought.available(), "there is nothing left to sell about it");
+        assertEquals(6, screen.offers().size(), "the catalogue does not shrink when you buy");
+        assertEquals(strings.get(StringKey.COMMON_OWNED),
+                screen.offerGrid().card("bird:guardian").badge(), "the price becomes a word");
+        assertFalse(screen.offerGrid().card("bird:guardian").hasCoinBadge(),
+                "an owned bird has no price");
+        assertEquals("bird:guardian", screen.offers().get(screen.offers().size() - 1).id(),
+                "and it sorts to the end, where a collection belongs");
         assertEquals(50, screen.walletDisplay().amount());
     }
 
@@ -247,21 +277,29 @@ class ShopScreenTest {
         assertFalse(screen.offerGrid().card("feature:seeded_runs").subtitle()
                         .contains(strings.format(StringKey.COMMON_SOON, "M9")),
                 () -> screen.offerGrid().card("feature:seeded_runs").subtitle());
-        assertEquals(strings.get(StringKey.UPGRADES_TITLE),
-                screen.offerGrid().card("tree:economy").subtitle(),
+        assertFalse(screen.offerGrid().card("tree:economy").subtitle()
+                        .contains(strings.format(StringKey.COMMON_SOON, "M")),
                 "an upgrade tree works today, so its card carries no milestone note");
+        assertEquals("Reach level 3", screen.offerGrid().card("tree:economy").subtitle(),
+                "it carries the road that costs no coins instead");
     }
 
     @Test
-    void aTabWithNothingLeftSaysSo() {
+    void aTabWithNothingLeftSaysSoAndStillShowsTheCollection() {
         for (String id : List.of("bird:swift", "bird:heavy", "bird:guardian", "bird:gambler",
                 "bird:mystic", "bird:forge")) {
             profile.unlock(id);
         }
         open();
-        assertEquals(0, screen.offers().size());
-        assertEquals(strings.get(StringKey.SHOP_EMPTY), screen.emptyText());
-        assertTrue(screen.detailLines().contains(strings.get(StringKey.SHOP_EMPTY)));
+        assertEquals(6, screen.offers().size(), "the catalogue is still the catalogue");
+        for (ShopScreen.Offer offer : screen.offers()) {
+            assertFalse(offer.available(), () -> offer.id() + " is owned");
+            assertEquals(strings.get(StringKey.COMMON_OWNED),
+                    screen.offerGrid().card(offer.id()).badge());
+        }
+        assertEquals(strings.get(StringKey.SHOP_EMPTY), screen.emptyText(),
+                "with nothing left to sell the tab says so");
+        assertFalse(screen.ctaButton().isEnabled(), "and there is nothing to press");
     }
 
     @Test
@@ -277,8 +315,8 @@ class ShopScreenTest {
         click(screen.offerGrid().card("feature:modifiers"));
         assertTrue(profile.isUnlocked("feature:modifiers"));
         assertEquals(730, coins());
-        assertNull(screen.offer("tree:economy"));
-        assertNull(screen.offer("feature:modifiers"));
+        assertFalse(screen.offer("tree:economy").available(), "both are owned now");
+        assertFalse(screen.offer("feature:modifiers").available());
         // M6: buying it is the whole gate — the very next run opens its drafts (D11).
         assertTrue(RunLoadout.allowOffers(profile, content),
                 "the purchase must turn the drafts on");
@@ -336,6 +374,10 @@ class ShopScreenTest {
         CardGrid.Card card = screen.offerGrid().card("ability:double_flap");
         assertEquals(strings.get(StringKey.SHOP_ABILITY_CAPPED), card.badge());
 
+        // Capped, it sorted to the end of the tab — the fourth row, below the grid's band — so
+        // the click has to scroll it into view first, or it would miss and prove nothing.
+        assertTrue(screen.revealOffer("ability:double_flap"));
+        assertTrue(card.contains(card.centerX(), card.centerY()), "the card is in the band now");
         long before = coins();
         click(card);
         assertEquals(before, coins(), "clicking a capped level costs nothing");
@@ -389,5 +431,164 @@ class ShopScreenTest {
                     card.id());
         }
         assertEquals(screen.offers().size(), screen.offerGrid().size());
+    }
+
+    // ------------------------------------------------------------------ the hub's shell (M12)
+
+    @Test
+    void theShopWearsTheHubShellWithShopOnTheGoldPlate() {
+        open();
+        assertEquals(strings.get(StringKey.SHOP_TITLE), screen.header().title());
+        assertFalse(screen.header().chip().isFocusable(),
+                "from inside the shop the coin chip has nowhere to go: it is a readout");
+        assertFalse(screen.focusRing().nodes().contains(screen.header().chip()),
+                "the wallet appears once, in the header, and is not a control");
+        assertTrue(screen.nav().button(SectionNav.SHOP).isPrimary(),
+                "the gold plate reads as 'you are here'");
+        assertFalse(screen.nav().button(SectionNav.PLAY).isPrimary());
+        assertFalse(screen.nav().button(SectionNav.BIRDS).isEnabled(),
+                "built without an application context the sibling sections are inert");
+        assertTrue(screen.nav().button(SectionNav.SHOP).isEnabled(),
+                "but the section itself is not");
+        assertEquals(strings.get(StringKey.MENU_SHOP), screen.nav().button(SectionNav.SHOP).text());
+        assertTrue(screen.focusRing().nodes().contains(screen.ctaButton()),
+                "the call to action is on the one ring");
+        assertTrue(screen.focusRing().nodes().contains(screen.nav().button(SectionNav.PLAY)),
+                "and so is the navigation, so Down from the last card reaches it");
+    }
+
+    @Test
+    void theCategoryBarKeepsFourUniformTabsWithAGlyphEach() {
+        open();
+        assertEquals(4, screen.tabBar().size());
+        assertTrue(screen.tabBar().isAccented(), "the selected tab wears the gold accent");
+        double tabWidth = screen.tabBar().width() / screen.tabBar().size();
+        for (int i = 0; i < 4; i++) {
+            assertEquals(i, screen.tabBar().indexAt(screen.tabBar().x() + (i + 0.5) * tabWidth,
+                    screen.tabBar().centerY()), "tab " + i + " owns a quarter of the bar");
+            assertNotNull(screen.tabBar().tabs().get(i).icon(), "tab " + i + " has a glyph");
+        }
+    }
+
+    @Test
+    void theCallToActionNamesTheVerbOfTheTab() {
+        credit(1000);
+        open();
+        assertEquals(strings.get(StringKey.SHOP_CTA_BIRD), screen.ctaButton().text());
+        assertEquals("Ironbeak", screen.ctaButton().subtitle(),
+                "the plate names what it would buy");
+        assertTrue(screen.ctaButton().isEnabled());
+
+        openTab(1);
+        assertEquals(strings.get(StringKey.SHOP_CTA_ABILITY), screen.ctaButton().text(),
+                "a locked ability is unlocked");
+        assertTrue(screen.revealOffer("ability:double_flap"));
+        assertEquals(strings.get(StringKey.SHOP_CTA_ABILITY_UPGRADE),
+                screen.ctaButton().text(), "an owned one is upgraded");
+
+        openTab(2);
+        assertEquals(strings.get(StringKey.SHOP_CTA_WORLD), screen.ctaButton().text());
+        openTab(3);
+        assertEquals(strings.get(StringKey.SHOP_CTA_FEATURE), screen.ctaButton().text());
+
+        // No verb carries a number: the price is on the card, and only there.
+        for (int i = 0; i < 4; i++) {
+            openTab(i);
+            assertFalse(screen.ctaButton().text().matches(".*\\d.*"),
+                    () -> "no price on the plate: " + screen.ctaButton().text());
+        }
+    }
+
+    @Test
+    void theCallToActionBuysWhatThePlaqueDescribesAndGoesQuietOnceOwned() {
+        credit(200);
+        open();
+        assertEquals("bird:guardian", screen.currentId(), "the cheapest bird is described first");
+        click(screen.ctaButton());
+        assertTrue(profile.isUnlocked(BirdDef.NAMESPACE + "guardian"), "the plate bought it");
+        assertEquals(50, coins());
+        assertEquals("bird:guardian", screen.currentId(), "the plaque stays on what was bought");
+        assertEquals(strings.get(StringKey.COMMON_OWNED), screen.ctaButton().text());
+        assertFalse(screen.ctaButton().isEnabled(), "and there is nothing more to press");
+        long toastsBefore = toasts.pushedCount();
+        int savesBefore = saves;
+        click(screen.offerGrid().card("bird:guardian"));
+        assertEquals(50, coins(), "an owned card is not sold twice");
+        assertEquals(savesBefore, saves);
+        assertEquals(toastsBefore, toasts.pushedCount(), "and it does not nag about it");
+    }
+
+    @Test
+    void theDetailPlaqueNeverRepeatsThePrice() {
+        credit(1000);
+        open();
+        List<String> lines = screen.detailLines();
+        assertEquals("Ironbeak", lines.get(0));
+        assertFalse(lines.stream().anyMatch(line -> line.contains("150")),
+                () -> "the price is on the card, not on the plaque: " + lines);
+        assertTrue(lines.stream().anyMatch(line -> line.equals(
+                        strings.format(StringKey.SHOP_EARN, "Play 3 runs"))),
+                () -> "the plaque carries the road that costs no coins: " + lines);
+
+        openTab(1);
+        assertTrue(screen.revealOffer("ability:double_flap"));
+        assertTrue(screen.detailLines().stream().anyMatch(line -> line.startsWith(
+                        strings.format(StringKey.SHOP_NEXT_LEVEL_EFFECT, ""))),
+                () -> "an owned ability's plaque says what the next level does: "
+                        + screen.detailLines());
+    }
+
+    @Test
+    void theGridScrollsWhenATabHasMoreRowsThanTheBand() {
+        open();
+        assertEquals(0, screen.maxScroll(), "six birds are three rows: they fit");
+        openTab(1);
+        assertTrue(screen.maxScroll() > 0, "eight abilities are four rows: they do not");
+        CardGrid.Card last = screen.offerGrid().cards().get(7);
+        assertFalse(last.contains(last.centerX(), last.centerY()),
+                "a card below the band does not answer the pointer");
+        double before = screen.scroll();
+        wheel(-1);
+        assertTrue(screen.scroll() > before,
+                "the wheel scrolls the grid, with the sign every scrolling screen uses");
+        wheel(10);
+        assertEquals(0, screen.scroll(), "and clamps at the top");
+        assertTrue(screen.revealOffer(last.id()));
+        assertEquals(screen.maxScroll(), screen.scroll(), "revealing the last row scrolls fully");
+        assertTrue(last.contains(last.centerX(), last.centerY()), "and the card answers now");
+        assertEquals(last.id(), screen.currentId(), "with the plaque on it");
+        openTab(0);
+        assertEquals(0, screen.scroll(), "a tab change starts at the top");
+    }
+
+    @Test
+    void aLanguageSwitchRelabelsTheWholeShell() {
+        open();
+        Strings pt = Strings.load("pt_BR");
+        Strings.use(pt);
+        // The screen holds the table it was given; the switch reaches it through the shared
+        // instance the application reloads in place (D25), which the test stands in for here.
+        ShopScreen ptScreen = new ShopScreen(screens, pt, content, profile, unlocks, upgrades,
+                toasts);
+        assertEquals(pt.get(StringKey.SHOP_TITLE), ptScreen.header().title());
+        assertEquals("Loja", ptScreen.header().title());
+        assertEquals(pt.get(StringKey.SHOP_TAB_BIRDS), ptScreen.tabBar().tabs().get(0).label());
+        assertEquals(pt.get(StringKey.MENU_NAV_GOALS),
+                ptScreen.nav().button(SectionNav.GOALS).text());
+        assertEquals(pt.get(StringKey.SHOP_CTA_BIRD), ptScreen.ctaButton().text());
+        assertEquals("Comprar ave", ptScreen.ctaButton().text());
+        assertEquals("Jogue 3 partidas", ptScreen.offerGrid().cards().get(0).subtitle());
+    }
+
+    @Test
+    void escapeLeavesTheShopWithoutAButton() {
+        open();
+        assertTrue(screen.focusRing().nodes().stream()
+                        .noneMatch(node -> node instanceof io.github.michelbr84.flapforge.ui.component.Button
+                                && !(node instanceof CtaButton)),
+                "there is no Back button: the navigation and Esc are the ways out");
+        tap(Keys.ESCAPE);
+        ticks(2);
+        assertNotSame(screen, screens.top(), "Esc pops the shop");
     }
 }

@@ -7,7 +7,6 @@ import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.content.defs.TierDef;
 import io.github.michelbr84.flapforge.content.defs.WorldDef;
-import io.github.michelbr84.flapforge.content.defs.WorldPaletteDef;
 import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
@@ -32,7 +31,6 @@ import io.github.michelbr84.flapforge.ui.component.ListView;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Tooltip;
-import java.awt.Color;
 import java.awt.Graphics2D;
 import java.util.ArrayList;
 import java.util.List;
@@ -96,7 +94,7 @@ public final class WorldSelectScreen implements Screen {
     private final Tooltip tooltip = new Tooltip();
     private final List<String> worldIds = new ArrayList<>();
     private final List<String> tierIds = new ArrayList<>();
-    private final List<Swatch> swatches = new ArrayList<>();
+    private final List<WorldSwatch> swatches = new ArrayList<>();
     private WorldPalette palette = WorldPalette.GREEN_FIELDS;
     private String description = "";
     private String descriptionShown = "";
@@ -142,7 +140,7 @@ public final class WorldSelectScreen implements Screen {
                 worldIds.add(def.id());
                 CardGrid.Card card = new CardGrid.Card(def.id(), "", null);
                 card.setOnAction(() -> activate(def.id()));
-                Swatch swatch = new Swatch(def.palette());
+                WorldSwatch swatch = new WorldSwatch(def.palette());
                 swatches.add(swatch);
                 card.setArt(swatch);
                 grid.add(card);
@@ -479,34 +477,4 @@ public final class WorldSelectScreen implements Screen {
         toasts.render(g);
     }
 
-    /** The art of a world card: its sky over its pipe colour, with the accent as a sun. */
-    private static final class Swatch implements CardGrid.ArtPainter {
-
-        private final Color sky;
-        private final Color pipe;
-        private final Color accent;
-        private final Color edge;
-
-        Swatch(WorldPaletteDef palette) {
-            sky = new Color(WorldPaletteDef.rgb(palette.skyTop()));
-            pipe = new Color(WorldPaletteDef.rgb(palette.pipe()));
-            accent = new Color(WorldPaletteDef.rgb(palette.accent()));
-            edge = new Color(WorldPaletteDef.rgb(palette.letterbox()));
-        }
-
-        @Override
-        public void paint(Graphics2D g, CardGrid.Card card, double cx, double cy, double size) {
-            int s = (int) Math.round(size);
-            int sx = (int) Math.round(cx - size / 2);
-            int sy = (int) Math.round(cy - size / 2);
-            g.setColor(sky);
-            g.fillRoundRect(sx, sy, s, s, 6, 6);
-            g.setColor(pipe);
-            g.fillRect(sx + 3, sy + s / 2, s - 6, s / 2 - 3);
-            g.setColor(accent);
-            g.fillOval(sx + s - s / 3 - 3, sy + 4, s / 3, s / 3);
-            g.setColor(edge);
-            g.drawRoundRect(sx, sy, s - 1, s - 1, 6, 6);
-        }
-    }
 }

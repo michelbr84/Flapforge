@@ -255,8 +255,8 @@ android {
         applicationId = 'io.github.michelbr84.flapforge'
         minSdk = 33          // onSpinWait / VarHandle setRelease are API 33+
         targetSdk = 36
-        versionCode = 8
-        versionName = '0.2.1'
+        versionCode = 9
+        versionName = '0.2.2'
     }
 
     buildTypes {
