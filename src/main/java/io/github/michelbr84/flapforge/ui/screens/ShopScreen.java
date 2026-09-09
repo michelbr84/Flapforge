@@ -10,7 +10,6 @@ import io.github.michelbr84.flapforge.content.defs.UnlockConditionDef;
 import io.github.michelbr84.flapforge.content.defs.UnlockType;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
-import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
@@ -297,7 +296,7 @@ public final class ShopScreen implements Screen {
         cta = new CtaButton("", this::activateCta);
 
         SectionNav.build(nav, SectionNav.SHOP, new SectionNav.Routes(this::focusFirstOffer,
-                this::openBirds, this::play, this::openForge, this::openGoals),
+                this::openBirds, this::openHome, this::openForge, this::openGoals),
                 screens.metrics());
         nav.button(SectionNav.BIRDS).setEnabled(context != null);
         nav.button(SectionNav.PLAY).setEnabled(context != null);
@@ -1126,15 +1125,12 @@ public final class ShopScreen implements Screen {
     }
 
     /**
-     * Starts the run the hub would start. The mode picker lives on the Birds screen, so the shop
-     * plays the standard run in the profile's own world and tier.
+     * Takes the player back to the hub. The navigation's Play item is a section of the hub, not
+     * a run: a tap on it lands on the screen where a run is chosen and started, which is where
+     * the hub's own Play button lives.
      */
-    private void play() {
-        if (context == null) {
-            return;
-        }
-        SeededRunSource source = new ContentRunFactory(content, RunMode.STANDARD, () -> profile);
-        screens.push(new GameScreen(context, source, SeedSequence.random()));
+    private void openHome() {
+        screens.popTo(MainMenuScreen.class);
     }
 
     // ------------------------------------------------------------------ behaviour

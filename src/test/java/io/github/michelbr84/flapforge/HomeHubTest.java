@@ -19,6 +19,7 @@ import io.github.michelbr84.flapforge.content.GameContent;
 import io.github.michelbr84.flapforge.content.StringKey;
 import io.github.michelbr84.flapforge.content.Strings;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.core.geom.Vec2;
 import io.github.michelbr84.flapforge.event.EventBus;
 import io.github.michelbr84.flapforge.gameplay.collision.CollisionCause;
 import io.github.michelbr84.flapforge.gameplay.run.RunConfig;
@@ -32,6 +33,7 @@ import io.github.michelbr84.flapforge.input.RawInput;
 import io.github.michelbr84.flapforge.persistence.SaveManager;
 import io.github.michelbr84.flapforge.persistence.SavePaths;
 import io.github.michelbr84.flapforge.progression.AchievementEvaluator;
+import io.github.michelbr84.flapforge.progression.DailyChallenge;
 import io.github.michelbr84.flapforge.progression.PlayerProfile;
 import io.github.michelbr84.flapforge.progression.ProgressionManager;
 import io.github.michelbr84.flapforge.progression.ProgressionRules;
@@ -46,6 +48,8 @@ import io.github.michelbr84.flapforge.support.FixedTimeSource;
 import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiNode;
+import io.github.michelbr84.flapforge.ui.component.NavButton;
+import io.github.michelbr84.flapforge.ui.component.SectionNav;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.screens.BirdSelectionScreen;
 import io.github.michelbr84.flapforge.ui.screens.ClassicRunFactory;
@@ -91,6 +95,7 @@ class HomeHubTest {
     private ManualClock clock;
     private InputQueue input;
     private ScreenManager screens;
+    private Viewport viewport;
     private NullPresenter presenter;
     private GameLoop loop;
     private GameContent content;
@@ -111,7 +116,7 @@ class HomeHubTest {
         content = GameContent.load();
         clock = new ManualClock(1_000_000_000L);
         input = new InputQueue(KeyBindings.defaults());
-        Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
+        viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
         screens = new ScreenManager(viewport);
         presenter = new NullPresenter(screens, viewport, Playfield.WIDTH, Playfield.HEIGHT);
         screens.setPresenter(presenter);
@@ -156,6 +161,17 @@ class HomeHubTest {
     private void tap(int keyCode) {
         input.offer(new RawInput.KeyDown(keyCode, stamp++));
         input.offer(new RawInput.KeyUp(keyCode, stamp++));
+        ticks(1);
+    }
+
+    /** Clicks a node the way the player does: through the window, mapped back to logical space. */
+    private void click(UiNode node) {
+        Vec2 w = viewport.toWindow(node.centerX(), node.centerY());
+        int wx = (int) Math.round(w.x());
+        int wy = (int) Math.round(w.y());
+        input.offer(new RawInput.MouseMove(wx, wy));
+        input.offer(new RawInput.MouseDown(Keys.BUTTON_LEFT, wx, wy));
+        input.offer(new RawInput.MouseUp(Keys.BUTTON_LEFT, wx, wy));
         ticks(1);
     }
 
@@ -274,6 +290,74 @@ class HomeHubTest {
         focus(menu, menu.navButton(MainMenuScreen.NAV_PLAY));
         tap(Keys.ENTER);
         assertTrue(screens.top() instanceof GameScreen, "the Play item starts a run");
+    }
+
+    @Test
+    void everySectionsPlayItemGoesBackToTheHub() {
+        MainMenuScreen menu = open();
+        goesHome(menu, MainMenuScreen.NAV_SHOP, ShopScreen.class);
+        goesHome(menu, MainMenuScreen.NAV_BIRDS, BirdSelectionScreen.class);
+        goesHome(menu, MainMenuScreen.NAV_FORGE, UpgradeTreeScreen.class);
+        goesHome(menu, MainMenuScreen.NAV_GOALS, GoalsScreen.class);
+    }
+
+    /**
+     * Opens a section from the hub and clicks that section's Play item. Play is the hub's own
+     * section, so it unwinds the stack to the hub rather than flying: the run is the hub's
+     * START RUN, which is the button the player goes looking for.
+     */
+    private void goesHome(MainMenuScreen menu, String navId, Class<?> section) {
+        focus(menu, menu.navButton(navId));
+        tap(Keys.ENTER);
+        ticks(GRACE);
+        assertTrue(section.isInstance(screens.top()),
+                () -> navId + " pushed " + screens.top().getClass().getSimpleName());
+        click(playItem(screens.top()));
+        ticks(GRACE);
+        assertSame(menu, screens.top(),
+                () -> "Play on " + navId + " went back to the hub");
+    }
+
+    /** The Play item of a section's own navigation. */
+    private NavButton playItem(io.github.michelbr84.flapforge.ui.Screen section) {
+        if (section instanceof ShopScreen shop) {
+            return shop.nav().button(SectionNav.PLAY);
+        }
+        if (section instanceof BirdSelectionScreen birds) {
+            return birds.nav().button(SectionNav.PLAY);
+        }
+        if (section instanceof UpgradeTreeScreen forge) {
+            return forge.nav().button(SectionNav.PLAY);
+        }
+        return ((GoalsScreen) section).nav().button(SectionNav.PLAY);
+    }
+
+    @Test
+    void theModeRowOfTheBirdsReachesTheHubsStartRun() {
+        MainMenuScreen menu = open();
+        profile().unlock(ContentKind.FEATURE.unlockableId(DailyChallenge.SEEDED_RUNS_FEATURE));
+        focus(menu, menu.navButton(MainMenuScreen.NAV_BIRDS));
+        tap(Keys.ENTER);
+        ticks(GRACE);
+        BirdSelectionScreen birds = (BirdSelectionScreen) screens.top();
+        birds.openRunSetup();
+        birds.focusRing().focus(birds.modeList());
+        tap(Keys.RIGHT);
+        tap(Keys.RIGHT);
+        assertEquals(RunMode.DAILY, birds.selectedMode(), "the row is on the daily");
+        birds.closeRunSetup();
+        ticks(1);
+        click(birds.nav().button(SectionNav.PLAY));
+        ticks(GRACE);
+        assertSame(menu, screens.top(), "Play took the daily back to the hub");
+
+        click(menu.startRunButton());
+        ticks(GRACE);
+        GameScreen game = (GameScreen) screens.top();
+        assertEquals(RunMode.DAILY, game.run().config().mode(),
+                "START RUN flies the run the mode row picked, not a standard one");
+        assertSame(menu, screens.screens().get(screens.depth() - 2),
+                "the run sits over the hub that started it");
     }
 
     @Test

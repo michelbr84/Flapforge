@@ -12,6 +12,32 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+## 0.2.5 — 2026-09-09
+
+Two navigation fixes on the mobile-surface release, both in the bottom bar
+every hub section shares.
+
+### Fixed
+
+- **Play in the bottom navigation goes to the home tab instead of starting a
+  run.** On the Shop, Birds, Forge and Goals sections the centre item was
+  wired straight to a run: a tap flew one immediately, from a screen whose job
+  is to set one up. Play is the hub's own section, so it now unwinds the stack
+  back to the hub — `ScreenManager.popTo(Class)` — where START RUN is, and the
+  four sections behave the same way.
+- **The run the Birds screen configures reaches START RUN.** The mode row
+  (Standard / Seeded / Daily) had no effect on the hub's own start, which is
+  why the navigation's Play had to launch the run itself; the row now hands
+  the hub the run it names — Seeded with the seed of the last finished run,
+  Daily with today's settled pick — and the hub's START RUN plays it. Standard
+  hands nothing over and clears a previous request, so going back to Standard
+  really goes back.
+- **The Goals section's navigation is labelled.** Its five items were built
+  with empty text, like every section's, and Goals was the one that never
+  filled them in: the bar showed five icons and no words. It now names Shop,
+  Birds, Play, Forge and Goals from the string table and follows a language
+  switch, the way the other sections do.
+
 ## 0.2.4 — 2026-09-09
 
 The mobile-surface release (M14): the game now uses the screen it is given.

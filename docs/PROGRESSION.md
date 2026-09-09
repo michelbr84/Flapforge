@@ -475,7 +475,10 @@ titled "Upgrades".
 The mode row of `BirdSelectionScreen`'s run-setup panel (§6) carries the UI: Standard and
 Seeded are always listed; Daily is listed when the screen has a clock and marked with its unlock condition while
 `feature:seeded_runs` is locked; the row's detail line names the world, tier and cards of the
-run Play would start — and *that* is the read that settles the day.
+run the hub's START RUN will play — and *that* is the read that settles the day. Choosing Seeded
+or Daily and leaving through the navigation's Play item hands that run to the hub
+(`MainMenuScreen.requestRun`), so the row is not a dead end; choosing Standard hands nothing
+over, and clears a run handed over earlier.
 
 **The MetaSim thresholds (E25)** that pin the economy the daily and the prestige sit on top of
 are measured, with the full runs-to-unlock table, in `docs/BALANCING.md` §13: the saver reaches

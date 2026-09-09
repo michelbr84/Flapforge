@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * Stack of {@link Screen}s driven by the game loop (D17, E30.a).
@@ -271,6 +272,47 @@ public final class ScreenManager implements FrameRenderer {
     /** Requests a pop of the top screen; applied before the next tick. */
     public void pop() {
         pendingOps.add(this::doPop);
+    }
+
+    /**
+     * Requests popping screens until the top of the stack is an instance of the given type;
+     * applied before the next tick. The root is never popped, and a stack holding no screen of
+     * that type is left alone, so a section pushed somewhere the hub is not under cannot unwind
+     * the whole game just by asking for it.
+     *
+     * @param type the screen type to unwind to
+     */
+    public void popTo(Class<? extends Screen> type) {
+        popTo(type, screen -> { });
+    }
+
+    /**
+     * Requests popping screens until the top of the stack is an instance of the given type and
+     * then handing that screen to {@code onArrive}; applied before the next tick. The hand-over
+     * runs after the pops, so a section can leave something for the screen it returns to — the
+     * run its setup panel configured — without that screen having to ask for it. The root is
+     * never popped, and a stack holding no screen of that type is left alone, in which case
+     * {@code onArrive} is not called either.
+     *
+     * @param type the screen type to unwind to
+     * @param onArrive what to do with the screen that ends up on top
+     * @param <T> the screen type
+     */
+    public <T extends Screen> void popTo(Class<T> type, Consumer<T> onArrive) {
+        Objects.requireNonNull(type, "type");
+        Objects.requireNonNull(onArrive, "onArrive");
+        pendingOps.add(() -> {
+            while (stack.size() > 1 && !type.isInstance(stack.get(stack.size() - 1))) {
+                doPop();
+            }
+            if (stack.isEmpty()) {
+                return;
+            }
+            Screen top = stack.get(stack.size() - 1);
+            if (type.isInstance(top)) {
+                onArrive.accept(type.cast(top));
+            }
+        });
     }
 
     /**

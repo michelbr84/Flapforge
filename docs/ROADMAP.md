@@ -89,6 +89,16 @@ profile or the shipped content. `AspectRatioTest` sweeps 1.48 through 21:9;
 `ResponsiveSecondaryTest` pins the four migrated screens at the classic size
 and at 1080x2400. See `CHANGELOG.md`.
 
+## What shipped in 0.2.5
+
+The navigation release (2026-09-09): the bottom bar's Play item is the hub's
+own section, so on Shop, Birds, Forge and Goals it unwinds the stack back to
+the hub instead of flying a run from a screen whose job is to set one up, and
+the run the Birds screen configures — Seeded, or the day's Daily — is handed
+to the hub so its START RUN plays the mode the row names. The Goals section's
+navigation is labelled too: it was the one section that never filled in the
+five names. See `CHANGELOG.md`.
+
 ## Deferred, with next-step anchors
 
 * **Leaderboards** — needs online infrastructure 1.0 does not have. `runHistory` (capped

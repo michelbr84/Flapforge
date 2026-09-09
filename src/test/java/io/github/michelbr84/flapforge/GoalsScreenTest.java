@@ -41,6 +41,7 @@ import io.github.michelbr84.flapforge.support.ManualClock;
 import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.component.ProgressBar;
+import io.github.michelbr84.flapforge.ui.component.SectionNav;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.screens.GameScreen;
 import io.github.michelbr84.flapforge.ui.screens.GoalsScreen;
@@ -492,6 +493,30 @@ class GoalsScreenTest {
         screen.tabBar().select(GoalsScreen.TAB_COLLECTIONS);
         ticks(1);
         assertEquals(pt.get(StringKey.byKey("collections.birds")), screen.bars().get(0).label());
+    }
+
+    @Test
+    void theNavigationNamesItsFiveItemsInTheScreensLanguage() {
+        GoalsScreen screen = open();
+        List<String> ids = List.of(SectionNav.SHOP, SectionNav.BIRDS, SectionNav.PLAY,
+                SectionNav.FORGE, SectionNav.GOALS);
+        List<StringKey> keys = List.of(StringKey.MENU_SHOP, StringKey.MENU_BIRDS,
+                StringKey.MENU_PLAY, StringKey.MENU_NAV_FORGE, StringKey.MENU_NAV_GOALS);
+        for (int i = 0; i < ids.size(); i++) {
+            String id = ids.get(i);
+            assertEquals(strings.get(keys.get(i)), screen.nav().button(id).text(),
+                    () -> "the " + id + " item is labelled");
+        }
+
+        Strings.active().reload("pt_BR");
+        Strings.use(Strings.active());
+        ticks(1);
+        Strings pt = Strings.load("pt_BR");
+        for (int i = 0; i < ids.size(); i++) {
+            String id = ids.get(i);
+            assertEquals(pt.get(keys.get(i)), screen.nav().button(id).text(),
+                    () -> "the " + id + " item follows the language");
+        }
     }
 
     @Test

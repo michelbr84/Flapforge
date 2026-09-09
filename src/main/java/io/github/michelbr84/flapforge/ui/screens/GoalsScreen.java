@@ -299,7 +299,7 @@ public final class GoalsScreen implements Screen {
         SectionNav.build(nav, SectionNav.GOALS, new SectionNav.Routes(
                 context == null ? null : this::openShop,
                 context == null ? null : this::openBirds,
-                context == null ? null : this::playStandard,
+                context == null ? null : this::openHome,
                 context == null ? null : this::openForge,
                 null));
         nav.button(SectionNav.SHOP).setEnabled(context != null);
@@ -309,11 +309,9 @@ public final class GoalsScreen implements Screen {
         // Goals itself stays enabled everywhere: it is the section the player is in, and the
         // one navigation item the focus ring stops on (the ring counts the tests pin expect
         // the bar, the tab's own controls and this item, nothing more).
-        refreshPlay();
-        rebuild();
+        refreshTexts();
         rebuildRing();
         relayout();
-        shownLanguage = strings.language();
     }
 
     // ------------------------------------------------------------------ building
@@ -739,15 +737,15 @@ public final class GoalsScreen implements Screen {
     }
 
     /**
-     * Starts the run the hub would start: the standard mode in the profile's own world and
-     * tier, the same play route the other sections offer.
+     * Goes back to the hub, which is where a run is started. The navigation's Play item is the
+     * hub's own section, not a shortcut that flies: from Goals it unwinds the stack to the
+     * screen whose START RUN plays the world, the tier and the mode the profile carries.
      */
-    private void playStandard() {
+    private void openHome() {
         if (context == null) {
             return;
         }
-        SeededRunSource source = new ContentRunFactory(content, RunMode.STANDARD, () -> profile);
-        screens.push(new GameScreen(context, source, SeedSequence.random()));
+        screens.popTo(MainMenuScreen.class);
     }
 
     // ------------------------------------------------------------------ accessors
@@ -759,6 +757,15 @@ public final class GoalsScreen implements Screen {
      */
     public TabBar tabBar() {
         return tabs;
+    }
+
+    /**
+     * The bottom navigation, with Goals on the gold plate.
+     *
+     * @return the bar
+     */
+    public NavBar nav() {
+        return nav;
     }
 
     /**
@@ -847,6 +854,11 @@ public final class GoalsScreen implements Screen {
         list.setLabel(strings.get(StringKey.CHALLENGES_TITLE));
         list.setOptions(listOptions());
         list.selectQuietly(selected);
+        nav.button(SectionNav.SHOP).setText(strings.get(StringKey.MENU_SHOP));
+        nav.button(SectionNav.BIRDS).setText(strings.get(StringKey.MENU_BIRDS));
+        nav.button(SectionNav.PLAY).setText(strings.get(StringKey.MENU_PLAY));
+        nav.button(SectionNav.FORGE).setText(strings.get(StringKey.MENU_NAV_FORGE));
+        nav.button(SectionNav.GOALS).setText(strings.get(StringKey.MENU_NAV_GOALS));
         refreshPlay();
         rebuild();
         shownLanguage = strings.language();
@@ -914,7 +926,7 @@ public final class GoalsScreen implements Screen {
         }
         NavButton[] buttons = {nav.button(SectionNav.SHOP), nav.button(SectionNav.BIRDS),
                 nav.button(SectionNav.PLAY), nav.button(SectionNav.FORGE)};
-        Runnable[] routes = {this::openShop, this::openBirds, this::playStandard,
+        Runnable[] routes = {this::openShop, this::openBirds, this::openHome,
                 this::openForge};
         for (int i = 0; i < buttons.length; i++) {
             if (buttons[i].isEnabled() && buttons[i].contains(mx, input.mouseY())) {

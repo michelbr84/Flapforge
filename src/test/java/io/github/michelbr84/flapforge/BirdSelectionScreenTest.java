@@ -807,7 +807,7 @@ class BirdSelectionScreenTest {
     }
 
     @Test
-    void theNavigationCarriesBirdsAsPrimaryAndPlayStartsARun() {
+    void theNavigationCarriesBirdsAsPrimaryAndPlayGoesHome() {
         open();
         assertTrue(screen.nav().button("birds").isPrimary(),
                 "on a section screen the gold plate says which section you are on");
@@ -819,8 +819,9 @@ class BirdSelectionScreenTest {
         assertEquals(strings.get(StringKey.MENU_PLAY), screen.playButton().text());
         click(screen.playButton());
         ticks(2);
-        assertTrue(screens.top() instanceof io.github.michelbr84.flapforge.ui.screens.GameScreen,
-                "Play starts the run the screen is configuring");
+        assertSame(screen, screens.top(),
+                "Play is the hub's section: without a hub under it there is nothing to fly and"
+                        + " nowhere to go back to");
     }
 
     @Test

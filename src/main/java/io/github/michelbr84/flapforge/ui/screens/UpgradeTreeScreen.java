@@ -12,7 +12,6 @@ import io.github.michelbr84.flapforge.content.defs.TreeDef;
 import io.github.michelbr84.flapforge.content.defs.UpgradeDef;
 import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
-import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
 import io.github.michelbr84.flapforge.input.InputAction;
@@ -276,7 +275,7 @@ public final class UpgradeTreeScreen implements Screen {
         relayout();
 
         SectionNav.build(nav, SectionNav.FORGE, new SectionNav.Routes(this::openShop,
-                this::openBirds, this::play, null, this::openGoals), screens.metrics());
+                this::openBirds, this::openHome, null, this::openGoals), screens.metrics());
         nav.button(SectionNav.SHOP).setEnabled(context != null);
         nav.button(SectionNav.BIRDS).setEnabled(context != null);
         nav.button(SectionNav.PLAY).setEnabled(context != null);
@@ -1130,15 +1129,12 @@ public final class UpgradeTreeScreen implements Screen {
     }
 
     /**
-     * Starts the run the hub would start. The mode picker lives on the Birds screen, so the
-     * forge plays the standard run in the profile's own world and tier.
+     * Goes back to the hub, which is where a run is started. The navigation's Play item is the
+     * hub's own section, not a shortcut that flies: from the forge it unwinds the stack to the
+     * screen whose START RUN plays the run the profile is set up for.
      */
-    private void play() {
-        if (context == null) {
-            return;
-        }
-        ContentRunFactory source = new ContentRunFactory(content, RunMode.STANDARD, () -> profile);
-        screens.push(new GameScreen(context, source, SeedSequence.random()));
+    private void openHome() {
+        screens.popTo(MainMenuScreen.class);
     }
 
     // ------------------------------------------------------------------ behaviour

@@ -381,7 +381,7 @@ public final class BirdSelectionScreen implements Screen {
         relayout();
 
         SectionNav.build(nav, SectionNav.BIRDS, new SectionNav.Routes(this::openShop,
-                this::focusSelectedTile, this::play, this::openForge, this::openGoals),
+                this::focusSelectedTile, this::openHome, this::openForge, this::openGoals),
                 screens.metrics());
         nav.button(SectionNav.SHOP).setEnabled(context != null);
         nav.button(SectionNav.FORGE).setEnabled(context != null);
@@ -1085,10 +1085,10 @@ public final class BirdSelectionScreen implements Screen {
      *
      * <p>A locked mode can be <em>looked</em> at — the row greys it and says in words what opens
      * it, which is the only place that sentence is ever read — but it cannot be flown: while
-     * {@code feature:seeded_runs} is missing, {@link #play()} starts a standard run whatever the
-     * row shows, and stepping onto Seeded or Daily says so out loud. That is deliberately not the
-     * tier and world rows' snap-back: those two <em>write</em> the profile's selection, and this
-     * one writes nothing.
+     * {@code feature:seeded_runs} is missing, {@link #openHome()} hands the hub a standard run
+     * whatever the row shows, and stepping onto Seeded or Daily says so out loud. That is
+     * deliberately not the tier and world rows' snap-back: those two <em>write</em> the profile's
+     * selection, and this one writes nothing.
      *
      * @param index the index in {@link #modes}
      */
@@ -1112,30 +1112,28 @@ public final class BirdSelectionScreen implements Screen {
     }
 
     /**
-     * Starts a run in the selected mode (D17, D28, D29).
+     * Goes back to the hub carrying the run the mode row picked (D17, D28, D29).
      *
-     * <p>Standard flies a fresh seed, Seeded replays the seed of the last run the profile
-     * finished, and Daily plays today's pick on the one seed that date has — its instant retry
-     * keeps that seed and only moves the attempt counter, because
+     * <p>Standard is no run in particular — the hub builds it from the profile's own world and
+     * tier, so nothing is handed over. Seeded hands over the seed of the last run the profile
+     * finished, and Daily today's pick on the one seed that date has — read here, which is what
+     * settles the day — so the hub's START RUN plays what the row said it would. The daily's
+     * instant retry keeps that seed and only moves the attempt counter, because
      * {@link DailyRunSource} ignores the seed the game screen asks for.
      */
-    private void play() {
+    private void openHome() {
         RunMode chosen = DailyChallenge.isAvailable(profile) ? runMode : RunMode.STANDARD;
-        SeededRunSource source;
-        SeedSequence seeds;
-        if (chosen == RunMode.DAILY && clock != null) {
-            DailyRunSource daily = new DailyRunSource(content, () -> profile, clock, save);
-            source = daily;
-            seeds = SeedSequence.of(daily.pick().seed());
-        } else if (chosen == RunMode.SEEDED) {
-            source = new ContentRunFactory(content, RunMode.SEEDED, () -> profile);
-            seeds = SeedSequence.of(profile.lastSeed);
-        } else {
-            source = new ContentRunFactory(content, RunMode.STANDARD, () -> profile);
-            seeds = SeedSequence.random();
-        }
-        screens.push(context != null ? new GameScreen(context, source, seeds)
-                : new GameScreen(screens, source, seeds));
+        screens.popTo(MainMenuScreen.class, hub -> {
+            if (chosen == RunMode.DAILY && clock != null) {
+                DailyRunSource daily = new DailyRunSource(content, () -> profile, clock, save);
+                hub.requestRun(daily, SeedSequence.of(daily.pick().seed()));
+            } else if (chosen == RunMode.SEEDED) {
+                hub.requestRun(new ContentRunFactory(content, RunMode.SEEDED, () -> profile),
+                        SeedSequence.of(profile.lastSeed));
+            } else {
+                hub.clearRequestedRun();
+            }
+        });
     }
 
     // ------------------------------------------------------------------ building

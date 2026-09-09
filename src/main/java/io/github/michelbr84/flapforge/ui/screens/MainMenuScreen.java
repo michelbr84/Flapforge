@@ -139,6 +139,8 @@ public final class MainMenuScreen implements Screen {
     private final GameContext context;
     private final SeededRunSource runFactory;
     private final SeedSequence seeds;
+    /** The run the bird screen handed over, or {@code null} for the run the hub builds itself. */
+    private RequestedRun requested;
     private final ToastLayer toasts;
     private final ParticleSystem particles;
     private final FocusRing ring = new FocusRing();
@@ -384,18 +386,48 @@ public final class MainMenuScreen implements Screen {
     // ------------------------------------------------------------------ actions
 
     /**
-     * Starts the run the plaque names: with content and a profile the hub builds its own
-     * factory over the live profile, so the selection is what is played (an explicit seed keeps
-     * the run {@code SEEDED}); without them the injected source is played.
+     * Starts the run the plaque names: a run the bird screen handed over ({@link #requestRun}) is
+     * played as handed over — that is how the mode row's Seeded and Daily reach a run now that
+     * the navigation's Play item only travels — and otherwise, with content and a profile, the
+     * hub builds its own factory over the live profile, so the selection is what is played (an
+     * explicit seed keeps the run {@code SEEDED}); without them the injected source is played.
      */
     private void startGame() {
         SeededRunSource source = runFactory;
-        if (meta) {
+        SeedSequence runSeeds = seeds;
+        if (requested != null) {
+            source = requested.source();
+            runSeeds = requested.seeds();
+        } else if (meta) {
             source = new ContentRunFactory(content,
                     seeds.isExplicit() ? RunMode.SEEDED : RunMode.STANDARD, context::profile);
         }
-        screens.push(context != null ? new GameScreen(context, source, seeds)
-                : new GameScreen(screens, source, seeds));
+        screens.push(context != null ? new GameScreen(context, source, runSeeds)
+                : new GameScreen(screens, source, runSeeds));
+    }
+
+    /**
+     * Hands the hub a run to play instead of the one it would build itself (D28).
+     *
+     * <p>The mode row lives on the bird screen, and what it picks — Seeded, or the day's Daily —
+     * is a run, not a setting: the hub's START RUN plays it. The request stays until another one
+     * replaces it, which is what "one day is one configuration, played as often as the player
+     * likes" means for the daily.
+     *
+     * @param source what builds the run
+     * @param runSeeds the seed the run is flown on
+     */
+    public void requestRun(SeededRunSource source, SeedSequence runSeeds) {
+        requested = new RequestedRun(Objects.requireNonNull(source, "source"),
+                Objects.requireNonNull(runSeeds, "runSeeds"));
+    }
+
+    /**
+     * Drops a run handed over by the bird screen, so START RUN goes back to the run the hub
+     * builds from the profile's own selection.
+     */
+    public void clearRequestedRun() {
+        requested = null;
     }
 
     private void openSettings() {
@@ -1033,5 +1065,9 @@ public final class MainMenuScreen implements Screen {
         gear.render(g);
         particles.render(g);
         toasts.render(g, TOAST_TOP_INSET);
+    }
+
+    /** A run another screen asked the hub to play: what builds it and the seed it flies on. */
+    private record RequestedRun(SeededRunSource source, SeedSequence seeds) {
     }
 }
