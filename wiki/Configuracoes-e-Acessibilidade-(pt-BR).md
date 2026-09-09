@@ -81,7 +81,7 @@ fixos e não podem ser remapeados. A lista completa do que cada tecla faz está 
 
 ## Sobre
 
-A última seção é informativa: a versão do jogo (`v0.2.1`), o Java em que ele está rodando
+A última seção é informativa: a versão do jogo (`v0.2.2`), o Java em que ele está rodando
 ("Java 17", por exemplo) e um lembrete das teclas globais, "F3 depuração   F11 tela cheia". No
 computador ela também traz a linha **Sair** — a outra saída do jogo além de pressionar `Esc` duas
 vezes na tela inicial. No Android a linha não existe; o aplicativo é fechado pelo gesto Voltar do

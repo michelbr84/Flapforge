@@ -720,11 +720,12 @@ Flapforge/
     │   │               AssetManager AssetResolver Sprite SpriteSheet Animation Camera ParticleSystem [M2]  PickupRenderer [M3]  ObstacleRendererRegistry [M7]
     │   ├── audio/      AudioBackend SoftwareMixer NullAudio Voice SoundBank ToneSynth AudioManager [M2]  MusicSequencer [M8]
     │   └── ui/         Screen ScreenManager UiNode FocusRing [M0]
-    │       ├── component/  Button Label Panel [M0]  Slider Toggle ListView Toast [M2]  ProgressBar CurrencyDisplay [M3]  Tooltip CardGrid TabBar [M4]  IconPainter IconButton NavButton NavBar CtaButton CurrencyChip [M10]  HubHeader SectionNav Carousel AbilityCard AttributeBadge [M11]
+    │       ├── component/  Button Label Panel [M0]  Slider Toggle ListView Toast [M2]  ProgressBar CurrencyDisplay [M3]  Tooltip CardGrid TabBar [M4]  IconPainter IconButton NavButton NavBar CtaButton CurrencyChip [M10]  HubHeader SectionNav Carousel AbilityCard AttributeBadge [M11]  TabBar glyphs and gold accent [M12]
     │       └── screens/    MainMenuScreen (minimal) SettingsScreen (stub) [M0]  GameScreen PauseOverlay GameOverOverlay SeededRunSource ClassicRunFactory ContentRunFactory SeedSequence [M1]  BootScreen [M2; MainMenu/Settings completed]
     │                       RunSummaryScreen StatisticsScreen [M3]  BirdSelectionScreen UpgradeTreeScreen ShopScreen [M4]  ModifierChoiceOverlay [M6]
     │                       RuleShiftBanner [M7]  BossBanner [M8]  GoalsScreen (Challenges+Achievements merged) WorldSelectScreen PlayerCard WorldPlaque NextUnlockCard ForgeScene BirdPortrait [M10; MainMenuScreen = home hub, StatisticsScreen = Profile]
     │                       BirdHero BirdAttributes AbilityIcons RunSetupBar RunSetupPanel DetailsPanel [M11; BirdSelectionScreen in the hub's language]
+    │                       ShopCard ShopArt WorldSwatch [M12; ShopScreen in the hub's language]
     ├── main/resources/
     │   ├── assets/manifest.json [M2, empty asset list]  assets/sprites/{birds,obstacles,worlds,ui}/.gitkeep assets/audio/{sfx,music}/.gitkeep [M2]  assets/fonts/{<ofl-font>.ttf,LICENSE} [M8]
     │   ├── data/birds.json difficulty.json [M1]  economy.json [M3]  upgrades.json aliases.json [M4]  abilities.json [M5]  modifiers.json [M6]  worlds.json patterns.json [M7]  challenges.json achievements.json [M8]
@@ -825,7 +826,7 @@ removed from the tree once this table superseded it.
 | achievement/AchievementManager | renamed | `AchievementEvaluator` |
 | achievement/AchievementProgress | merged | `AchievementEvaluator.progressOf` + Milestones tab |
 | economy/EconomyManager, Reward, RewardTable | merged | `EconomyDef` + `RunRewardCalculator` |
-| economy/Shop | kept as screen | `ShopScreen` over purchase unlocks + ability levels |
+| economy/Shop | kept as screen | `ShopScreen` over every priced unlockable, owned included, + ability levels |
 | persistence/SaveManager | kept | `persistence` |
 | persistence/SaveData | renamed | `SaveFile` + `PlayerProfile` |
 | persistence/SaveVersion, SaveMigration | merged | `SaveMigrator` + `Migration` |

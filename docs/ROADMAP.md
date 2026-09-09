@@ -37,9 +37,23 @@ attributes (`BirdAttributes`), the roster as a carousel, the world/tier/mode
 rows moved into a run-setup panel behind a one-line bar, the loadout as ability
 cards with the ability list and the stat breakdown behind *See details*, one
 gold call to action and the hub's five-item navigation with Birds on the gold
-plate. `HubHeader` and `SectionNav` are the reusable half, so the Shop, Forge
-and Goals screens can adopt the same shell next. Also: every default Eclipse
+plate. `HubHeader` and `SectionNav` are the reusable half; the Shop adopted
+the same shell in 0.2.2, Forge and Goals are next. Also: every default Eclipse
 compiler warning over the tree removed. See `CHANGELOG.md`.
+
+## What shipped in 0.2.2
+
+The shop release (2026-09-09): the Shop rebuilt in the hub's visual language
+(M12) — the `HubHeader` with the wallet shown once, the four categories as a
+`TabBar` with a glyph per tab and the selected one in gold, a scrolling
+two-column grid of portrait `ShopCard`s (the thing's own art through
+`ShopArt`, its name, the road that costs no coins as its second line, and its
+state on a wooden price tag: a price, an owned check, a level and its price,
+or the cap word), a wooden detail plaque that never repeats the price, one gold
+call to action whose verb is the tab's, and the hub's five-item navigation with
+Shop on the gold plate. What the profile has bought stays in the catalogue,
+badged owned. `WorldSwatch` is promoted out of the World Select. See
+`CHANGELOG.md`.
 
 ## Deferred, with next-step anchors
 

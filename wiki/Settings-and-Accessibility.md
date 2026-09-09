@@ -78,7 +78,7 @@ are fixed and cannot be rebound. The full list of what each key does is on [[Con
 
 ## About
 
-The last section is informational: the game version (`v0.2.1`), the Java runtime it is running
+The last section is informational: the game version (`v0.2.2`), the Java runtime it is running
 on ("Java 17" and so on) and a reminder of the global keys, "F3 debug   F11 fullscreen". On the
 desktop it also carries the **Quit** row — the other way out of the game besides pressing `Esc`
 twice on the hub. On Android the row does not exist; the app is left through the system's own

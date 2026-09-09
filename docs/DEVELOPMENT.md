@@ -60,7 +60,7 @@ Optionally pin `distributionSha256Sum` in
 | `./gradlew perfTest` | tests tagged `perf`: local performance budgets (not run in CI) |
 | `./gradlew simTest` | tests tagged `sim`: long bot simulations (feasibility, new-player journey, meta-progression) — populated from M4 |
 | `./gradlew jar` | plain jar with `Main-Class` and `Implementation-Version` |
-| `./gradlew fatJar` | self-contained `build/libs/flapforge-<version>-all.jar` (Gson bundled; `0.2.1` ships `flapforge-0.2.1-all.jar`) |
+| `./gradlew fatJar` | self-contained `build/libs/flapforge-<version>-all.jar` (Gson bundled; `0.2.2` ships `flapforge-0.2.2-all.jar`) |
 | `./gradlew balancing -PtoolArgs="..."` | `[M1]` balancing simulation (`src/tools`; the `tools` source set and the five `JavaExec` tasks exist from M0, the tools themselves arrive with their milestones) |
 | `./gradlew saveInspector -PtoolArgs="..."` | `[M3]` inspect/validate a save directory |
 | `./gradlew contentCheck` | `[M4]` run the content validator on the shipped JSON |
@@ -112,9 +112,9 @@ which is how `docs/BALANCING.md` §10 and §11 are produced.
 
 ### The release flow `[M9]`
 
-1. **The version lives in `src/main/resources/version.properties`** (`version=0.2.1`); Gradle
+1. **The version lives in `src/main/resources/version.properties`** (`version=0.2.2`); Gradle
    reads it, so the plain jar's `Implementation-Version`, the fat jar's file name
-   (`build/libs/flapforge-0.2.1-all.jar`) and the `jpackage` app version all follow it. A
+   (`build/libs/flapforge-0.2.2-all.jar`) and the `jpackage` app version all follow it. A
    release candidate drops its `-SNAPSHOT` suffix here — as M9 did.
 2. **`./gradlew fatJar iconExport`** builds the self-contained jar and renders
    `build/icon/flapforge.png` (256²), `flapforge.ico` (16/32/48/256) and `flapforge.icns`

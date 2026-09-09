@@ -3,6 +3,7 @@ package io.github.michelbr84.flapforge.ui.component;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.Keys;
+import io.github.michelbr84.flapforge.render.Accessibility;
 import io.github.michelbr84.flapforge.render.Fonts;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
@@ -33,6 +34,16 @@ import java.util.function.IntConsumer;
  * handing the frame to its {@link io.github.michelbr84.flapforge.ui.FocusRing} and, when this
  * returns {@code true}, strips {@code LEFT}/{@code RIGHT} from the frame first, so one press never
  * both changes the tab and jumps the focus into the content below.
+ *
+ * <p>A tab may carry an {@link IconPainter} (M12): the glyph is drawn before the label and the two
+ * are centred together, so a bar of four categories reads at a glance instead of as four words.
+ * A bar with no icon on any tab draws exactly as it did before.
+ *
+ * <p>The selected tab is marked twice — a brighter plate, and, when the bar is
+ * {@linkplain #setAccented(boolean) accented}, a gold underline with a gold label. The underline
+ * is deliberately not a gold <em>plate</em>: {@link NavButton} reserves the gold plate for the
+ * primary navigation item, and a screen carrying both a gold call to action and a gold navigation
+ * item has no third gold plate to spare.
  */
 public class TabBar extends UiNode implements Adjustable {
 
@@ -40,6 +51,14 @@ public class TabBar extends UiNode implements Adjustable {
     public static final int FONT_SIZE = 13;
     /** Height the bar is usually given. */
     public static final int DEFAULT_HEIGHT = 28;
+    /** Size of a tab's glyph. */
+    public static final int ICON_SIZE = 14;
+    /** Gap between a tab's glyph and its label. */
+    public static final int ICON_GAP = 5;
+    /** Height of the gold underline under the selected tab of an accented bar. */
+    public static final int INDICATOR_H = 3;
+    /** Room the underline leaves at each end of the tab. */
+    public static final int INDICATOR_INSET = 10;
 
     private static final Color TAB_IDLE = new Color(0x1C, 0x3A, 0x3E, 0xC8);
     private static final Color TAB_HOVER = new Color(0x2E, 0x6B, 0x72, 0xDC);
@@ -51,9 +70,28 @@ public class TabBar extends UiNode implements Adjustable {
     private final List<Tab> readOnlyTabs = Collections.unmodifiableList(tabs);
     private int selected;
     private IntConsumer onChange;
+    private boolean accented;
 
     /** Creates an empty bar. */
     public TabBar() {
+    }
+
+    /**
+     * Whether the selected tab carries the gold underline and a gold label.
+     *
+     * @return {@code true} when the bar is accented
+     */
+    public boolean isAccented() {
+        return accented;
+    }
+
+    /**
+     * Marks the selected tab in the game's accent colour rather than by its plate alone.
+     *
+     * @param newAccented the flag
+     */
+    public void setAccented(boolean newAccented) {
+        this.accented = newAccented;
     }
 
     /**
@@ -250,18 +288,40 @@ public class TabBar extends UiNode implements Adjustable {
             g.fillRoundRect(tx, ty, tw, th, 8, 8);
             g.setColor(BORDER);
             g.drawRoundRect(tx, ty, tw, th, 8, 8);
-            g.setColor(tab.isEnabled()
-                    ? (isSelected ? ProceduralArt.TEXT_LIGHT : ProceduralArt.TEXT_MUTED)
-                    : ProceduralArt.TEXT_MUTED);
+            Color ink = !tab.isEnabled() ? ProceduralArt.TEXT_MUTED
+                    : isSelected
+                            ? (accented ? Accessibility.tone(ProceduralArt.COIN_GOLD)
+                                    : ProceduralArt.TEXT_LIGHT)
+                            : ProceduralArt.TEXT_MUTED;
+            g.setColor(ink);
             // Four tabs at textScale 1.5 in pt_BR overflow their cells; the clip keeps a long
             // label inside its own tab instead of over the neighbour's.
             Shape unclipped = g.getClip();
             g.clipRect(tx + 2, ty, tw - 4, th);
-            TextPainter.draw(g, tab.label(), tx + tw / 2.0,
-                    TextPainter.centeredBaseline(g, ty + th / 2.0), Align.CENTER);
+            // The glyph and the label are centred together, so a bar of icons stays symmetrical
+            // whatever the translation does to the words. When the two no longer fit the cell —
+            // pt_BR at a large text scale — the glyph goes first and the label keeps the room,
+            // because the word is what a player reads.
+            double labelWidth = TextPainter.width(g, tab.label());
+            boolean withIcon = tab.icon() != null
+                    && labelWidth + ICON_SIZE + ICON_GAP <= tw - 8;
+            double iconRoom = withIcon ? ICON_SIZE + ICON_GAP : 0;
+            double baseline = TextPainter.centeredBaseline(g, ty + th / 2.0);
+            double textCentre = tx + tw / 2.0 + iconRoom / 2;
+            TextPainter.draw(g, tab.label(), textCentre, baseline, Align.CENTER);
+            if (withIcon) {
+                tab.icon().paint(g, textCentre - labelWidth / 2 - ICON_GAP - ICON_SIZE / 2.0,
+                        ty + th / 2.0, ICON_SIZE, ink);
+            }
             g.setClip(unclipped);
             if (!tab.isEnabled()) {
                 g.drawLine(tx + 6, ty + th - 4, tx + tw - 6, ty + th - 4);
+            }
+            if (isSelected && accented && tab.isEnabled()) {
+                g.setColor(Accessibility.tone(ProceduralArt.COIN_GOLD));
+                g.fillRoundRect(tx + INDICATOR_INSET, ty + th - INDICATOR_H - 2,
+                        Math.max(0, tw - 2 * INDICATOR_INSET), INDICATOR_H,
+                        INDICATOR_H, INDICATOR_H);
             }
         }
         if (isFocused()) {
@@ -281,6 +341,7 @@ public class TabBar extends UiNode implements Adjustable {
         private final String id;
         private String label;
         private boolean enabled = true;
+        private IconPainter icon;
 
         /**
          * Creates a tab.
@@ -336,6 +397,24 @@ public class TabBar extends UiNode implements Adjustable {
          */
         public void setEnabled(boolean newEnabled) {
             this.enabled = newEnabled;
+        }
+
+        /**
+         * The glyph drawn before the label.
+         *
+         * @return the painter, or {@code null} for a label-only tab
+         */
+        public IconPainter icon() {
+            return icon;
+        }
+
+        /**
+         * Gives the tab a glyph.
+         *
+         * @param newIcon the painter, or {@code null} for a label-only tab
+         */
+        public void setIcon(IconPainter newIcon) {
+            this.icon = newIcon;
         }
     }
 }

@@ -63,9 +63,9 @@ lint como erro e roda a suíte de testes padrão — veja
 
 ```bash
 ./gradlew fatJar
-java -jar build/libs/flapforge-0.2.1-all.jar
-java -jar build/libs/flapforge-0.2.1-all.jar --fullscreen --no-audio
-java -jar build/libs/flapforge-0.2.1-all.jar --lang pt_BR
+java -jar build/libs/flapforge-0.2.2-all.jar
+java -jar build/libs/flapforge-0.2.2-all.jar --fullscreen --no-audio
+java -jar build/libs/flapforge-0.2.2-all.jar --lang pt_BR
 ```
 
 `scripts/package.sh` (Linux/macOS, ou Git Bash no Windows) monta o fat jar, exporta o ícone

@@ -37,25 +37,40 @@ Goals screen ([[Challenges and Goals]]). The Scholar node is the one thing that 
 ## What the Shop sells
 
 ![The Shop](images/shop.png)
-*The Shop: four tabs, the cheapest offer first, the price on every card and the wallet on top.*
+*The Shop: four tabs, a grid of cards with the price on a wooden tag, the plaque for the card in
+focus, one gold button with the tab's verb, and the wallet on top — once.*
 
-The Shop opens from the hub's **Shop** item or from its coin chip. It lists everything that has a
-price and that you do not own yet, in four tabs, cheapest first, and every card says whether
-your wallet covers it. Everything sold here can also be earned, so the Shop is a shortcut, never
-the only road: the earn conditions are on [[Birds and Abilities]], [[Worlds and Bosses]] and
+The Shop opens from the hub's **Shop** item or from its coin chip. It is a catalogue of everything
+that has a price, in four tabs, on a grid of cards that scrolls when a tab has more rows than fit.
+What is still for sale comes first, cheapest first; what you already bought stays, at the end,
+badged **Owned** with a check and no price. Everything sold here can also be earned, so the Shop
+is a shortcut, never the only road — and every card says so: under its name a card that is not
+yours yet carries the road that costs no coins, *Play 3 runs*, *Reach level 8*, *Clear Green
+Fields*. The full earn conditions are on [[Birds and Abilities]], [[Worlds and Bosses]] and
 [[Game Modes and Difficulty]], and the hub's **Next unlock** card always names the nearest one.
 
 | Tab | What it lists | Prices |
 | --- | --- | --- |
-| Birds | the birds you do not own yet | Ironbeak 150, Anvil 200, Zephyr 300, Jackdaw 500, Oracle 600, Cinder 800 |
+| Birds | the six birds that carry a price (the one you start with was never for sale) | Ironbeak 150, Anvil 200, Zephyr 300, Jackdaw 500, Oracle 600, Cinder 800 |
 | Abilities | the abilities you do not own, and the next level of the ones you do | Coin Magnet 120, Shield 200, Dash 250, Slow Time 350, Emergency Recovery 400, Score Multiplier 450, Invulnerability 700; level 2 costs twice the price and level 3 four times |
-| Worlds | the worlds you do not own (tiers and challenges belong to this tab too, but carry no price: they are earned only) | Wind Valley 350, Iron Forge 700, Storm Sky 1200, The Void 2000 |
+| Worlds | the four worlds behind Green Fields (tiers and challenges carry no price: they are earned only) | Wind Valley 350, Iron Forge 700, Storm Sky 1200, The Void 2000 |
 | Features | the upgrade trees, the two features and the three legendary modifier cards | Seeded Runs 100, the Economy tree 120, Run Modifiers 150, Gold Rush, Phoenix and Stormrider 300 each, the Forge tree 900 |
 
-An ability card shows "Next level 2" and the cap it is under ("Level cap 2"); at the cap it reads
-"Cap reached", and at level 3 "Fully upgraded". The cap starts at 2 and only the Master Forge node
-raises it to 3 (see [[Birds and Abilities]]). A tab with nothing left to sell says "Nothing left
-to buy here".
+A card says one of four things on its tag: the **price** when it is for sale and your wallet
+covers it; the same price over a dimmed card when it does not (nothing here is ever locked —
+the card is for sale, you are short); a **check and "Owned"** once it is yours; and, for an
+ability you own, its **level and the price of the next one** — "Level 1/3 · Level cap 2" — or
+"Cap reached" at the cap and "Fully upgraded" at level 3. The cap starts at 2 and only the
+Master Forge node raises it to 3 (see [[Birds and Abilities]]). A tab with nothing left to sell
+says "Nothing left to buy here" and still shows what you own.
+
+Tap a card and the wooden plaque under the grid describes it — what it does, the road that costs
+no coins, and for an owned ability what the next level adds — without repeating the price, which
+is on the card. The gold button names what the tab does: **Buy bird**, **Unlock ability** and
+then **Upgrade ability**, **Unlock world**, **Unlock feature**; it goes quiet once the thing is
+owned. There is no Back button: `Esc` (or the phone's back gesture) returns to the hub, and the
+bottom navigation — Shop · Birds · Play · Forge · Goals, with Shop on the gold plate — swaps
+sections directly.
 
 > **Tip:** the Shop lists Ironbeak at 150 coins and Seeded Runs at 100. With the first-run bonus
 > and a few gates, both are within reach on your first evening; the example progression below

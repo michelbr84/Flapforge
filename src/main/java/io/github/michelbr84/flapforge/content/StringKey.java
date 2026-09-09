@@ -575,6 +575,20 @@ public enum StringKey {
     SHOP_ABILITY_CAPPED("shop.ability.capped"),
     /** Shop: the ability owns every level the content ships. */
     SHOP_ABILITY_MAXED("shop.ability.maxed"),
+    /** Shop call to action on the Birds tab (M12). */
+    SHOP_CTA_BIRD("shop.cta.bird"),
+    /** Shop call to action for an ability the profile does not own yet (M12). */
+    SHOP_CTA_ABILITY("shop.cta.ability"),
+    /** Shop call to action for the next level of an owned ability (M12). */
+    SHOP_CTA_ABILITY_UPGRADE("shop.cta.ability_upgrade"),
+    /** Shop call to action on the Worlds tab (M12). */
+    SHOP_CTA_WORLD("shop.cta.world"),
+    /** Shop call to action on the Features tab (M12). */
+    SHOP_CTA_FEATURE("shop.cta.feature"),
+    /** Shop: the road that costs no coins, {@code {0}} is the condition in words (M12). */
+    SHOP_EARN("shop.earn"),
+    /** Shop: what the next level of an ability does, {@code {0}} the effects (M12). */
+    SHOP_NEXT_LEVEL_EFFECT("shop.next_level_effect"),
 
     /** Toast: something was bought, {@code {0}} is its name. */
     TOAST_PURCHASED("toast.purchased"),

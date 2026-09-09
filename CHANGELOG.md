@@ -12,6 +12,71 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+## 0.2.2 — 2026-09-09
+
+The shop release: the Shop stops reading like a settings list and becomes a
+catalogue in the home hub's own visual language — the second section screen
+to adopt the shell the Birds screen introduced in 0.2.1, and the one screen
+the player is asked to spend in. Nothing that was for sale changed hands: the
+same ids, the same prices, the same purchase paths; what changed is that the
+player can now read them.
+
+### Added
+
+- The **Shop is rebuilt** in the hub's language (M12). The `HubHeader` names
+  it and shows the wallet — once, as a readout, because from inside the Shop
+  the coin chip has nowhere to go. Under it the four categories — Birds,
+  Abilities, Worlds, Features — as a `TabBar` with a glyph on every tab and the
+  selected one marked in gold. Then a **two-column grid of portrait cards**,
+  scrolled by the wheel and by the focus with a thumb that appears only when
+  a tab has more rows than the band: each card carries the thing's own art —
+  the bird's portrait in its first palette, the ability's glyph in gold inside
+  a slot ring, the world's four-colour thumbnail, a hammer for a tree, a gear
+  for a feature, a crown for a legendary card — its name, one line saying
+  where it stands, and its state on a **wooden price tag**, the one piece of
+  market furniture the Shop borrows. Under the grid a wooden **detail plaque**
+  with the description, and one gold call to action whose verb is the tab's:
+  *Buy bird*, *Unlock ability* / *Upgrade ability*, *Unlock world*, *Unlock
+  feature*. The hub's five-item navigation closes the screen with **Shop** on
+  the gold plate.
+- **What you own stays in the Shop.** A bought bird, world, feature, tree or
+  legendary card keeps its card, badged with a check and *Owned* and no price,
+  sorted after everything still for sale; a tab with nothing left to sell says
+  so under the cards it still shows. What the profile starts with was never
+  for sale and still never appears, so every tab holds the same cards whatever
+  the profile owns — six birds, eight abilities, four worlds, seven features.
+- **Every card says how to earn it.** In this game everything for sale is also
+  earnable, so nothing in the Shop is ever shut: instead of a padlock, a card
+  that is not yours yet carries the road that costs no coins as its second line
+  — *Play 3 runs*, *Reach level 8*, *Clear Green Fields* — from the same
+  `ProgressionText.unlockText` the Birds, Worlds and Goals screens use, and
+  the plaque repeats it as *Or earn it: …*. A price the wallet cannot cover
+  keeps its tag crisp over the dimmed card, with *Not enough coins* on the
+  plaque in the warning colour.
+- Three reusable pieces: `ShopCard` (a portrait `CardGrid.Card` with the four
+  states and a hit test clamped to the grid's band), `ShopArt` (the art of
+  every kind the Shop sells, resolved once when the card is built) and
+  `WorldSwatch`, the world thumbnail promoted out of the World Select so both
+  screens draw the same square. `TabBar` gained an optional glyph per tab and
+  an accented mode that underlines the selected tab in gold; a bar without
+  either draws exactly as before.
+- Seven strings in both languages: the five verbs of the call to action, *Or
+  earn it: {0}* and *Next level: {0}*.
+
+### Changed
+
+- **The price is on the card and nowhere else.** The detail plaque no longer
+  repeats it, the call to action carries no number, and the wallet appears
+  once. The plaque carries what the card has no room for: the description, the
+  free road in, and for an owned ability what the next level does.
+- The Shop has **no Back button**: `Esc` (or the Android back gesture) returns
+  to the hub, exactly as on the Birds screen, and the bottom navigation swaps
+  sections instead of stacking them. Play from the Shop starts the standard
+  run in the profile's own world and tier.
+- Reduce flashing caps the call to action's glow on the Shop, as everywhere.
+- The version moves to 0.2.2 across `version.properties`, the Android version
+  code and name, the changelog, the roadmap and the docs.
+
 ## 0.2.1 — 2026-09-08
 
 The bird-selection release: the Birds screen stops reading like a settings
