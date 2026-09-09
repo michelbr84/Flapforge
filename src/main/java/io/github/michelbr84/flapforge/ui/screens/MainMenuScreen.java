@@ -41,8 +41,10 @@ import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
 import io.github.michelbr84.flapforge.ui.component.IconButton;
 import io.github.michelbr84.flapforge.ui.component.NavBar;
 import io.github.michelbr84.flapforge.ui.component.NavButton;
+import io.github.michelbr84.flapforge.ui.component.SectionNav;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.util.List;
@@ -97,12 +99,20 @@ public final class MainMenuScreen implements Screen {
     private static final double BOB_AMPLITUDE = 4;
     private static final int WING_PERIOD_TICKS = 48;
     private static final double EMBLEM_CX = Playfield.WIDTH / 2.0;
+    /** The emblem's anvil top, below the surface's first visible row. */
     private static final double LOGO_ANVIL_TOP = 84;
     private static final double LOGO_ANVIL_W = 56;
     private static final double LOGO_BIRD_SIZE = 32;
+    /** The title baseline, below the surface's first visible row. */
     private static final int TITLE_BASELINE = 144;
+    /** The tagline baseline, below the surface's first visible row. */
     private static final int TAGLINE_BASELINE = 160;
-    private static final int LAST_RUN_BASELINE = 556;
+    /** The last-run baseline, above the navigation band's top. */
+    private static final int LAST_RUN_ABOVE_NAV = 26;
+    /** The next-unlock card's top, above the navigation band's top. */
+    private static final int NEXT_UNLOCK_ABOVE_NAV = 172;
+    /** The START RUN button's top, above the navigation band's top. */
+    private static final int START_RUN_ABOVE_NAV = 108;
     /** Band kept clear of toasts so they never cover the HUD. */
     public static final int TOAST_TOP_INSET = 64;
     /** Ticks the quit stays armed after the first Back. */
@@ -183,6 +193,12 @@ public final class MainMenuScreen implements Screen {
     private double prevMouseX;
     private double prevMouseY;
     private boolean mouseSeen;
+    /** The metrics the bands were last laid out from; a surface change re-derives them. */
+    private LayoutMetrics laidOut;
+    /** The surface's first visible logical row: the header and the emblem pin here. */
+    private int surfaceTop;
+    /** The navigation band's first logical row: the CTA cluster pins here. */
+    private int navTopY;
 
     /**
      * Creates the menu with classic runs and clock-derived seeds (tests and tools).
@@ -240,23 +256,17 @@ public final class MainMenuScreen implements Screen {
         this.particles = new ParticleSystem();
 
         startRun = new CtaButton("", this::startGame);
-        startRun.setBounds(40, 474, 340, 62);
         startRun.setIcon((g, cx, cy, size, color) ->
                 ProceduralArt.drawCrossedHammers(g, cx, cy, size, color));
         playerCard = new PlayerCard(this::openProfile);
-        playerCard.setBounds(10, 8, 180, 52);
         coins = new CurrencyChip(this::openShop);
-        coins.setBounds(200, 12, 130, 30);
         coins.setVisible(meta);
         gear = new IconButton("", (g, cx, cy, size, color) ->
                 ProceduralArt.drawGear(g, cx, cy, size, color, ProceduralArt.TEXT_DARK),
                 this::openSettings);
-        gear.setBounds(354, 10, 40, 40);
         plaque = new WorldPlaque(this::openWorldSelect);
-        plaque.setBounds(90, 168, 240, 32);
         plaque.setVisible(meta);
         nextUnlock = new NextUnlockCard(this::openNextUnlock);
-        nextUnlock.setBounds(24, 410, 372, 48);
         nextUnlock.setVisible(meta);
         ring.add(startRun);
         ring.add(playerCard);
@@ -264,8 +274,6 @@ public final class MainMenuScreen implements Screen {
         ring.add(gear);
         ring.add(plaque);
         ring.add(nextUnlock);
-
-        nav.setBounds(0, 582, Playfield.WIDTH, 58);
         nav.add(new NavButton(NAV_SHOP, "", (g, cx, cy, size, color) ->
                 ProceduralArt.drawAwning(g, cx, cy, size, color, ProceduralArt.TEXT_DARK),
                 this::openShop)).setEnabled(meta);
@@ -281,13 +289,34 @@ public final class MainMenuScreen implements Screen {
         nav.add(new NavButton(NAV_GOALS, "", (g, cx, cy, size, color) ->
                 ProceduralArt.drawScroll(g, cx, cy, size, color, ProceduralArt.TEXT_DARK),
                 this::openGoals)).setEnabled(hasContent);
-        nav.layoutRow(8, 44, 2, 56, 76, 84, 4, 8);
+        relayout();
         nav.registerFocusables(ring);
 
         reduceShown = !ParticleSystem.defaultReduceFlashing();
         applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
         refreshTexts();
         coins.display().setAmountNow(walletBalance());
+    }
+
+    /**
+     * Derives every band from the surface's {@link LayoutMetrics}: the HUD row and the emblem
+     * pin to {@link LayoutMetrics#contentTop()}, the navigation band pins to
+     * {@link LayoutMetrics#navTop()}, and the CTA cluster sits just above the navigation — the
+     * room a tall surface frees goes to the middle of the hub, never to a dead band above the
+     * bar. At the classic 420x640 surface the offsets reproduce the fixed geometry exactly.
+     */
+    private void relayout() {
+        LayoutMetrics metrics = screens.metrics();
+        laidOut = metrics;
+        surfaceTop = metrics.contentTop();
+        navTopY = metrics.navTop();
+        playerCard.setBounds(10, surfaceTop + 8, 180, 52);
+        coins.setBounds(200, surfaceTop + 12, 130, 30);
+        gear.setBounds(354, surfaceTop + 10, 40, 40);
+        plaque.setBounds(90, surfaceTop + 168, 240, 32);
+        nextUnlock.setBounds(24, navTopY - NEXT_UNLOCK_ABOVE_NAV, 372, 48);
+        startRun.setBounds(40, navTopY - START_RUN_ABOVE_NAV, 340, 62);
+        SectionNav.layoutRow(nav, metrics);
     }
 
     // ------------------------------------------------------------------ profile reads
@@ -797,6 +826,10 @@ public final class MainMenuScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        if (!screens.metrics().equals(laidOut)) {
+            // The surface moved under the hub (a desktop window resize): re-derive the bands.
+            relayout();
+        }
         ticks++;
         prevBob = bob;
         bob = bobAt(ticks);
@@ -964,18 +997,19 @@ public final class MainMenuScreen implements Screen {
             forge.render(g, alpha, bobNow, ticks);
         }
 
-        ProceduralArt.drawAnvil(g, EMBLEM_CX, LOGO_ANVIL_TOP, LOGO_ANVIL_W,
+        ProceduralArt.drawAnvil(g, EMBLEM_CX, surfaceTop + LOGO_ANVIL_TOP, LOGO_ANVIL_W,
                 ProceduralArt.letterboxColor(palette));
         double phase = (ticks % WING_PERIOD_TICKS) / (double) WING_PERIOD_TICKS;
-        ProceduralArt.drawBird(g, EMBLEM_CX, LOGO_ANVIL_TOP - LOGO_BIRD_SIZE * 0.38 + bobNow,
-                LOGO_BIRD_SIZE, phase, palette);
+        ProceduralArt.drawBird(g, EMBLEM_CX, surfaceTop + LOGO_ANVIL_TOP - LOGO_BIRD_SIZE * 0.38
+                + bobNow, LOGO_BIRD_SIZE, phase, palette);
         g.setFont(Fonts.bold(34));
-        TextPainter.drawOutlined(g, strings.get(StringKey.APP_TITLE), EMBLEM_CX, TITLE_BASELINE,
+        TextPainter.drawOutlined(g, strings.get(StringKey.APP_TITLE), EMBLEM_CX,
+                surfaceTop + TITLE_BASELINE,
                 Align.CENTER, ProceduralArt.accentColor(palette),
                 ProceduralArt.letterboxColor(palette), 3);
         g.setFont(Fonts.regular(12));
         TextPainter.drawOutlined(g, strings.get(StringKey.APP_TAGLINE), EMBLEM_CX,
-                TAGLINE_BASELINE, Align.CENTER, ProceduralArt.TEXT_LIGHT,
+                surfaceTop + TAGLINE_BASELINE, Align.CENTER, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.letterboxColor(palette), 2);
 
         nav.render(g);
@@ -988,8 +1022,9 @@ public final class MainMenuScreen implements Screen {
         startRun.render(g);
         if (!lastRunLine.isEmpty()) {
             g.setFont(Fonts.regular(12));
-            TextPainter.drawOutlined(g, lastRunLine, EMBLEM_CX, LAST_RUN_BASELINE, Align.CENTER,
-                    ProceduralArt.TEXT_LIGHT, ProceduralArt.letterboxColor(palette), 2);
+            TextPainter.drawOutlined(g, lastRunLine, EMBLEM_CX, navTopY - LAST_RUN_ABOVE_NAV,
+                    Align.CENTER, ProceduralArt.TEXT_LIGHT,
+                    ProceduralArt.letterboxColor(palette), 2);
         }
         playerCard.render(g);
         if (coins.isVisible()) {

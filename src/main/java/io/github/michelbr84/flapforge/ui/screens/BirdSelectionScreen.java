@@ -61,6 +61,7 @@ import io.github.michelbr84.flapforge.ui.component.ListView;
 import io.github.michelbr84.flapforge.ui.component.NavBar;
 import io.github.michelbr84.flapforge.ui.component.NavButton;
 import io.github.michelbr84.flapforge.ui.component.SectionNav;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Tooltip;
@@ -88,6 +89,13 @@ import java.util.Objects;
  * (<em>Use Ironbeak</em>, <em>Buy · 150 coins</em>, <em>Bird selected</em>, <em>Locked · Play 3
  * runs</em>), and the hub's own five-item {@link NavBar} with Birds on the gold plate: on a
  * section screen the primary item is where you are.
+ *
+ * <p>The bands lay out against the surface's {@link LayoutMetrics}: the header pinned to the
+ * content top, the five-item navigation pinned to the bottom, and the roster and loadout stack
+ * between them at its reference heights. A taller surface gives the freed room to the hero's
+ * sky — the painted hero stays its size and centres in the stretched band, and nothing opens a
+ * gap above the navigation. At the classic 420x640 surface every band lands on the constant it
+ * always had.
  *
  * <p>Nothing was taken away. The world, the tier and the run mode are the same three rows they
  * always were — with the same refusals, the same snap-back and the same daily settlement (E27) —
@@ -160,6 +168,8 @@ public final class BirdSelectionScreen implements Screen {
     private static final int CTA_TOP = 512;
     private static final int CTA_W = 340;
     private static final int CTA_H = 44;
+    /** Rows above the navigation band at the reference surface, the stack's classic extent. */
+    private static final int STRETCH_H = SectionNav.TOP;
     private static final Color DIM = new Color(0, 0, 0, 0x8C);
     private static final Stroke SWATCH_STROKE = new BasicStroke(2f);
 
@@ -213,6 +223,18 @@ public final class BirdSelectionScreen implements Screen {
     private String shownLanguage;
     private String abilityLine = "";
     private RuleSet previewRules = RuleSet.EMPTY;
+    private int surfaceTop;
+    private int heroShift;
+    private int carouselTop;
+    private int swatchTop;
+    private int paletteLabelBaseline;
+    private int barTop;
+    private int abilityTop;
+    private int abilityBaseline;
+    private int detailsTop;
+    private int slotTop;
+    private int ctaTop;
+    private LayoutMetrics laidOut;
     private double contentHeight;
     private long ticks;
     private double prevBob;
@@ -304,20 +326,18 @@ public final class BirdSelectionScreen implements Screen {
             tile.setArt((g, c, cx, cy, size) -> paintPortrait(g, bird, cx, cy, size));
             carousel.add(tile);
         }
-        carousel.setBounds(4, CAROUSEL_TOP, Playfield.WIDTH - 8, CAROUSEL_H);
         carousel.setTileSize(Carousel.DEFAULT_TILE_WIDTH, Carousel.DEFAULT_TILE_HEIGHT);
         carousel.setGap(Carousel.DEFAULT_GAP);
-        carousel.layout();
         carousel.registerFocusables(ring);
 
         for (int i = 0; i < MAX_SWATCHES; i++) {
             Swatch swatch = new Swatch();
-            swatch.setBounds(SWATCH_LEFT + i * (double) SWATCH_STEP, SWATCH_TOP, SWATCH, SWATCH);
+            swatch.setBounds(SWATCH_LEFT + i * (double) SWATCH_STEP, swatchTop, SWATCH, SWATCH);
             swatches.add(swatch);
             ring.add(swatch);
         }
 
-        bar.setBounds(MARGIN, BAR_TOP, CONTENT_W, BAR_H);
+        bar.setBounds(MARGIN, barTop, CONTENT_W, BAR_H);
         bar.setOnAction(this::openRunSetup);
         ring.add(bar);
 
@@ -327,20 +347,20 @@ public final class BirdSelectionScreen implements Screen {
             int row = i / SLOT_COLUMNS;
             double width = (CONTENT_W - (SLOT_COLUMNS - 1.0) * SLOT_HGAP) / SLOT_COLUMNS;
             slot.setBounds(MARGIN + 4 + column * (width + SLOT_HGAP),
-                    SLOT_TOP + row * (SLOT_H + SLOT_VGAP), width, SLOT_H);
+                    slotTop + row * (SLOT_H + SLOT_VGAP), width, SLOT_H);
             int index = i;
             slot.setOnAction(() -> cycleSlot(index));
             slots.add(slot);
             ring.add(slot);
         }
 
-        seeDetails.setBounds(Playfield.WIDTH - MARGIN - DETAILS_BUTTON_W, DETAILS_BUTTON_TOP,
+        seeDetails.setBounds(Playfield.WIDTH - MARGIN - DETAILS_BUTTON_W, detailsTop,
                 DETAILS_BUTTON_W, DETAILS_BUTTON_H);
         seeDetails.setOnAction(this::openDetails);
         ring.add(seeDetails);
 
         cta = new CtaButton("", this::activateCta);
-        cta.setBounds((Playfield.WIDTH - CTA_W) / 2.0, CTA_TOP, CTA_W, CTA_H);
+        cta.setBounds((Playfield.WIDTH - CTA_W) / 2.0, ctaTop, CTA_W, CTA_H);
         ring.add(cta);
 
         world = new WorldRow("", worldOptions(), worldIndex());
@@ -358,8 +378,11 @@ public final class BirdSelectionScreen implements Screen {
         runSetup = new RunSetupPanel(world, tier, mode, this::closeRunSetup);
         details = new DetailsPanel(this::closeDetails);
 
+        relayout();
+
         SectionNav.build(nav, SectionNav.BIRDS, new SectionNav.Routes(this::openShop,
-                this::focusSelectedTile, this::play, this::openForge, this::openGoals));
+                this::focusSelectedTile, this::play, this::openForge, this::openGoals),
+                screens.metrics());
         nav.button(SectionNav.SHOP).setEnabled(context != null);
         nav.button(SectionNav.FORGE).setEnabled(context != null);
         nav.button(SectionNav.GOALS).setEnabled(context != null);
@@ -370,6 +393,65 @@ public final class BirdSelectionScreen implements Screen {
         header.display().setAmountNow(coins());
         shownLanguage = strings.language();
         refreshTexts();
+    }
+
+    /**
+     * Lays the bands out again when the surface the screen is drawn in has changed shape since
+     * the last layout — a resized window, or the screen pushed onto a stack over a differently
+     * shaped viewport — so the header stays pinned to the content top and the navigation to the
+     * bottom while the content between them re-stretches.
+     */
+    private void relayoutIfResurfaced() {
+        LayoutMetrics metrics = screens.metrics();
+        if (!metrics.equals(laidOut)) {
+            relayout();
+            SectionNav.layoutRow(nav, metrics);
+        }
+    }
+
+    /**
+     * Recomputes every band from the surface's metrics: the header pinned to the content top,
+     * the roster, the palette row, the run-setup bar, the loadout and the call to action keeping
+     * their reference heights and their classic gaps one below the other, and the freed room
+     * going to the hero band above the roster — the painted hero stays its size and centres in
+     * the stretched sky. At the classic 420x640 surface there is no extra room and every band
+     * lands on the constant it was laid out with before the elastic surface existed.
+     */
+    private void relayout() {
+        LayoutMetrics metrics = screens.metrics();
+        surfaceTop = metrics.contentTop();
+        int extra = Math.max(0, metrics.aboveNavHeight() - STRETCH_H);
+        heroShift = extra / 2;
+        carouselTop = surfaceTop + CAROUSEL_TOP + extra;
+        swatchTop = surfaceTop + SWATCH_TOP + extra;
+        paletteLabelBaseline = surfaceTop + PALETTE_LABEL_BASELINE + extra;
+        barTop = surfaceTop + BAR_TOP + extra;
+        abilityTop = surfaceTop + ABILITY_PANEL_TOP + extra;
+        abilityBaseline = surfaceTop + ABILITY_BASELINE + extra;
+        detailsTop = surfaceTop + DETAILS_BUTTON_TOP + extra;
+        slotTop = surfaceTop + SLOT_TOP + extra;
+        ctaTop = surfaceTop + CTA_TOP + extra;
+        header.setBounds(0, surfaceTop, Playfield.WIDTH, HubHeader.HEIGHT);
+        header.chip().setBounds(HubHeader.CHIP_X, surfaceTop + HubHeader.CHIP_Y,
+                HubHeader.CHIP_W, HubHeader.CHIP_H);
+        carousel.setBounds(4, carouselTop, Playfield.WIDTH - 8, CAROUSEL_H);
+        carousel.layout();
+        for (int i = 0; i < swatches.size(); i++) {
+            swatches.get(i).setBounds(SWATCH_LEFT + i * (double) SWATCH_STEP, swatchTop,
+                    SWATCH, SWATCH);
+        }
+        bar.setBounds(MARGIN, barTop, CONTENT_W, BAR_H);
+        double slotWidth = (CONTENT_W - (SLOT_COLUMNS - 1.0) * SLOT_HGAP) / SLOT_COLUMNS;
+        for (int i = 0; i < slots.size(); i++) {
+            int column = i % SLOT_COLUMNS;
+            int row = i / SLOT_COLUMNS;
+            slots.get(i).setBounds(MARGIN + 4 + column * (slotWidth + SLOT_HGAP),
+                    slotTop + row * (SLOT_H + SLOT_VGAP), slotWidth, SLOT_H);
+        }
+        seeDetails.setBounds(Playfield.WIDTH - MARGIN - DETAILS_BUTTON_W, detailsTop,
+                DETAILS_BUTTON_W, DETAILS_BUTTON_H);
+        cta.setBounds((Playfield.WIDTH - CTA_W) / 2.0, ctaTop, CTA_W, CTA_H);
+        laidOut = metrics;
     }
 
     // ------------------------------------------------------------------ state
@@ -2103,6 +2185,7 @@ public final class BirdSelectionScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        relayoutIfResurfaced();
         ticks++;
         prevBob = bob;
         bob = BirdHero.bobAt(ticks);
@@ -2219,12 +2302,21 @@ public final class BirdSelectionScreen implements Screen {
     public void render(Graphics2D g, double alpha) {
         ProceduralArt.prepare(g);
         ProceduralArt.fillBackground(g, PALETTE);
-        hero.render(g, MathUtil.lerp(prevBob, bob, alpha), ticks);
+        // The hero paints itself at the reference band's absolute rows, so a taller surface
+        // reaches it through a translated copy: the freed room becomes sky around the same
+        // bird, not a stretched one, and the copy is thrown away with the shift inside it.
+        Graphics2D heroContext = (Graphics2D) g.create();
+        try {
+            heroContext.translate(0, surfaceTop + heroShift);
+            hero.render(heroContext, MathUtil.lerp(prevBob, bob, alpha), ticks);
+        } finally {
+            heroContext.dispose();
+        }
         header.render(g);
         carousel.render(g);
         g.setFont(Fonts.bold(13));
         TextPainter.drawOutlined(g, strings.get(StringKey.BIRDS_PALETTES), MARGIN,
-                PALETTE_LABEL_BASELINE, Align.LEFT, ProceduralArt.accentColor(PALETTE),
+                paletteLabelBaseline, Align.LEFT, ProceduralArt.accentColor(PALETTE),
                 ProceduralArt.letterboxColor(PALETTE), 2);
         for (Swatch swatch : swatches) {
             if (swatch.isVisible()) {
@@ -2232,10 +2324,10 @@ public final class BirdSelectionScreen implements Screen {
             }
         }
         bar.render(g);
-        ProceduralArt.panel(g, MARGIN - 4, ABILITY_PANEL_TOP, CONTENT_W + 8, ABILITY_PANEL_H);
+        ProceduralArt.panel(g, MARGIN - 4, abilityTop, CONTENT_W + 8, ABILITY_PANEL_H);
         g.setFont(Fonts.regular(11));
         g.setColor(ProceduralArt.TEXT_MUTED);
-        TextPainter.draw(g, abilityLine, MARGIN + 8.0, ABILITY_BASELINE);
+        TextPainter.draw(g, abilityLine, MARGIN + 8.0, abilityBaseline);
         seeDetails.render(g);
         for (AbilitySlot slot : slots) {
             if (slot.isVisible()) {
@@ -2253,7 +2345,7 @@ public final class BirdSelectionScreen implements Screen {
             }
         }
         tooltip.render(g);
-        toasts.render(g, HubHeader.HEIGHT);
+        toasts.render(g, surfaceTop + HubHeader.HEIGHT);
     }
 
     /**

@@ -29,6 +29,7 @@ import io.github.michelbr84.flapforge.ui.component.Button;
 import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
 import io.github.michelbr84.flapforge.ui.component.ListView;
 import io.github.michelbr84.flapforge.ui.component.ProgressBar;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Shape;
@@ -66,24 +67,42 @@ import java.util.Objects;
  */
 public final class StatisticsScreen implements Screen {
 
-    /** Top of the profile header. */
-    public static final int PROFILE_HEADER_TOP = 50;
+    /**
+     * Top of the profile header on the classic 420x640 surface, as an offset from the surface's
+     * first visible row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int PROFILE_HEADER_TOP = 50;
     /** Height of the profile header. */
     public static final int PROFILE_HEADER_H = 82;
-    /** Top of the scrolling area, under the profile header. */
-    public static final int VIEW_TOP = 140;
-    /** Bottom of the scrolling area. */
-    public static final int VIEW_BOTTOM = 496;
-    /** Top of the run-history row. */
-    public static final int HISTORY_TOP = 512;
+    /**
+     * Top of the scrolling area on the classic 420x640 surface, as an offset from the surface's
+     * first visible row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int VIEW_TOP = 140;
+    /**
+     * Bottom of the scrolling area on the classic 420x640 surface, as a distance above the Back
+     * button; on an elastic surface the view grows down to it.
+     */
+    private static final int VIEW_BOTTOM = 496;
+    /**
+     * Top of the run-history row on the classic 420x640 surface, as a distance above the Back
+     * button; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int HISTORY_TOP = 512;
     /** Height of the run-history row. */
     public static final int HISTORY_H = 30;
-    /** Top of the prestige action button (M9), between the history and the footer. */
-    public static final int PRESTIGE_TOP = HISTORY_TOP + HISTORY_H + 4;
+    /**
+     * Top of the prestige action button (M9) on the classic 420x640 surface, as a distance above
+     * the Back button; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int PRESTIGE_TOP = HISTORY_TOP + HISTORY_H + 4;
     /** Height of the prestige action button. */
     public static final int PRESTIGE_H = 34;
-    /** Top of the Back button. */
-    public static final int FOOTER_TOP = Playfield.HEIGHT - 56;
+    /**
+     * Top of the Back button on the classic 420x640 surface, as a distance below the surface's
+     * last usable row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int FOOTER_TOP = Playfield.HEIGHT - 56;
     /** Height of the Back button. */
     public static final int FOOTER_BUTTON_H = 42;
     /** Left edge of the content. */
@@ -94,10 +113,21 @@ public final class StatisticsScreen implements Screen {
     public static final int ROW_H = 17;
     /** Height of a group header. */
     public static final int HEADER_H = 22;
+    /**
+     * Gap kept between a row's label and the first line of its value, so a right-aligned value
+     * never rests against the label even when it just fits.
+     */
+    public static final int VALUE_GAP = 12;
+    /**
+     * Height of one wrapped continuation line of a row value, measured from the previous line's
+     * baseline; a wrapped value therefore grows its row by {@code (lines - 1) * WRAP_LINE_H}.
+     */
+    public static final int WRAP_LINE_H = ROW_H;
     /** Logical pixels one wheel notch scrolls. */
     public static final int WHEEL_STEP = 28;
 
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
+    /** Baseline of the title on the classic 420x640 surface, from the surface's first row. */
     private static final int TITLE_BASELINE = 40;
     private static final int PANEL_X = 12;
     private static final int PANEL_PAD = 6;
@@ -113,6 +143,8 @@ public final class StatisticsScreen implements Screen {
     private static final int COLLECTIONS_BASELINE = 122;
     private static final int CROWN_SIZE = 10;
     private static final int WING_PERIOD_TICKS = 48;
+    /** Top of the wallet readout, from the surface's first visible row. */
+    private static final int WALLET_TOP = 18;
 
     private final ScreenManager screens;
     private final GameContext context;
@@ -136,6 +168,46 @@ public final class StatisticsScreen implements Screen {
     private boolean prestigeArmed;
     private double contentHeight;
     private double scroll;
+    /**
+     * Bumped with every {@link #build()}: the rows are new, so any measured wrap of the old ones
+     * is stale. Part of the wrap cache key.
+     */
+    private int rowsVersion;
+    /**
+     * The wrapped lines of each row's value, in {@link #rows()} order, and the height the rows
+     * before each one gained from their own wraps. Measured lazily with the render context's
+     * font — the same trade {@link TextPainter#ellipsise} makes — and discarded when the
+     * language, the text scale or the rows move, so a live language switch re-measures.
+     */
+    private final List<List<String>> valueLines = new ArrayList<>();
+    private final List<Double> valueShift = new ArrayList<>();
+    private String wrapKey = "";
+    /** The content height the wraps actually take: {@link #contentHeight} plus every wrap. */
+    private double measuredHeight;
+    /** The metrics the bands were last laid out from; a surface change re-derives them. */
+    private LayoutMetrics laidOut;
+    /** The title's baseline: the surface's first visible row plus the classic offset. */
+    private int titleBaseline;
+    /** The profile header's top: the surface's first visible row plus the classic offset. */
+    private int headerTop;
+    /** The portrait's centre row, riding inside the profile header. */
+    private int portraitCy;
+    /** The player name's baseline, riding inside the profile header. */
+    private int nameBaseline;
+    /** The level bar's top, riding inside the profile header. */
+    private int levelBarTop;
+    /** The collections line's baseline, riding inside the profile header. */
+    private int collectionsBaseline;
+    /** First visible row of the scrolling area. */
+    private int viewTop;
+    /** Last visible row of the scrolling area: pinned above the run-history row. */
+    private int viewBottom;
+    /** The run-history row's top, riding above the Back button. */
+    private int historyTop;
+    /** The prestige action's top, riding between the history and the Back button. */
+    private int prestigeTop;
+    /** The Back button's top: the surface's last usable row minus the classic distance. */
+    private int footerTop;
 
     /**
      * Creates the screen for a wired application.
@@ -189,27 +261,54 @@ public final class StatisticsScreen implements Screen {
         this.strings = Objects.requireNonNull(strings, "strings");
         this.profile = profile == null ? new PlayerProfile() : profile;
         this.rules = rules == null ? ProgressionRules.none() : rules;
-        this.levelBar.setBounds(HEADER_TEXT_X, LEVEL_BAR_TOP, LEVEL_BAR_W, LEVEL_BAR_H);
         this.back = new Button(strings.get(StringKey.COMMON_BACK), screens::pop);
         this.back.setFontSize(16);
-        this.back.setBounds(CONTENT_X, FOOTER_TOP, CONTENT_W, FOOTER_BUTTON_H);
         this.prestige = new Button("", this::activatePrestige);
         this.prestige.setFontSize(14);
-        this.prestige.setBounds(CONTENT_X, PRESTIGE_TOP, CONTENT_W, PRESTIGE_H);
         this.history = new ListView(strings.get(StringKey.STATS_HISTORY), historyOptions(), 0);
         this.history.setWrapping(false);
         this.history.setFontSize(14);
-        this.history.setBounds(CONTENT_X, HISTORY_TOP, CONTENT_W, HISTORY_H);
         ring.add(history);
         ring.add(prestige);
         ring.add(back);
-        wallet.setBounds(Playfield.WIDTH - 150.0, 18, 130, 26);
+        relayout();
         wallet.setAlign(Align.RIGHT);
         wallet.setFormat(strings.get(StringKey.HUD_COINS));
         wallet.setAmountNow(walletBalance());
         this.shownLanguage = strings.language();
         refreshPrestigeButton();
         build();
+    }
+
+    /**
+     * Derives every band from the surface's {@link LayoutMetrics}: the title, the wallet, the
+     * profile header and the top of the scrolling area pin to
+     * {@link LayoutMetrics#contentTop()}, the Back button pins to
+     * {@link LayoutMetrics#contentBottom()}, and the scrolling area, the run-history row and the
+     * prestige action keep their classic distances above it — so the room a tall surface frees
+     * goes to the scrolling groups, never to a dead band. At the classic 420x640 surface the
+     * offsets reproduce the fixed constants exactly.
+     */
+    private void relayout() {
+        LayoutMetrics metrics = screens.metrics();
+        laidOut = metrics;
+        int surfaceTop = metrics.contentTop();
+        titleBaseline = surfaceTop + TITLE_BASELINE;
+        headerTop = surfaceTop + PROFILE_HEADER_TOP;
+        portraitCy = headerTop + (PORTRAIT_CY - PROFILE_HEADER_TOP);
+        nameBaseline = headerTop + (NAME_BASELINE - PROFILE_HEADER_TOP);
+        levelBarTop = headerTop + (LEVEL_BAR_TOP - PROFILE_HEADER_TOP);
+        collectionsBaseline = headerTop + (COLLECTIONS_BASELINE - PROFILE_HEADER_TOP);
+        viewTop = surfaceTop + VIEW_TOP;
+        footerTop = metrics.contentBottom() - (Playfield.HEIGHT - FOOTER_TOP);
+        viewBottom = footerTop - (FOOTER_TOP - VIEW_BOTTOM);
+        historyTop = footerTop - (FOOTER_TOP - HISTORY_TOP);
+        prestigeTop = footerTop - (FOOTER_TOP - PRESTIGE_TOP);
+        wallet.setBounds(Playfield.WIDTH - 150.0, surfaceTop + WALLET_TOP, 130, 26);
+        levelBar.setBounds(HEADER_TEXT_X, levelBarTop, LEVEL_BAR_W, LEVEL_BAR_H);
+        back.setBounds(CONTENT_X, footerTop, CONTENT_W, FOOTER_BUTTON_H);
+        prestige.setBounds(CONTENT_X, prestigeTop, CONTENT_W, PRESTIGE_H);
+        history.setBounds(CONTENT_X, historyTop, CONTENT_W, HISTORY_H);
     }
 
     /**
@@ -246,6 +345,7 @@ public final class StatisticsScreen implements Screen {
     private void build() {
         rows.clear();
         contentHeight = 0;
+        rowsVersion++;
         Statistics stats = profile.statistics;
 
         header(StringKey.STATS_TITLE);
@@ -316,6 +416,8 @@ public final class StatisticsScreen implements Screen {
         row("prestigeKeeps", StringKey.PRESTIGE_KEEPS, keepsText(content));
         row("prestigeResets", StringKey.PRESTIGE_RESETS,
                 strings.get(StringKey.PRESTIGE_RESETS_LIST));
+        // Until the next render measures the wraps, the natural height is the truth.
+        measuredHeight = contentHeight;
         refreshHeader();
     }
 
@@ -561,6 +663,26 @@ public final class StatisticsScreen implements Screen {
         return scroll;
     }
 
+    /**
+     * The live top of the scrolling area: {@code VIEW_TOP} on the classic surface, pinned to the
+     * surface's first visible row on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public int viewTop() {
+        return viewTop;
+    }
+
+    /**
+     * The live bottom of the scrolling area: {@code VIEW_BOTTOM} on the classic surface, pinned
+     * above the run-history row on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public int viewBottom() {
+        return viewBottom;
+    }
+
     /** Re-reads every visible label from the string table (a language switch, D25). */
     public void refreshTexts() {
         back.setText(strings.get(StringKey.COMMON_BACK));
@@ -669,6 +791,10 @@ public final class StatisticsScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        if (!screens.metrics().equals(laidOut)) {
+            // The surface moved under the screen (a desktop window resize): re-derive the bands.
+            relayout();
+        }
         ticks++;
         wallet.tick();
         ring.handle(input);
@@ -693,7 +819,85 @@ public final class StatisticsScreen implements Screen {
     }
 
     private double maxScroll() {
-        return Math.max(0, contentHeight - (VIEW_BOTTOM - VIEW_TOP));
+        return Math.max(0, measuredHeight - (viewBottom - viewTop));
+    }
+
+    /**
+     * Measures the wrap of every row's value against the render context's own font — the same
+     * lazy trade {@link TextPainter#ellipsise} makes, so no text is measured per frame. The
+     * measurement is discarded when the language, the text scale or the rows themselves move.
+     *
+     * <p>A value that does not fit between its label and the row's right edge wraps onto
+     * continuation lines that start at the row's inner x ({@link #CONTENT_X}), never left of
+     * the panel: the row keeps its first line right-aligned next to the label and grows
+     * downwards by {@link #WRAP_LINE_H} per extra line, pushing the rows below it down.
+     *
+     * @param g the context, with the render font not yet set
+     */
+    private void measureWraps(Graphics2D g) {
+        String key = strings.language() + "/" + Fonts.textScale() + "/" + rowsVersion;
+        if (key.equals(wrapKey)) {
+            return;
+        }
+        wrapKey = key;
+        valueLines.clear();
+        valueShift.clear();
+        double shift = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            Row row = rows.get(i);
+            valueShift.add(shift);
+            List<String> lines = List.of(row.value());
+            if (!row.header() && !row.value().isEmpty()) {
+                g.setFont(Fonts.regular(13));
+                int room = CONTENT_W - TextPainter.width(g, row.label()) - VALUE_GAP;
+                lines = wrapValue(g, row.value(), room);
+            }
+            valueLines.add(lines);
+            shift += (lines.size() - 1) * (double) WRAP_LINE_H;
+        }
+        measuredHeight = contentHeight + shift;
+    }
+
+    /**
+     * Breaks a row value into lines that fit: the first into the room right of the label, the
+     * rest into the full row width, all breaking at spaces and never mid-word. A single word
+     * wider than the room it falls into is cut short with an ellipsis rather than overflowing.
+     *
+     * @param g the context, with the value's font already set
+     * @param text the value to wrap
+     * @param firstRoom the width the first line may take (right of the label)
+     * @return the lines, in draw order; never empty
+     */
+    private static List<String> wrapValue(Graphics2D g, String text, int firstRoom) {
+        List<String> out = new ArrayList<>();
+        int start = 0;
+        int room = Math.max(1, firstRoom);
+        while (start < text.length()) {
+            int end = start;
+            int next = start;
+            while (next < text.length()) {
+                int space = text.indexOf(' ', next);
+                int wordEnd = space < 0 ? text.length() : space;
+                if (wordEnd > start
+                        && TextPainter.width(g, text.substring(start, wordEnd)) > room) {
+                    break;
+                }
+                end = wordEnd;
+                next = wordEnd < text.length() ? wordEnd + 1 : wordEnd;
+            }
+            if (end == start) {
+                // One word alone is wider than the room: cut it short instead of overflowing.
+                out.add(TextPainter.ellipsise(g, text.substring(start), room));
+                break;
+            }
+            out.add(text.substring(start, end));
+            start = end;
+            while (start < text.length() && text.charAt(start) == ' ') {
+                start++;
+            }
+            room = CONTENT_W;
+        }
+        return out;
     }
 
     @Override
@@ -702,19 +906,20 @@ public final class StatisticsScreen implements Screen {
         ProceduralArt.fillBackground(g, PALETTE);
         g.setFont(Fonts.bold(26));
         TextPainter.drawOutlined(g, strings.get(StringKey.PROFILE_TITLE), CONTENT_X,
-                TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,
+                titleBaseline, Align.LEFT, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.letterboxColor(PALETTE), 2);
         wallet.render(g);
         renderHeader(g);
-        ProceduralArt.panel(g, PANEL_X, VIEW_TOP - PANEL_PAD, Playfield.WIDTH - 2 * PANEL_X,
-                VIEW_BOTTOM - VIEW_TOP + 2 * PANEL_PAD);
+        ProceduralArt.panel(g, PANEL_X, viewTop - PANEL_PAD, Playfield.WIDTH - 2 * PANEL_X,
+                viewBottom - viewTop + 2 * PANEL_PAD);
 
+        measureWraps(g);
         Shape oldClip = g.getClip();
-        g.clipRect(0, VIEW_TOP, Playfield.WIDTH, VIEW_BOTTOM - VIEW_TOP);
-        double dy = VIEW_TOP - scroll;
+        g.clipRect(0, viewTop, Playfield.WIDTH, viewBottom - viewTop);
+        double dy = viewTop - scroll;
         g.translate(0.0, dy);
         for (int i = 0; i < rows.size(); i++) {
-            renderRow(g, rows.get(i));
+            renderRow(g, rows.get(i), i);
         }
         g.translate(0.0, -dy);
         g.setClip(oldClip);
@@ -722,7 +927,7 @@ public final class StatisticsScreen implements Screen {
 
         // The history row sits on the bright hills of the backdrop, where a light label would be
         // unreadable; it gets the same panel the groups have.
-        ProceduralArt.panel(g, PANEL_X, HISTORY_TOP - PANEL_PAD,
+        ProceduralArt.panel(g, PANEL_X, historyTop - PANEL_PAD,
                 Playfield.WIDTH - 2 * PANEL_X, HISTORY_H + 2 * PANEL_PAD);
         prestige.render(g);
         ring.render(g);
@@ -730,24 +935,24 @@ public final class StatisticsScreen implements Screen {
 
     /** The profile header: portrait, name, crown and level, prestige, level bar, collections. */
     private void renderHeader(Graphics2D g) {
-        ProceduralArt.panel(g, PANEL_X, PROFILE_HEADER_TOP, Playfield.WIDTH - 2 * PANEL_X,
+        ProceduralArt.panel(g, PANEL_X, headerTop, Playfield.WIDTH - 2 * PANEL_X,
                 PROFILE_HEADER_H);
         double phase = (ticks % WING_PERIOD_TICKS) / (double) WING_PERIOD_TICKS;
-        BirdPortrait.draw(g, content(), profile, PORTRAIT_CX, PORTRAIT_CY, PORTRAIT_SIZE, phase);
+        BirdPortrait.draw(g, content(), profile, PORTRAIT_CX, portraitCy, PORTRAIT_SIZE, phase);
         g.setFont(Fonts.bold(15));
         g.setColor(ProceduralArt.TEXT_LIGHT);
         String name = strings.get(StringKey.MENU_PLAYER_NAME);
-        TextPainter.draw(g, name, HEADER_TEXT_X, NAME_BASELINE);
+        TextPainter.draw(g, name, HEADER_TEXT_X, nameBaseline);
         double x = HEADER_TEXT_X + TextPainter.width(g, name) + 12;
-        ProceduralArt.drawCrown(g, x + CROWN_SIZE / 2.0, NAME_BASELINE - 5, CROWN_SIZE,
+        ProceduralArt.drawCrown(g, x + CROWN_SIZE / 2.0, nameBaseline - 5, CROWN_SIZE,
                 ProceduralArt.COIN_GOLD);
         x += CROWN_SIZE + 5;
         g.setFont(Fonts.bold(12));
-        TextPainter.draw(g, levelText, x, NAME_BASELINE);
+        TextPainter.draw(g, levelText, x, nameBaseline);
         if (!prestigeLine.isEmpty()) {
             x += TextPainter.width(g, levelText) + 10;
             g.setColor(ProceduralArt.accentColor(PALETTE));
-            TextPainter.draw(g, prestigeLine, x, NAME_BASELINE);
+            TextPainter.draw(g, prestigeLine, x, nameBaseline);
         }
         levelBar.render(g);
         if (!collectionsLine.isEmpty()) {
@@ -759,12 +964,13 @@ public final class StatisticsScreen implements Screen {
                         Playfield.WIDTH - PANEL_X - 8 - HEADER_TEXT_X);
                 collectionsOf = collectionsLine;
             }
-            TextPainter.draw(g, collectionsShown, HEADER_TEXT_X, COLLECTIONS_BASELINE);
+            TextPainter.draw(g, collectionsShown, HEADER_TEXT_X, collectionsBaseline);
         }
     }
 
-    private void renderRow(Graphics2D g, Row row) {
-        double baseline = row.y() + (row.header() ? HEADER_H - 6 : ROW_H - 4);
+    private void renderRow(Graphics2D g, Row row, int index) {
+        double shift = valueShift.get(index);
+        double baseline = row.y() + shift + (row.header() ? HEADER_H - 6 : ROW_H - 4);
         if (row.header()) {
             g.setFont(Fonts.bold(14));
             g.setColor(ProceduralArt.accentColor(PALETTE));
@@ -776,8 +982,14 @@ public final class StatisticsScreen implements Screen {
         TextPainter.draw(g, row.label(), CONTENT_X, baseline);
         if (!row.value().isEmpty()) {
             g.setColor(ProceduralArt.TEXT_LIGHT);
-            TextPainter.draw(g, row.value(), CONTENT_X + (double) CONTENT_W, baseline,
+            List<String> lines = valueLines.get(index);
+            // The first line keeps the value column's right alignment; every continuation line
+            // starts at the row's inner x, inside the panel, under the label.
+            TextPainter.draw(g, lines.get(0), CONTENT_X + (double) CONTENT_W, baseline,
                     Align.RIGHT);
+            for (int i = 1; i < lines.size(); i++) {
+                TextPainter.draw(g, lines.get(i), CONTENT_X, baseline + i * (double) WRAP_LINE_H);
+            }
         }
     }
 
@@ -786,9 +998,9 @@ public final class StatisticsScreen implements Screen {
         if (max <= 0) {
             return;
         }
-        int trackH = VIEW_BOTTOM - VIEW_TOP;
-        int thumbH = (int) Math.max(24, trackH * (trackH / contentHeight));
-        int thumbY = VIEW_TOP + (int) Math.round((trackH - thumbH) * (scroll / max));
+        int trackH = viewBottom - viewTop;
+        int thumbH = (int) Math.max(24, trackH * (trackH / measuredHeight));
+        int thumbY = viewTop + (int) Math.round((trackH - thumbH) * (scroll / max));
         g.setColor(SCROLLBAR);
         g.fillRoundRect(Playfield.WIDTH - 10, thumbY, 4, thumbH, 4, 4);
     }

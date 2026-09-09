@@ -31,6 +31,7 @@ import io.github.michelbr84.flapforge.ui.component.ListView;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Tooltip;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import java.awt.Graphics2D;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,8 +54,11 @@ import java.util.Objects;
  */
 public final class WorldSelectScreen implements Screen {
 
-    /** Top of the card column. */
-    public static final int GRID_TOP = 56;
+    /**
+     * First visible row of the card column on the classic 420x640 surface, as an offset from the
+     * surface's first visible row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int GRID_TOP = 56;
     /** Height of one world card. */
     public static final int CARD_H = 52;
     /** Gap between cards. */
@@ -63,19 +67,31 @@ public final class WorldSelectScreen implements Screen {
     public static final int CONTENT_X = 24;
     /** Width of the content. */
     public static final int CONTENT_W = Playfield.WIDTH - 2 * CONTENT_X;
-    /** Top of the difficulty row. */
-    public static final int TIER_TOP = 362;
+    /**
+     * Top of the difficulty row on the classic 420x640 surface, as a distance above the Back
+     * button; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int TIER_TOP = 362;
     /** Height of the difficulty row. */
     public static final int TIER_H = 30;
-    /** Baseline of the description line. */
-    public static final int DESCRIPTION_BASELINE = 414;
-    /** Top of the Back button. */
-    public static final int FOOTER_TOP = Playfield.HEIGHT - 56;
+    /**
+     * Baseline of the description line on the classic 420x640 surface, as a distance above the
+     * Back button; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int DESCRIPTION_BASELINE = 414;
+    /**
+     * Top of the Back button on the classic 420x640 surface, as a distance below the surface's
+     * last usable row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int FOOTER_TOP = Playfield.HEIGHT - 56;
     /** Height of the Back button. */
     public static final int FOOTER_BUTTON_H = 42;
 
+    /** Baseline of the title on the classic 420x640 surface, from the surface's first row. */
     private static final int TITLE_BASELINE = 40;
     private static final int WALLET_W = 130;
+    /** Top of the wallet readout, from the surface's first visible row. */
+    private static final int WALLET_TOP = 14;
     private static final int PANEL_X = 12;
     private static final int PANEL_TOP = TIER_TOP - 10;
     private static final int PANEL_BOTTOM = DESCRIPTION_BASELINE + 12;
@@ -101,6 +117,22 @@ public final class WorldSelectScreen implements Screen {
     private String descriptionOf = "";
     private UiNode describedFocus;
     private String shownLanguage;
+    /** The metrics the bands were last laid out from; a surface change re-derives them. */
+    private LayoutMetrics laidOut;
+    /** The title's baseline: the surface's first visible row plus the classic offset. */
+    private int titleBaseline;
+    /** First visible row of the card column. */
+    private int gridTop;
+    /** The difficulty row's top, riding above the Back button. */
+    private int tierTop;
+    /** The description line's baseline, riding above the Back button. */
+    private int descriptionBaseline;
+    /** The detail panel's top, riding above the Back button. */
+    private int panelTop;
+    /** The detail panel's bottom, riding above the Back button. */
+    private int panelBottom;
+    /** The Back button's top: the surface's last usable row minus the classic distance. */
+    private int footerTop;
 
     /**
      * Creates the screen for a wired application.
@@ -149,28 +181,68 @@ public final class WorldSelectScreen implements Screen {
         grid.setColumns(1);
         grid.setCellHeight(CARD_H);
         grid.setGap(0, CARD_GAP);
-        grid.setBounds(CONTENT_X, GRID_TOP, CONTENT_W,
-                CardGrid.heightFor(grid.size(), 1, CARD_H, CARD_GAP));
-        grid.layout();
         grid.registerFocusables(ring);
 
         tier = new ListView("", tierOptions(), tierIndex());
         tier.setWrapping(false);
         tier.setFontSize(14);
-        tier.setBounds(CONTENT_X, TIER_TOP, CONTENT_W, TIER_H);
         tier.setOnChange(this::selectTier);
         ring.add(tier);
 
         back = new Button("", screens::pop);
         back.setFontSize(16);
-        back.setBounds(CONTENT_X, FOOTER_TOP, CONTENT_W, FOOTER_BUTTON_H);
         ring.add(back);
 
-        wallet.setBounds(Playfield.WIDTH - WALLET_W - 14.0, 14, WALLET_W, 26);
         wallet.setAlign(Align.RIGHT);
         wallet.setAmountNow(coins());
+        relayout();
         shownLanguage = strings.language();
         refreshTexts();
+    }
+
+    /**
+     * Derives every band from the surface's {@link LayoutMetrics}: the title, the wallet and the
+     * card column pin to {@link LayoutMetrics#contentTop()}, the Back button pins to
+     * {@link LayoutMetrics#contentBottom()}, and the detail panel — the difficulty row and the
+     * description line — keeps the adjacency to the card column it has on the classic surface,
+     * so the room a tall surface frees goes into the card rows themselves and never into a dead
+     * band between the list and its panel. At the classic 420x640 surface the offsets reproduce
+     * the fixed constants exactly.
+     */
+    private void relayout() {
+        LayoutMetrics metrics = screens.metrics();
+        laidOut = metrics;
+        int surfaceTop = metrics.contentTop();
+        footerTop = metrics.contentBottom() - (Playfield.HEIGHT - FOOTER_TOP);
+        titleBaseline = surfaceTop + TITLE_BASELINE;
+        gridTop = surfaceTop + GRID_TOP;
+        // Where the panel would sit anchored to the footer, as the classic surface had it: the
+        // panel's tallest position, and the target the card rows grow towards.
+        int classicPanelTop = footerTop - (FOOTER_TOP - PANEL_TOP);
+        int rows = grid.size();
+        int classicGridH = (int) CardGrid.heightFor(rows, 1, CARD_H, CARD_GAP);
+        // The classic gap between the last card's cell and the panel's top edge.
+        int adjacency = PANEL_TOP - (GRID_TOP + classicGridH);
+        int cellH = CARD_H;
+        if (rows > 0) {
+            // The cell height that ends the grid exactly one adjacency above the panel's
+            // classic top, floored so the panel can never sit lower than the classic anchor.
+            cellH = Math.max(CARD_H, (classicPanelTop - adjacency - gridTop
+                    - (rows - 1) * CARD_GAP) / rows);
+        }
+        int gridBottom = gridTop + (int) CardGrid.heightFor(rows, 1, cellH, CARD_GAP);
+        panelTop = rows > 0 ? Math.min(classicPanelTop, gridBottom + adjacency)
+                : classicPanelTop;
+        grid.setCellHeight(cellH);
+        grid.setBounds(CONTENT_X, gridTop, CONTENT_W,
+                CardGrid.heightFor(rows, 1, cellH, CARD_GAP));
+        grid.layout();
+        tierTop = panelTop + (TIER_TOP - PANEL_TOP);
+        descriptionBaseline = panelTop + (DESCRIPTION_BASELINE - PANEL_TOP);
+        panelBottom = panelTop + (PANEL_BOTTOM - PANEL_TOP);
+        tier.setBounds(CONTENT_X, tierTop, CONTENT_W, TIER_H);
+        back.setBounds(CONTENT_X, footerTop, CONTENT_W, FOOTER_BUTTON_H);
+        wallet.setBounds(Playfield.WIDTH - WALLET_W - 14.0, surfaceTop + WALLET_TOP, WALLET_W, 26);
     }
 
     // ------------------------------------------------------------------ state
@@ -311,6 +383,16 @@ public final class WorldSelectScreen implements Screen {
     }
 
     /**
+     * The live baseline of the description line: {@code DESCRIPTION_BASELINE} on the classic
+     * surface, riding above the Back button on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public int descriptionBaseline() {
+        return descriptionBaseline;
+    }
+
+    /**
      * The wallet readout.
      *
      * @return the readout
@@ -431,6 +513,10 @@ public final class WorldSelectScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        if (!screens.metrics().equals(laidOut)) {
+            // The surface moved under the screen (a desktop window resize): re-derive the bands.
+            relayout();
+        }
         toasts.tick();
         wallet.tick();
         ring.handle(input);
@@ -457,12 +543,12 @@ public final class WorldSelectScreen implements Screen {
         ProceduralArt.fillBackground(g, palette);
         g.setFont(Fonts.bold(26));
         TextPainter.drawOutlined(g, strings.get(StringKey.WORLD_SELECT_TITLE), CONTENT_X,
-                TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,
+                titleBaseline, Align.LEFT, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.letterboxColor(palette), 2);
         wallet.render(g);
         grid.render(g);
-        ProceduralArt.panel(g, PANEL_X, PANEL_TOP, Playfield.WIDTH - 2 * PANEL_X,
-                PANEL_BOTTOM - PANEL_TOP);
+        ProceduralArt.panel(g, PANEL_X, panelTop, Playfield.WIDTH - 2 * PANEL_X,
+                panelBottom - panelTop);
         tier.render(g);
         g.setFont(Fonts.regular(12));
         g.setColor(ProceduralArt.TEXT_MUTED);
@@ -471,7 +557,7 @@ public final class WorldSelectScreen implements Screen {
             descriptionShown = TextPainter.ellipsise(g, description, CONTENT_W);
             descriptionOf = description;
         }
-        TextPainter.draw(g, descriptionShown, CONTENT_X, DESCRIPTION_BASELINE);
+        TextPainter.draw(g, descriptionShown, CONTENT_X, descriptionBaseline);
         back.render(g);
         tooltip.render(g);
         toasts.render(g);

@@ -28,6 +28,7 @@ import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiCues;
 import io.github.michelbr84.flapforge.ui.component.Button;
 import io.github.michelbr84.flapforge.ui.component.ProgressBar;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Shape;
@@ -72,12 +73,21 @@ import java.util.Objects;
  */
 public final class RunSummaryScreen implements Screen {
 
-    /** Top of the scrolling area. */
-    public static final int VIEW_TOP = 56;
-    /** Bottom of the scrolling area. */
-    public static final int VIEW_BOTTOM = Playfield.HEIGHT - 66;
-    /** Top of the fixed footer bar. */
-    public static final int FOOTER_TOP = Playfield.HEIGHT - 56;
+    /**
+     * Top of the scrolling area on the classic 420x640 surface, as an offset from the surface's
+     * first visible row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int VIEW_TOP = 56;
+    /**
+     * Bottom of the scrolling area on the classic 420x640 surface, as a distance below the
+     * surface's last usable row; on an elastic surface the view grows down to it.
+     */
+    private static final int VIEW_BOTTOM = Playfield.HEIGHT - 66;
+    /**
+     * Top of the fixed footer bar on the classic 420x640 surface, as a distance below the
+     * surface's last usable row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int FOOTER_TOP = Playfield.HEIGHT - 56;
     /** Height of the footer buttons. */
     public static final int FOOTER_BUTTON_H = 42;
     /** Left edge of the content. */
@@ -90,10 +100,19 @@ public final class RunSummaryScreen implements Screen {
     public static final int HEADER_H = 22;
     /** Height reserved for the level progress bar. */
     public static final int BAR_H = 26;
+    /**
+     * The most a row or a section band may grow on an elastic surface: past it the breakdown
+     * would read as double-spaced rather than as a receipt, and the remaining room is better
+     * left as the panel's own bottom padding.
+     */
+    public static final double MAX_FILL = 4.0;
+    /** The most space a section break may take before the panel keeps what is left. */
+    public static final int SECTION_GAP_MAX = 60;
     /** Logical pixels one wheel notch scrolls. */
     public static final int WHEEL_STEP = 28;
 
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
+    /** Baseline of the title on the classic 420x640 surface, from the surface's first row. */
     private static final int TITLE_BASELINE = 40;
     private static final int PANEL_X = 12;
     private static final int PANEL_PAD = 6;
@@ -114,6 +133,24 @@ public final class RunSummaryScreen implements Screen {
     private ProgressBar levelBar;
     private double contentHeight;
     private double scroll;
+    /**
+     * The pitches of the current layout pass: the classic constants on the classic surface, and
+     * the surface's fill factor on an elastic one, so a short breakdown spreads its rows over
+     * the room a tall phone frees instead of leaving it as a dark panel void.
+     */
+    private double rowPitch = ROW_H;
+    private double headerPitch = HEADER_H;
+    private double sectionGap;
+    /** The metrics the bands were last laid out from; a surface change re-derives them. */
+    private LayoutMetrics laidOut;
+    /** The title's baseline: the surface's first visible row plus the classic offset. */
+    private int titleBaseline;
+    /** First visible row of the scrolling area. */
+    private int viewTop;
+    /** Last visible row of the scrolling area: the surface's last usable row minus the gap. */
+    private int viewBottom;
+    /** The footer buttons' top: the surface's last usable row minus the classic distance. */
+    private int footerTop;
 
     /**
      * Creates a summary without a profile (tests, and a session with no save layer).
@@ -148,19 +185,98 @@ public final class RunSummaryScreen implements Screen {
         this.rules = rules;
         this.retry = new Button(strings.get(StringKey.SUMMARY_RETRY), this::retry);
         this.menu = new Button(strings.get(StringKey.SUMMARY_MENU), this::toMenu);
-        int half = (CONTENT_W - 8) / 2;
         retry.setFontSize(16);
-        retry.setBounds(CONTENT_X, FOOTER_TOP, half, FOOTER_BUTTON_H);
         menu.setFontSize(16);
-        menu.setBounds(CONTENT_X + half + 8, FOOTER_TOP, CONTENT_W - half - 8, FOOTER_BUTTON_H);
         ring.add(retry);
         ring.add(menu);
+        relayout();
         build();
+    }
+
+    /**
+     * Derives every band from the surface's {@link LayoutMetrics}: the title and the top of the
+     * scrolling area pin to {@link LayoutMetrics#contentTop()}, the footer buttons pin to
+     * {@link LayoutMetrics#contentBottom()}, and the scrolling area keeps its classic gap above
+     * the footer and grows down into whatever the surface frees — never into a dead band. At
+     * the classic 420x640 surface the offsets reproduce the fixed constants exactly.
+     */
+    private void relayout() {
+        LayoutMetrics metrics = screens.metrics();
+        laidOut = metrics;
+        int surfaceTop = metrics.contentTop();
+        titleBaseline = surfaceTop + TITLE_BASELINE;
+        viewTop = surfaceTop + VIEW_TOP;
+        viewBottom = metrics.contentBottom() - (Playfield.HEIGHT - VIEW_BOTTOM);
+        footerTop = metrics.contentBottom() - (Playfield.HEIGHT - FOOTER_TOP);
+        int half = (CONTENT_W - 8) / 2;
+        retry.setBounds(CONTENT_X, footerTop, half, FOOTER_BUTTON_H);
+        menu.setBounds(CONTENT_X + half + 8, footerTop, CONTENT_W - half - 8, FOOTER_BUTTON_H);
+        // The fill factor keys off the view's height, so a surface change re-spaces the rows;
+        // scroll clamps to whatever the re-spaced content can still reach.
+        scroll = MathUtil.clamp(scroll, 0, maxScroll());
     }
 
     // ------------------------------------------------------------------ building
 
+    /**
+     * Lays the breakdown out twice: once with the classic pitches to learn the run's natural
+     * height, then — on an elastic surface with room to spare — again with the pitches grown so
+     * the block fills the panel. The classic surface keeps its frozen geometry exactly.
+     */
     private void build() {
+        rowPitch = ROW_H;
+        headerPitch = HEADER_H;
+        sectionGap = 0;
+        rows.clear();
+        contentHeight = 0;
+        levelBar = null;
+        buildRows();
+        double[] fill = fillPitches();
+        if (fill != null) {
+            rowPitch = fill[0];
+            headerPitch = fill[1];
+            sectionGap = fill[2];
+            rows.clear();
+            contentHeight = 0;
+            levelBar = null;
+            buildRows();
+        }
+    }
+
+    /**
+     * The pitches that spread the block over the panel, or {@code null} when the surface must
+     * keep the classic layout: the classic 420x640 design itself, a run whose rows already fill
+     * the view, or a surface with nothing in it yet.
+     *
+     * <p>The row and section bands grow by one shared factor, capped at {@link #MAX_FILL}; what
+     * the capped factor leaves is added around the section headers, capped at
+     * {@link #SECTION_GAP_MAX} each, and anything still left stays as the panel's bottom
+     * padding.
+     *
+     * @return {@code {rowPitch, headerPitch, sectionGap}}, or {@code null} for the classic
+     *     layout
+     */
+    private double[] fillPitches() {
+        if (screens.metrics().equals(LayoutMetrics.classic()) || contentHeight <= 0) {
+            return null;
+        }
+        int viewH = viewBottom - viewTop;
+        if (viewH <= contentHeight) {
+            return null;
+        }
+        int headers = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).header()) {
+                headers++;
+            }
+        }
+        double factor = Math.min(MAX_FILL, (double) viewH / contentHeight);
+        double leftover = viewH - contentHeight * factor;
+        double gap = headers == 0 ? 0 : Math.min(SECTION_GAP_MAX, leftover / headers);
+        return new double[] {ROW_H * factor, HEADER_H * factor, gap};
+    }
+
+    private void buildRows() {
         RunStats stats = result.stats();
         long points = Math.round(stats.points());
         header(StringKey.SUMMARY_SECTION_RUN);
@@ -332,8 +448,10 @@ public final class RunSummaryScreen implements Screen {
     }
 
     private void header(StringKey key) {
-        rows.add(new Row(key.key(), strings.get(key), "", true, false, contentHeight));
-        contentHeight += HEADER_H;
+        // The section break sits above the header text, which draws at the band's bottom.
+        rows.add(new Row(key.key(), strings.get(key), "", true, false,
+                contentHeight + sectionGap));
+        contentHeight += sectionGap + headerPitch;
     }
 
     private void row(String id, StringKey label, String value) {
@@ -342,7 +460,7 @@ public final class RunSummaryScreen implements Screen {
 
     private void row(String id, StringKey label, String value, boolean best) {
         rows.add(new Row(id, strings.get(label), value, false, best, contentHeight));
-        contentHeight += ROW_H;
+        contentHeight += rowPitch;
     }
 
     private void line(String id, String text) {
@@ -359,7 +477,7 @@ public final class RunSummaryScreen implements Screen {
      */
     private void line(String id, String text, String value) {
         rows.add(new Row(id, text, value, false, false, contentHeight));
-        contentHeight += ROW_H;
+        contentHeight += rowPitch;
     }
 
     private String signed(long value) {
@@ -510,6 +628,36 @@ public final class RunSummaryScreen implements Screen {
         return scroll;
     }
 
+    /**
+     * The live top of the scrolling area: {@code VIEW_TOP} on the classic surface, pinned to the
+     * surface's first visible row on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public int viewTop() {
+        return viewTop;
+    }
+
+    /**
+     * The height the breakdown takes with the surface's fill pitches applied: the run's natural
+     * height on the classic surface, the stretched block on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public double contentHeight() {
+        return contentHeight;
+    }
+
+    /**
+     * The live bottom of the scrolling area: {@code VIEW_BOTTOM} on the classic surface, pinned
+     * above the footer on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public int viewBottom() {
+        return viewBottom;
+    }
+
     // ------------------------------------------------------------------ behaviour
 
     private void retry() {
@@ -563,6 +711,12 @@ public final class RunSummaryScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        if (!screens.metrics().equals(laidOut)) {
+            // The surface moved under the screen (a desktop window resize): re-derive the bands
+            // and re-space the breakdown for the view's new height.
+            relayout();
+            build();
+        }
         ring.handle(input);
         if (input.wheel() != 0) {
             scrollBy(-input.wheel() * (double) WHEEL_STEP);
@@ -586,7 +740,7 @@ public final class RunSummaryScreen implements Screen {
     }
 
     private double maxScroll() {
-        return Math.max(0, contentHeight - (VIEW_BOTTOM - VIEW_TOP));
+        return Math.max(0, contentHeight - (viewBottom - viewTop));
     }
 
     @Override
@@ -595,14 +749,14 @@ public final class RunSummaryScreen implements Screen {
         ProceduralArt.fillBackground(g, PALETTE);
         g.setFont(Fonts.bold(26));
         TextPainter.drawOutlined(g, strings.get(StringKey.SUMMARY_TITLE), Playfield.WIDTH / 2.0,
-                TITLE_BASELINE, Align.CENTER, ProceduralArt.TEXT_LIGHT,
+                titleBaseline, Align.CENTER, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.letterboxColor(PALETTE), 2);
-        ProceduralArt.panel(g, PANEL_X, VIEW_TOP - PANEL_PAD, Playfield.WIDTH - 2 * PANEL_X,
-                VIEW_BOTTOM - VIEW_TOP + 2 * PANEL_PAD);
+        ProceduralArt.panel(g, PANEL_X, viewTop - PANEL_PAD, Playfield.WIDTH - 2 * PANEL_X,
+                viewBottom - viewTop + 2 * PANEL_PAD);
 
         Shape oldClip = g.getClip();
-        g.clipRect(0, VIEW_TOP, Playfield.WIDTH, VIEW_BOTTOM - VIEW_TOP);
-        double dy = VIEW_TOP - scroll;
+        g.clipRect(0, viewTop, Playfield.WIDTH, viewBottom - viewTop);
+        double dy = viewTop - scroll;
         g.translate(0.0, dy);
         for (int i = 0; i < rows.size(); i++) {
             renderRow(g, rows.get(i));
@@ -618,7 +772,7 @@ public final class RunSummaryScreen implements Screen {
     }
 
     private void renderRow(Graphics2D g, Row row) {
-        double baseline = row.y() + (row.header() ? HEADER_H - 6 : ROW_H - 4);
+        double baseline = row.y() + (row.header() ? headerPitch - 6 : rowPitch - 4);
         if (row.header()) {
             g.setFont(Fonts.bold(14));
             g.setColor(ProceduralArt.accentColor(PALETTE));
@@ -646,9 +800,9 @@ public final class RunSummaryScreen implements Screen {
         if (max <= 0) {
             return;
         }
-        int trackH = VIEW_BOTTOM - VIEW_TOP;
+        int trackH = viewBottom - viewTop;
         int thumbH = (int) Math.max(24, trackH * (trackH / contentHeight));
-        int thumbY = VIEW_TOP + (int) Math.round((trackH - thumbH) * (scroll / max));
+        int thumbY = viewTop + (int) Math.round((trackH - thumbH) * (scroll / max));
         g.setColor(SCROLLBAR);
         g.fillRoundRect(Playfield.WIDTH - 10, thumbY, 4, thumbH, 4, 4);
     }

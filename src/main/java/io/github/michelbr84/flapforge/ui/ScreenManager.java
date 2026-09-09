@@ -8,6 +8,8 @@ import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.RawInput;
 import io.github.michelbr84.flapforge.render.FrameRenderer;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
+import io.github.michelbr84.flapforge.ui.layout.SafeInsets;
 import io.github.michelbr84.flapforge.render.Viewport;
 import java.awt.Graphics2D;
 import java.util.ArrayList;
@@ -61,6 +63,10 @@ public final class ScreenManager implements FrameRenderer {
     public static final int FULLSCREEN_GRACE_TICKS = 45;
 
     private final Viewport viewport;
+    private int insetTopPx;
+    private int insetBottomPx;
+    private int insetLeftPx;
+    private int insetRightPx;
     private final List<Screen> stack = new ArrayList<>();
     private final List<Runnable> pendingOps = new ArrayList<>();
     private FramePresenter presenter;
@@ -198,6 +204,58 @@ public final class ScreenManager implements FrameRenderer {
      */
     public Viewport viewport() {
         return viewport;
+    }
+
+    /**
+     * Tells the manager which parts of the physical screen the player cannot reach: the cutout
+     * at the top, the system gesture bar at the bottom, the rounded corners at the sides.
+     *
+     * <p>Desktop reports zeros — a window's own decorations are outside the canvas. Android
+     * reports what {@code WindowInsets} says. Until something calls this, the game lays out
+     * exactly as it always has.
+     *
+     * @param top the height of the unusable band at the top, in physical pixels
+     * @param bottom the height of the unusable band at the bottom, in physical pixels
+     * @param left the width of the unusable band at the left, in physical pixels
+     * @param right the width of the unusable band at the right, in physical pixels
+     */
+    public void setSafeInsetsPx(int top, int bottom, int left, int right) {
+        this.insetTopPx = Math.max(0, top);
+        this.insetBottomPx = Math.max(0, bottom);
+        this.insetLeftPx = Math.max(0, left);
+        this.insetRightPx = Math.max(0, right);
+    }
+
+    /**
+     * The space a screen may use, in logical units.
+     *
+     * <p>Derived from the viewport's <em>visible</em> band, not from {@link Overscan}: the
+     * cosmetic overscan is published only while the player has "fill screen" on, and the layout
+     * cannot depend on when that publishing happens. On a 1080x2400 phone the band runs from
+     * about {@code -147} to {@code 786} instead of {@code 0} to {@code 640}, so a screen that
+     * pins its header to {@link LayoutMetrics#contentTop()} and its navigation to
+     * {@link LayoutMetrics#navTop()} fills the screen instead of floating in the middle of it.
+     *
+     * <p>The band follows the same switch the renderers do. While the player has turned "fill
+     * screen" off the surface is the playfield itself, letterboxed, and the metrics say so — a
+     * screen then lays out at {@code 0..640} and its navigation sits where it always has, rather
+     * than down in the black bar the option asked to keep.
+     *
+     * @return the metrics of the current surface
+     */
+    public LayoutMetrics metrics() {
+        double scale = viewport.scale();
+        SafeInsets insets = new SafeInsets((int) Math.round(insetTopPx / scale),
+                (int) Math.round(insetBottomPx / scale), (int) Math.round(insetLeftPx / scale),
+                (int) Math.round(insetRightPx / scale));
+        if (!viewport.isExtendVertical()) {
+            return LayoutMetrics.of(LayoutMetrics.DESIGN_W, LayoutMetrics.MIN_H, 0, insets);
+        }
+        // The band the viewport sees, untrimmed: LayoutMetrics takes the insets off it once, and
+        // trimming here as well would charge the safe area twice and lift the navigation twice
+        // as high above the gesture bar.
+        return LayoutMetrics.ofBand(LayoutMetrics.DESIGN_W, viewport.visibleTopY(),
+                viewport.visibleBottomY(), insets);
     }
 
     /**

@@ -133,7 +133,7 @@ class ViewportTest {
     }
 
     @Test
-    void extendedApplyWidensOnlyTheVerticalClip() {
+    void applyClipsTheWholeVisibleBandWhateverTheOptionSays() {
         BufferedImage img = new BufferedImage(8, 8, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         try {
@@ -151,9 +151,28 @@ class ViewportTest {
             Viewport vp = new Viewport(420, 800, false);
             vp.setExtendVertical(false);
             vp.apply(g);
-            assertEquals(0, g.getClipBounds().y, "toggled off, the playfield clip returns");
-            assertEquals(Playfield.HEIGHT, g.getClipBounds().height);
+            assertEquals(-80, g.getClipBounds().y,
+                    "a clip is not where 'fill screen' is enforced: the band stays drawable, "
+                            + "or a screen laid out on it would be cut away");
+            assertEquals(800, g.getClipBounds().height);
         } finally {
+            g.dispose();
+        }
+    }
+
+    @Test
+    void theFillScreenOptionMovesTheOverscanNotTheClip() {
+        BufferedImage img = new BufferedImage(8, 8, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        try {
+            Viewport vp = new Viewport(420, 800, false);
+            vp.setExtendVertical(false);
+            vp.publishOverscan();
+            vp.apply(g);
+            assertEquals(0, Overscan.topInt(), "the cosmetic range stays the playfield");
+            assertEquals(Playfield.HEIGHT, Overscan.bottomInt());
+        } finally {
+            Overscan.reset();
             g.dispose();
         }
     }

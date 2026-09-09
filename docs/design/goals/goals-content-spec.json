@@ -1,0 +1,152 @@
+{
+  "meta": {
+    "name": "goals-hub-visual-spec",
+    "version": 1,
+    "date": "2026-09-09",
+    "references": {
+      "challenges": "docs/design/goals/challenges.png",
+      "achievements": "docs/design/goals/achievements.png",
+      "milestones": "docs/design/goals/milestones.png",
+      "collections": "docs/design/goals/collections.png"
+    },
+    "measurement": "PIL pixel sampling + 1px edge scans on the reference files; hex values measured unless marked uncertain",
+    "logical_surface": { "width": 420, "height": 640, "note": "game letterboxes this surface; see layout-diagnosis.md" }
+  },
+  "screens": {
+    "challenges": { "image": [941, 1672], "aspect": "16:9" },
+    "achievements": { "image": [941, 1672], "aspect": "16:9" },
+    "milestones": { "image": [941, 1672], "aspect": "16:9" },
+    "collections": { "image": [852, 1846], "aspect": "19.5:9" }
+  },
+  "bands": {
+    "unit": "fraction_of_screen_height",
+    "challenges_achievements_milestones_16x9": {
+      "top_safe": 0.051,
+      "header": 0.056,
+      "tab_row": 0.039,
+      "content_panel": { "challenges": 0.648, "achievements": 0.687, "milestones": 0.692 },
+      "background_reveal": { "challenges": 0.069, "achievements": 0.036, "milestones": 0.030 },
+      "bottom_nav": 0.110,
+      "dead": 0.0
+    },
+    "collections_195x9": {
+      "top_safe": 0.103,
+      "header": 0.037,
+      "tab_row": 0.029,
+      "content_panel": 0.671,
+      "background_reveal": 0.023,
+      "bottom_nav": 0.122,
+      "dead": 0.0
+    },
+    "current_game_1080x2400": {
+      "letterboxed_band": 0.686,
+      "dead_top_and_bottom_each": 0.157,
+      "content_share_of_physical_screen": 0.527,
+      "nav_floats_above_physical_bottom_px": 377
+    }
+  },
+  "palette": {
+    "gold_accent": { "measured": ["#FCCB4E", "#FDD14C", "#FDCE4D", "#FCD054", "#FBCC4F"], "forge": "#F5C542", "forge_pip_filled": "#FCCB45" },
+    "display_title_fill": "#FCE68A",
+    "display_title_outline": "#000207",
+    "panel_fill": { "measured_gradient_top": "#184549", "measured_gradient_bottom": "#0D393D", "forge": "#134248" },
+    "card_fill": "#123F44",
+    "card_stroke": "#3E7C88",
+    "icon_tile_fill": "#1E535B",
+    "bar_track": { "collections_measured": "#0E272B", "lists_16x9_measured": "#184A50", "forge_pip_empty": "#0D272C", "recommended": "#0D272C" },
+    "bar_fill": "#FDD14C",
+    "text_light": { "measured": "#FFFFFF", "forge": "#F4F8F8" },
+    "text_muted": { "estimated": "#7E9EA6-#9FB8BC", "uncertain": true, "forge": "#A9BABC" },
+    "pale_ink_disabled": "#C9D8DE",
+    "padlock": "#D8E2E4",
+    "complete_state": { "fill": "#1B6154", "border": "#4DCCA2", "check_circle": "#5DBB46" },
+    "disabled_cta": { "fill": "#4E6F7C", "border": "#ACC8D8" },
+    "everything_card": { "fill": "#333C2A", "border": "#FFF060" },
+    "scrollbar_thumb": { "goals_measured": "#5BBDCE", "shop_shipped": "#F4F8F8@0x50", "recommended": "shop translucent white" },
+    "background": { "sky_top": "#48CCDE", "sky_low": "#68DCEB", "hills": ["#67BB4E", "#62B74B"], "clouds": "#FEFEFE" },
+    "nav": { "band_uncertain_translucent": ["#1C3F2E", "#293533"], "button": "#183A3A", "button_collections": "#173336", "active": "#FBCC4F" },
+    "tab": { "active_fill_gold": "#FCD054", "active_alt_outlined_collections": { "fill": "#39858E", "border": "#F3D66C" }, "inactive_fill": "#1F5257", "inactive_fill_collections": "#174E5B", "gap_shows_sky_px": 5 }
+  },
+  "typography": {
+    "unit": "reference_px_at_941px_width",
+    "steps": [
+      { "role": "h1_title", "size": 96, "ratio_w": 0.102, "weight": "heavy_rounded_display", "colour": "#FCE68A+outline" },
+      { "role": "screen_heading_summary", "size": 48, "ratio_w": 0.051, "weight": "bold", "colour": "gold" },
+      { "role": "challenge_title", "size": 54, "ratio_w": 0.057, "weight": "bold", "colour": "gold" },
+      { "role": "card_name", "size": 34, "ratio_w": 0.036, "weight": "semibold", "colour": "#FFFFFF" },
+      { "role": "field_value", "size": 34, "ratio_w": 0.036, "weight": "semibold", "colour": "#FFFFFF" },
+      { "role": "counter", "size": 34, "ratio_w": 0.036, "weight": "regular", "colour": "#B8CDD2", "uncertain": true },
+      { "role": "tab_label", "size": 32, "ratio_w": 0.034, "weight": "semibold", "colour": "near_black_on_gold" },
+      { "role": "description", "size": 30, "ratio_w": 0.032, "weight": "regular", "colour": "muted" },
+      { "role": "footer_date", "size": 28, "ratio_w": 0.030, "weight": "regular", "colour": "muted" },
+      { "role": "nav_label", "size": 26, "ratio_w": 0.028, "weight": "medium", "colour": "white_or_near_black" },
+      { "role": "cta_label", "size": 40, "ratio_w": 0.042, "weight": "semibold", "colour": "#C9D8DE" }
+    ],
+    "note": "no all-caps convention; title case; date format ISO yyyy-MM-dd"
+  },
+  "card_metrics": {
+    "unit": "reference_px_at_941_or_852_width",
+    "panel": { "x_inset": 40, "ratio_w": 0.042, "corner_radius": 28, "border_px": 3, "border_colour": "#347C84" },
+    "challenge_field_row": { "width": 780, "height": 110, "radius": 16, "pitch": 126, "gap": 16 },
+    "challenge_half_card": { "width": 380, "height": 130, "pair_gap": 20 },
+    "achievement_card": { "width": 780, "locked_height": 110, "unlocked_height": 131, "pitch": 123, "gap": 13 },
+    "milestone_row": { "width": 799, "height": 146, "pitch": 158, "gap": 14, "bar_inset": 30 },
+    "collection_row": { "width_ratio_w": 0.921, "height": 124, "pitch": 140, "icon": 90, "bar_height": 22 },
+    "everything_card": { "height": 150, "border_px": 3 },
+    "progress_bar": { "height_16x9": 36, "height_collections": 22, "radius": "full", "fill": "left-aligned rounded cap, no label on bar" },
+    "primary_cta": { "width_ratio_w": 0.848, "height": 114, "radius": 24 },
+    "visible_before_scroll": { "achievements": 8, "collections": 8, "milestones": 6, "challenges": "carousel, 1 at a time" }
+  },
+  "states": {
+    "locked_card": { "veil": false, "readable": true, "icon": "pale padlock in lighter tile", "stroke": "card_stroke" },
+    "unlocked_card": { "fill": "#1B6154", "border": "#4DCCA2", "icon": "green circle + white check", "footer": "Unlocked <ISO date>" },
+    "selected": "gold ring/fill per tab + nav",
+    "disabled_cta": { "label_ref": "Locked", "fill": "#4E6F7C", "border": "#ACC8D8" },
+    "enabled_cta_label_ref": "START CHALLENGE",
+    "enabled_cta_treatment_uncertain": true
+  },
+  "structure": {
+    "tabs_order": ["Challenges", "Achievements", "Milestones", "Collections"],
+    "nav_order": ["Shop", "Birds", "Play", "Forge", "Goals"],
+    "challenges_fields": ["World", "Tier", "Rules", "Progress", "Reward", "Unlock"],
+    "achievements_footer_rule": "reward text when locked, 'Unlocked <date>' when done",
+    "collections_rows": ["Birds", "Abilities", "Worlds", "Challenges", "Colours", "Achievements", "Upgrades", "Everything"],
+    "collections_footer": "Keep playing. There's more to discover!"
+  },
+  "data_bindings": {
+    "goals_title": { "source": "content.StringKey + data/strings/en.json + pt_BR.json", "verified": true },
+    "tab_labels": { "source": "content.StringKey", "verified": true },
+    "collection_row_counts": {
+      "source": "progression.CollectionProgress.of(content).all(profile) / .of(category, profile) -> Entry(owned,total,percent)",
+      "verified": true
+    },
+    "everything_card": { "source": "CollectionProgress category 'all' (CollectionProgress.ALL)", "mock_value": 133, "repo_computed": 108, "verified": true },
+    "achievements_summary": { "source": "progression.AchievementEvaluator.definitions() + PlayerProfile unlocked set", "mock_value": "1 of 41", "repo_total": 41, "verified": true },
+    "achievement_reward_text": { "source": "achievements.json rewards.coins", "verified": true, "note": "mock values match shipped rewards exactly" },
+    "unlocked_date": { "source": "PlayerProfile achievement timestamps", "format": "ISO yyyy-MM-dd", "verified": "field existence UNVERIFIED" },
+    "level_xp_milestone": { "source": "progression.PlayerLevel thresholds; economy.json.xp.curve.base=100", "verified": true },
+    "level_reward_text": { "source": "economy.json.xp.levelRewards (level 2 = 50 coins)", "verified": true },
+    "stat_milestones_saved_field_marshal_windbreaker_forgebreaker": {
+      "source": "UNVERIFIED — no milestones.json; candidates: Statistics/StatisticKey lifetime stats or AchievementEvaluator",
+      "needs_decision": true
+    },
+    "challenge_fields": {
+      "source": "challenges.json defs: objective/world/tier/flags/rewards + PlayerProfile.challenges",
+      "verified": true,
+      "example": "no_shield_1: SURVIVE_GATES 30, green_fields, normal, NO_DEFENSIVE_ABILITIES, rewards {coins:200, unlocks:[cosmetic:classic:ember]}"
+    },
+    "challenge_unlock_condition_play_12_runs": { "source": "UNVERIFIED — no matching field in the shipped challenge defs" },
+    "colours_total": { "source": "birds.json palettes across all birds", "mock_value": 22, "repo_value": 22, "verified": true },
+    "upgrades_total": { "source": "upgrades.json nodes (18) via UpgradeManager/CollectionProgress", "mock_value": 43, "repo_value": 18, "conflict": true },
+    "ember_reward_name": { "source": "cosmetic:classic:ember palette id; display name via StringKey", "verified": true },
+    "coins_display": { "source": "progression.Wallet", "note": "references show NO wallet readout on Goals screens" },
+    "data_sources_doc": { "expected_path": "docs/design/goals/goals-data-sources.md", "exists": false, "status": "UNVERIFIED" }
+  },
+  "mock_inconsistencies": [
+    "active tab: filled gold pill on 3 screens vs gold-outlined teal on collections (recommend filled pill)",
+    "Goals nav icon: list glyph on 16:9 screens vs trophy on collections (pick one; trophy matches header)",
+    "milestones tab: ~110px empty panel bottom (fixed-height viewport with short content)",
+    "Level 2 shows 1/2 while Level 1 shows 0/100 XP — internally inconsistent mock state",
+    "header title ratio differs: 10.2%W at 16:9 vs 7.0%W on collections"
+  ]
+}

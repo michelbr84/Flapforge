@@ -57,7 +57,8 @@ class NavBarTest {
         play.setPrimary(true);
         forge = bar.add(new NavButton("forge", "Forge", ICON, () -> activated.add("forge")));
         goals = bar.add(new NavButton("goals", "Goals", ICON, () -> activated.add("goals")));
-        bar.layoutRow(8, 44, 2, 56, 76, 84, 4, 8);
+        // The hub's row, as SectionNav lays it out.
+        bar.layoutRow(5, 44, 2, 50, 76, 84, 4, 8);
         ring = new FocusRing();
         bar.registerFocusables(ring);
     }
@@ -69,14 +70,16 @@ class NavBarTest {
 
     @Test
     void layoutRowPlacesTheItemsOnOneCentreLine() {
-        assertBounds(shop, 8, 590, 76, 44);
-        assertBounds(birds, 88, 590, 76, 44);
-        assertBounds(play, 168, 584, 84, 56);
-        assertBounds(forge, 256, 590, 76, 44);
-        assertBounds(goals, 336, 590, 76, 44);
+        assertBounds(shop, 8, 587, 76, 44);
+        assertBounds(birds, 88, 587, 76, 44);
+        assertBounds(play, 168, 584, 84, 50);
+        assertBounds(forge, 256, 587, 76, 44);
+        assertBounds(goals, 336, 587, 76, 44);
         for (NavButton item : bar.buttons()) {
-            assertEquals(612, item.centerY(), 0.0, item.id() + " shares the row centre");
+            assertEquals(609, item.centerY(), 0.0, item.id() + " shares the row centre");
         }
+        assertTrue(goals.y() + goals.height() < bar.y() + bar.height() - 4,
+                "the row keeps a margin above the band's bottom edge");
         assertEquals(List.of(shop, birds, play, forge, goals), bar.buttons());
         assertEquals(List.of(shop, birds, play, forge, goals), ring.nodes());
         assertFalse(bar.isFocusable(), "the bar itself never takes focus");

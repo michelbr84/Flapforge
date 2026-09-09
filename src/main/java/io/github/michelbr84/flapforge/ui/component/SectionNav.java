@@ -1,7 +1,7 @@
 package io.github.michelbr84.flapforge.ui.component;
 
-import io.github.michelbr84.flapforge.core.Playfield;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import java.util.Objects;
 
 /**
@@ -10,7 +10,8 @@ import java.util.Objects;
  *
  * <p>On the hub the primary item is Play, the run the hub exists to start; on a section screen it
  * is the section itself, so the gold plate reads as "you are here". The geometry is the hub's:
- * the band spans the playfield at {@link #TOP} and {@link NavBar#layoutRow} places the items.
+ * the band spans the surface at the bottom of {@link LayoutMetrics} and {@link #layoutRow} lays
+ * the five items out on it, so every section's navigation is the same band in the same place.
  */
 public final class SectionNav {
 
@@ -28,7 +29,29 @@ public final class SectionNav {
     /** Top edge of the band. */
     public static final int TOP = 582;
     /** Height of the band. */
-    public static final int HEIGHT = 58;
+    public static final int HEIGHT = LayoutMetrics.NAV_BAND_H;
+
+    /** Top of every side item inside the band. */
+    private static final double SIDE_TOP = 5;
+    /** Height of every side item. */
+    private static final double SIDE_H = 44;
+    /** Top of the primary item, which rides higher than the rest on its gold plate. */
+    private static final double PRIMARY_TOP = 2;
+    /**
+     * Height of the primary item: with {@link #SIDE_TOP} it puts the gold plate's centre on the
+     * side items' centre line, so the row still reads as one line and an arrow out of it is
+     * never stolen by the plate, while leaving the band a margin below the row instead of
+     * running the plate into the screen's last row.
+     */
+    private static final double PRIMARY_H = 50;
+    /** Width of every side item. */
+    private static final double SIDE_W = 76;
+    /** Width of the primary item. */
+    private static final double PRIMARY_W = 84;
+    /** Gap between two items. */
+    private static final double GAP = 4;
+    /** Margin left of the first item and right of the last. */
+    private static final double MARGIN = 8;
 
     private SectionNav() {
     }
@@ -48,7 +71,7 @@ public final class SectionNav {
     }
 
     /**
-     * Fills a bar with the five items and lays them out.
+     * Fills a bar with the five items and lays them out on the classic 420x640 surface.
      *
      * @param nav the bar
      * @param primaryId the item drawn on the gold plate
@@ -56,10 +79,29 @@ public final class SectionNav {
      * @return the bar, for chaining
      */
     public static NavBar build(NavBar nav, String primaryId, Routes routes) {
+        return build(nav, primaryId, routes, LayoutMetrics.classic());
+    }
+
+    /**
+     * Fills a bar with the five items and lays them out on the given surface.
+     *
+     * <p>The band is pinned to the bottom of the usable area, so on a tall phone the navigation
+     * sits on the physical bottom edge instead of floating over the letterbox bar the fixed
+     * 420x640 surface leaves below it.
+     *
+     * @param nav the bar
+     * @param primaryId the item drawn on the gold plate
+     * @param routes what each item does
+     * @param metrics the space the screen is laying out in
+     * @return the bar, for chaining
+     */
+    public static NavBar build(NavBar nav, String primaryId, Routes routes,
+            LayoutMetrics metrics) {
         Objects.requireNonNull(nav, "nav");
         Objects.requireNonNull(primaryId, "primaryId");
         Objects.requireNonNull(routes, "routes");
-        nav.setBounds(0, TOP, Playfield.WIDTH, HEIGHT);
+        Objects.requireNonNull(metrics, "metrics");
+        nav.setBounds(0, metrics.navTop(), metrics.width(), metrics.navHeight());
         nav.add(new NavButton(SHOP, "", icon(SHOP), routes.shop()));
         nav.add(new NavButton(BIRDS, "", icon(BIRDS), routes.birds()));
         nav.add(new NavButton(PLAY, "", icon(PLAY), routes.play()));
@@ -67,7 +109,24 @@ public final class SectionNav {
         nav.add(new NavButton(GOALS, "", icon(GOALS), routes.goals()));
         // Before layoutRow, which gives the primary item its own width and height.
         nav.button(primaryId).setPrimary(true);
-        nav.layoutRow(8, 44, 2, 56, 76, 84, 4, 8);
+        layoutRow(nav, metrics);
+        return nav;
+    }
+
+    /**
+     * Pins a bar to the bottom of the surface and lays the five items out on it. A screen calls
+     * this whenever the band may have moved — after {@link #build}, and again after a resize —
+     * instead of repeating the row's numbers, which is how five screens drift apart.
+     *
+     * @param nav the bar
+     * @param metrics the space the screen is laying out in
+     * @return the bar, for chaining
+     */
+    public static NavBar layoutRow(NavBar nav, LayoutMetrics metrics) {
+        Objects.requireNonNull(nav, "nav");
+        Objects.requireNonNull(metrics, "metrics");
+        nav.setBounds(0, metrics.navTop(), metrics.width(), metrics.navHeight());
+        nav.layoutRow(SIDE_TOP, SIDE_H, PRIMARY_TOP, PRIMARY_H, SIDE_W, PRIMARY_W, GAP, MARGIN);
         return nav;
     }
 

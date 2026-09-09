@@ -2,6 +2,7 @@ package io.github.michelbr84.flapforge.android;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.graphics.Insets;
 import android.os.Bundle;
 import android.os.Looper;
 import android.util.Log;
@@ -153,7 +154,15 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
         surface = new GameSurfaceView(this);
         host = new AndroidHost(this, surface);
         surface.addSurfaceListener(this);
+        // The cutout and the gesture bar are the player's to lose: the layout keeps its controls
+        // out of whatever the platform reports here, so a notch never sits on the header and the
+        // navigation never sits under the home swipe.
+        surface.setOnApplyWindowInsetsListener((view, insets) -> {
+            reportSafeInsets(insets);
+            return view.onApplyWindowInsets(insets);
+        });
         setContentView(surface);
+        surface.requestApplyInsets();
         enterImmersiveMode();
         backCallback = this::onBackInvoked;
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -210,6 +219,29 @@ public final class MainActivity extends Activity implements GameSurfaceView.Surf
         }
         shutdownGame();
         super.onDestroy();
+    }
+
+    /**
+     * Hands the platform's safe area to the host: the widest unusable band each edge reports,
+     * which is the display cutout at the top (a notch the window is allowed to draw under), the
+     * system bars when they are showing, and the gesture strip at the bottom. Immersive mode
+     * hides the bars, so their inset is zero and the cutout and the gesture strip are what is
+     * left — exactly the two a fullscreen game has to keep clear. Never throws: a phone that
+     * reports nothing simply gives the layout the whole surface, as it had before.
+     *
+     * @param insets the insets the window dispatched, or {@code null} on a platform that has none
+     */
+    private void reportSafeInsets(WindowInsets insets) {
+        if (insets == null) {
+            return;
+        }
+        Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+        Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
+        Insets gestures = insets.getInsets(WindowInsets.Type.systemGestures());
+        host.reportSafeInsetsPx(Math.max(bars.top, cutout.top),
+                Math.max(bars.bottom, gestures.bottom),
+                Math.max(bars.left, Math.max(cutout.left, gestures.left)),
+                Math.max(bars.right, Math.max(cutout.right, gestures.right)));
     }
 
     /** The first sized surface starts the game; later sizes reach the queue via the bridge. */

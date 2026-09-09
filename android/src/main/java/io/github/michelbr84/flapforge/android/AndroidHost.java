@@ -39,6 +39,11 @@ import java.util.Objects;
  * activity hands the host the {@link ScreenManager} through {@link #observeScreens} once the
  * game has started; until then the flag stays off, which is right, because the boot screen is
  * on top.
+ *
+ * <p>It carries one thing the other way too: the safe area the platform reports
+ * ({@link #reportSafeInsetsPx}), which the activity measures from {@code WindowInsets} and the
+ * game cannot see. The values cross to the loop thread through the screen stack, whose
+ * {@link ScreenManager#setSafeInsetsPx} is the one seam the layout reads them from.
  */
 public final class AndroidHost implements GameHost {
 
@@ -48,6 +53,11 @@ public final class AndroidHost implements GameHost {
     private volatile Viewport viewport;
     private volatile AndroidInputBridge bridge;
     private volatile ScreenManager screens;
+    /** The safe-area insets the activity last reported, in physical pixels. */
+    private volatile int insetTopPx;
+    private volatile int insetBottomPx;
+    private volatile int insetLeftPx;
+    private volatile int insetRightPx;
 
     /**
      * Creates the host.
@@ -124,6 +134,36 @@ public final class AndroidHost implements GameHost {
      */
     public void observeScreens(ScreenManager screens) {
         this.screens = Objects.requireNonNull(screens, "screens");
+        // The activity measures the cutout as soon as the window is laid out, which is usually
+        // before the game has a screen stack: push what it already reported.
+        pushSafeInsets(screens);
+    }
+
+    /**
+     * Reports which parts of the physical screen the player cannot reach — the cutout at the top,
+     * the system gesture bar at the bottom, the rounded corners at the sides — so the layout can
+     * keep controls out of them. Any thread (the activity calls this from the UI thread); the
+     * values are stored and forwarded to the screen stack, and replayed for a stack that appears
+     * later, so an inset measured during the boot is not lost.
+     *
+     * @param top the height of the unusable band at the top, in physical pixels
+     * @param bottom the height of the unusable band at the bottom, in physical pixels
+     * @param left the width of the unusable band at the left, in physical pixels
+     * @param right the width of the unusable band at the right, in physical pixels
+     */
+    public void reportSafeInsetsPx(int top, int bottom, int left, int right) {
+        insetTopPx = Math.max(0, top);
+        insetBottomPx = Math.max(0, bottom);
+        insetLeftPx = Math.max(0, left);
+        insetRightPx = Math.max(0, right);
+        ScreenManager stack = screens;
+        if (stack != null) {
+            pushSafeInsets(stack);
+        }
+    }
+
+    private void pushSafeInsets(ScreenManager stack) {
+        stack.setSafeInsetsPx(insetTopPx, insetBottomPx, insetLeftPx, insetRightPx);
     }
 
     /**

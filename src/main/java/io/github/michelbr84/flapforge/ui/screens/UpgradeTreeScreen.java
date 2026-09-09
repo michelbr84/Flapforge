@@ -40,6 +40,7 @@ import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
 import io.github.michelbr84.flapforge.ui.component.IconPainter;
 import io.github.michelbr84.flapforge.ui.component.NavBar;
 import io.github.michelbr84.flapforge.ui.component.SectionNav;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import io.github.michelbr84.flapforge.ui.component.TabBar;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
@@ -59,18 +60,22 @@ import java.util.Set;
 /**
  * The Forge (M13 rebuild): three upgrade trees, one tab each, where coins become physics.
  *
- * <p>The screen is five bands. A compact header (0&ndash;100) carries the title, the open tree's
- * subtitle, the wallet in its coin pill and the hub's forge scene drawn small, so the place
- * reads as the same room the main menu shows. Under it (100&ndash;140) the three tree tabs wear
- * their glyph and the gold accent. The tree viewport (140&ndash;330) lays each tree's nodes out
- * by {@code tier} as two columns of row cards under green tier pills, with the prerequisite
- * edges drawn as light-yellow elbows under the cards, endpoints taken from the shipped
- * {@code prereqs} graph. The detail panel (330&ndash;582) shows the selected node &mdash; hero
- * glyph over a gold glow, name, level, description, its status in words, the call to action and
- * the red not-enough-coins note &mdash; then a divider and the attribute summary: every stat the
- * tree can touch, its live resolved value and a five-segment pip bar normalised over the stat's
- * own clamp range. The section navigation (582&ndash;640) closes the screen with Forge on the
- * gold plate, replacing the old full-width Back button; the BACK key still pops.
+ * <p>The screen is five bands laid out against the surface's {@link LayoutMetrics}. A compact
+ * header pinned to the content top carries the title, the open tree's subtitle, the wallet in
+ * its coin pill and the hub's forge scene drawn small, so the place reads as the same room the
+ * main menu shows. Under it the three tree tabs wear their glyph and the gold accent. The tree
+ * viewport lays each tree's nodes out by {@code tier} as two columns of row cards under green
+ * tier pills, with the prerequisite edges drawn as light-yellow elbows under the cards,
+ * endpoints taken from the shipped {@code prereqs} graph. The detail panel shows the selected
+ * node &mdash; hero glyph over a gold glow, name, level, description, its status in words, the
+ * call to action and the red not-enough-coins note &mdash; then a divider and the attribute
+ * summary: every stat the tree can touch, its live resolved value and a five-segment pip bar
+ * normalised over the stat's own clamp range. The section navigation, pinned to the bottom of
+ * the surface, closes the screen with Forge on the gold plate, replacing the old full-width
+ * Back button; the BACK key still pops. At the classic 420x640 surface the bands are the
+ * constants they always were (header 0&ndash;100, tabs 100&ndash;140, tree 140&ndash;330,
+ * detail 330&ndash;582, navigation 582&ndash;640); a taller surface gives the extra room to the
+ * tree viewport and the detail panel in the proportion of those reference heights.
  *
  * <p>Buying is deliberate: activating a card only <em>selects</em> it; the purchase happens
  * through the panel's call to action, through {@link UpgradeManager#buy} for a node and
@@ -116,6 +121,10 @@ public final class UpgradeTreeScreen implements Screen {
     public static final int DETAIL_TOP = 330;
     /** Height of the detail panel: purchase half, divider, attribute summary. */
     public static final int DETAIL_H = 252;
+    /** Height of the tree viewport at the reference 640-row surface. */
+    private static final int TREE_VIEW_H = TREE_BOTTOM - TREE_TOP;
+    /** Rows above the navigation band at the reference surface: the four bands summed. */
+    private static final int STRETCH_H = HEADER_H + TABS_H + TREE_VIEW_H + DETAIL_H;
     /** Logical pixels one wheel notch scrolls. */
     public static final int WHEEL_STEP = 38;
 
@@ -150,7 +159,8 @@ public final class UpgradeTreeScreen implements Screen {
     private static final int WALLET_PILL_Y = 12;
     private static final int PANEL_TEXT_X = MARGIN + 72;
     private static final int HERO_CX = MARGIN + 38;
-    private static final int HERO_CY = DETAIL_TOP + 48;
+    /** Panel-local y of the hero glyph's centre, from the detail panel's top. */
+    private static final int HERO_OFFSET = 48;
     private static final int HERO_SIZE = 46;
     private static final int SCROLLBAR_X = Playfield.WIDTH - 8;
     private static final int SCROLLBAR_W = 4;
@@ -197,6 +207,14 @@ public final class UpgradeTreeScreen implements Screen {
     private String currentNodeId;
     private String treeLockedText = "";
     private String shownLanguage;
+    private int surfaceTop;
+    private int tabsTop;
+    private int treeTop;
+    private int treeBottom;
+    private int detailTop;
+    private int detailH;
+    private int heroCy;
+    private LayoutMetrics laidOut;
 
     /**
      * Creates the screen for a wired application.
@@ -238,7 +256,6 @@ public final class UpgradeTreeScreen implements Screen {
         this.upgrades = upgrades;
         this.toasts = toasts == null ? new ToastLayer() : toasts;
 
-        tabs.setBounds(MARGIN, TABS_TOP, CONTENT_W, TABS_H);
         tabs.setAccented(true);
         for (TreeDef tree : content.trees()) {
             tabs.add(tree.id(), ProgressionText.name(strings, ContentKind.TREE, tree.id()))
@@ -251,16 +268,15 @@ public final class UpgradeTreeScreen implements Screen {
         nodes.setColumns(COLUMNS);
         nodes.setGap(CardGrid.DEFAULT_GAP, ROW_GAP);
 
-        wallet.setBounds(WALLET_PILL_X + 8, WALLET_PILL_Y, WALLET_PILL_W - 16, WALLET_PILL_H);
         wallet.setAlign(Align.RIGHT);
         wallet.setFontSize(15);
         wallet.setAmountNow(coins());
 
         cta = new CtaButton("", this::activateCta);
-        cta.setBounds(MARGIN + 8, DETAIL_TOP + CTA_OFFSET, CTA_W, CTA_H);
+        relayout();
 
         SectionNav.build(nav, SectionNav.FORGE, new SectionNav.Routes(this::openShop,
-                this::openBirds, this::play, null, this::openGoals));
+                this::openBirds, this::play, null, this::openGoals), screens.metrics());
         nav.button(SectionNav.SHOP).setEnabled(context != null);
         nav.button(SectionNav.BIRDS).setEnabled(context != null);
         nav.button(SectionNav.PLAY).setEnabled(context != null);
@@ -271,6 +287,58 @@ public final class UpgradeTreeScreen implements Screen {
         // The first tab a player should land on is one they can actually spend in.
         tabs.selectQuietly(firstUnlockedTree());
         refreshTexts();
+    }
+
+    /**
+     * Lays the bands out again when the surface the screen is drawn in has changed shape since
+     * the last layout — a resized window, or the screen pushed onto a stack over a differently
+     * shaped viewport — so the header stays pinned to the content top and the navigation to the
+     * bottom while the content between them re-stretches.
+     */
+    private void relayoutIfResurfaced() {
+        LayoutMetrics metrics = screens.metrics();
+        if (!metrics.equals(laidOut)) {
+            relayout();
+            SectionNav.layoutRow(nav, metrics);
+        }
+    }
+
+    /**
+     * Recomputes every band from the surface's metrics: the header pinned to the content top,
+     * the tabs under it, and the tree viewport and the detail panel sharing the room down to
+     * the navigation band in the proportion of their reference heights (190 tree rows to 252
+     * panel rows). At the classic 420x640 surface there is no extra room and every band lands
+     * on the public constant it was laid out with before the elastic surface existed.
+     */
+    private void relayout() {
+        LayoutMetrics metrics = screens.metrics();
+        surfaceTop = metrics.contentTop();
+        tabsTop = surfaceTop + HEADER_H;
+        treeTop = tabsTop + TABS_H;
+        int extra = Math.max(0, metrics.aboveNavHeight() - STRETCH_H);
+        int treeExtra = extra * TREE_VIEW_H / (TREE_VIEW_H + DETAIL_H);
+        treeBottom = treeTop + TREE_VIEW_H + treeExtra;
+        detailTop = treeBottom;
+        detailH = DETAIL_H + extra - treeExtra;
+        heroCy = detailTop + HERO_OFFSET;
+        tabs.setBounds(MARGIN, tabsTop, CONTENT_W, TABS_H);
+        wallet.setBounds(WALLET_PILL_X + 8, surfaceTop + WALLET_PILL_Y, WALLET_PILL_W - 16,
+                WALLET_PILL_H);
+        cta.setBounds(MARGIN + 8, panelAnchoredToBottom(CTA_OFFSET), CTA_W, CTA_H);
+        laidOut = metrics;
+    }
+
+    /**
+     * The absolute y of a detail-panel offset that anchors to the panel's bottom edge: the
+     * divider, the attribute summary and the stat rows keep their distance from the bottom, so
+     * the room a taller surface frees opens up between the status lines and the call to action
+     * instead of stranding the summary in the middle of the panel.
+     *
+     * @param classicOffset the offset inside the reference 252-row panel
+     * @return the absolute y
+     */
+    private int panelAnchoredToBottom(int classicOffset) {
+        return detailTop + detailH - (DETAIL_H - classicOffset);
     }
 
     // ------------------------------------------------------------------ accessors
@@ -415,7 +483,7 @@ public final class UpgradeTreeScreen implements Screen {
      * @return the largest offset, {@code 0} when the tree fits
      */
     public double maxScroll() {
-        return Math.max(0, contentHeight - (TREE_BOTTOM - TREE_TOP));
+        return Math.max(0, contentHeight - (treeBottom - treeTop));
     }
 
     /**
@@ -541,7 +609,7 @@ public final class UpgradeTreeScreen implements Screen {
                     UpgradeDef def = tierNodes.get(i);
                     ForgeNodeCard card = new ForgeNodeCard(def.id(), "", () -> select(def.id()));
                     card.setGlyph(ForgeArt.nodeIcon(def));
-                    card.setViewport(TREE_TOP, TREE_BOTTOM);
+                    card.setViewport(treeTop, treeBottom);
                     int col = i % COLUMNS;
                     int row = i / COLUMNS;
                     card.setBounds(MARGIN + col * (cellWidth + CardGrid.DEFAULT_GAP),
@@ -899,7 +967,7 @@ public final class UpgradeTreeScreen implements Screen {
         for (CardGrid.Card card : nodes.cards()) {
             Double offset = cardOffset.get(card.id());
             if (offset != null) {
-                card.setPosition(card.x(), TREE_TOP - scroll + offset);
+                card.setPosition(card.x(), treeTop - scroll + offset);
             }
         }
     }
@@ -919,10 +987,10 @@ public final class UpgradeTreeScreen implements Screen {
         if (!(ring.focused() instanceof ForgeNodeCard card)) {
             return;
         }
-        if (card.y() < TREE_TOP) {
-            scrollBy(card.y() - TREE_TOP);
-        } else if (card.y() + card.height() > TREE_BOTTOM) {
-            scrollBy(card.y() + card.height() - TREE_BOTTOM);
+        if (card.y() < treeTop) {
+            scrollBy(card.y() - treeTop);
+        } else if (card.y() + card.height() > treeBottom) {
+            scrollBy(card.y() + card.height() - treeBottom);
         }
     }
 
@@ -1101,6 +1169,7 @@ public final class UpgradeTreeScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        relayoutIfResurfaced();
         ticks++;
         prevBob = bob;
         bob = bobAt(ticks);
@@ -1121,7 +1190,7 @@ public final class UpgradeTreeScreen implements Screen {
             scrollFocusIntoView();
             refreshState();
         }
-        if (input.wheel() != 0 && input.mouseY() >= TREE_TOP && input.mouseY() <= TREE_BOTTOM) {
+        if (input.wheel() != 0 && input.mouseY() >= treeTop && input.mouseY() <= treeBottom) {
             scrollBy(-input.wheel() * (double) WHEEL_STEP);
         }
         UiNode under = ring.nodeAt(input.mouseX(), input.mouseY());
@@ -1178,9 +1247,9 @@ public final class UpgradeTreeScreen implements Screen {
         tabs.render(g);
 
         Shape unclipped = g.getClip();
-        g.clipRect(0, TREE_TOP, Playfield.WIDTH, TREE_BOTTOM - TREE_TOP);
+        g.clipRect(0, treeTop, Playfield.WIDTH, treeBottom - treeTop);
         for (TierBand band : bands) {
-            ForgeArt.drawTierPill(g, MARGIN, TREE_TOP - scroll + band.y(), band.label());
+            ForgeArt.drawTierPill(g, MARGIN, treeTop - scroll + band.y(), band.label());
         }
         renderLinks(g);
         nodes.render(g);
@@ -1194,7 +1263,7 @@ public final class UpgradeTreeScreen implements Screen {
         // Below the tab band, not inside it: a purchase toast right-aligned to the top-right
         // corner would otherwise park exactly on the Forge tab for its whole life. The top card
         // row is the lesser harm — a tab is a control, a card is content.
-        toasts.render(g, TABS_TOP + TABS_H);
+        toasts.render(g, tabsTop + TABS_H);
     }
 
     /**
@@ -1212,8 +1281,8 @@ public final class UpgradeTreeScreen implements Screen {
         // clip needs no saving either.
         Graphics2D sceneContext = (Graphics2D) g.create();
         try {
-            sceneContext.clipRect(0, 0, Playfield.WIDTH, HEADER_H);
-            sceneContext.translate(SCENE_TX, SCENE_TY);
+            sceneContext.clipRect(0, surfaceTop, Playfield.WIDTH, HEADER_H);
+            sceneContext.translate(SCENE_TX, surfaceTop + SCENE_TY);
             sceneContext.scale(SCENE_SCALE, SCENE_SCALE);
             scene.render(sceneContext, alpha, MathUtil.lerp(prevBob, bob, alpha), ticks);
         } finally {
@@ -1221,13 +1290,14 @@ public final class UpgradeTreeScreen implements Screen {
         }
         g.setFont(Fonts.bold(26));
         TextPainter.drawOutlined(g, strings.get(StringKey.UPGRADES_SCREEN_TITLE), MARGIN,
-                TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,
+                surfaceTop + TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.letterboxColor(PALETTE), 2);
         g.setFont(Fonts.regular(11));
         g.setColor(ForgeArt.SUBTITLE_INK);
         TextPainter.draw(g, TextPainter.ellipsise(g, subtitle(), SUBTITLE_LIMIT_X - MARGIN),
-                MARGIN, SUBTITLE_BASELINE);
-        ForgeArt.drawCoinPill(g, WALLET_PILL_X, WALLET_PILL_Y, WALLET_PILL_W, WALLET_PILL_H);
+                MARGIN, surfaceTop + SUBTITLE_BASELINE);
+        ForgeArt.drawCoinPill(g, WALLET_PILL_X, surfaceTop + WALLET_PILL_Y, WALLET_PILL_W,
+                WALLET_PILL_H);
         wallet.render(g);
     }
 
@@ -1258,9 +1328,9 @@ public final class UpgradeTreeScreen implements Screen {
         if (max <= 0) {
             return;
         }
-        int trackH = TREE_BOTTOM - TREE_TOP;
+        int trackH = treeBottom - treeTop;
         int thumbH = (int) Math.max(SCROLLBAR_MIN_H, trackH * (trackH / contentHeight));
-        int thumbY = (int) Math.round(TREE_TOP + (trackH - thumbH) * (scroll / max));
+        int thumbY = (int) Math.round(treeTop + (trackH - thumbH) * (scroll / max));
         g.setColor(SCROLLBAR);
         g.fillRoundRect(SCROLLBAR_X, thumbY, SCROLLBAR_W, thumbH, SCROLLBAR_W, SCROLLBAR_W);
     }
@@ -1272,12 +1342,12 @@ public final class UpgradeTreeScreen implements Screen {
      * @param g the context
      */
     private void renderDetail(Graphics2D g) {
-        ForgeArt.drawDetailPanel(g, MARGIN - 4, DETAIL_TOP, CONTENT_W + 8, DETAIL_H);
+        ForgeArt.drawDetailPanel(g, MARGIN - 4, detailTop, CONTENT_W + 8, detailH);
         IconPainter hero = null;
         if (currentNodeId != null && detailLines.size() > 1) {
             hero = ForgeArt.nodeIcon(content.upgrades().get(currentNodeId));
         }
-        ForgeArt.drawHero(g, HERO_CX, HERO_CY, HERO_SIZE, hero);
+        ForgeArt.drawHero(g, HERO_CX, heroCy, HERO_SIZE, hero);
 
         int fullRoom = Playfield.WIDTH - MARGIN - 8;
         if (detailLines.size() == 1) {
@@ -1285,23 +1355,23 @@ public final class UpgradeTreeScreen implements Screen {
             g.setFont(Fonts.regular(13));
             g.setColor(ProceduralArt.TEXT_MUTED);
             TextPainter.drawCentered(g, detailLines.get(0), Playfield.WIDTH / 2.0,
-                    DETAIL_TOP + DETAIL_H / 2.0 + 4);
+                    detailTop + detailH / 2.0 + 4);
         } else if (!detailLines.isEmpty()) {
             g.setFont(Fonts.bold(18));
             g.setColor(ProceduralArt.TEXT_LIGHT);
             TextPainter.draw(g, TextPainter.ellipsise(g, detailLines.get(0),
-                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, DETAIL_TOP + 24);
+                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, detailTop + 24);
             g.setFont(Fonts.regular(12));
             g.setColor(ProceduralArt.TEXT_MUTED);
             TextPainter.draw(g, TextPainter.ellipsise(g, detailLines.get(1),
-                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, DETAIL_TOP + 42);
+                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, detailTop + 42);
             g.setColor(ProceduralArt.TEXT_LIGHT);
             TextPainter.draw(g, TextPainter.ellipsise(g, detailLines.get(2),
-                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, DETAIL_TOP + 60);
+                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, detailTop + 60);
             // The status lines sit under the hero, on the panel's text column like the lines
             // above — the red not-enough-coins note among them — clear of the call to action's
             // plate below.
-            double baseline = DETAIL_TOP + 86;
+            double baseline = detailTop + 86;
             String noCoins = strings.get(StringKey.UPGRADES_NO_COINS);
             for (int i = 3; i < detailLines.size(); i++) {
                 String line = detailLines.get(i);
@@ -1317,12 +1387,12 @@ public final class UpgradeTreeScreen implements Screen {
         cta.render(g);
 
         g.setColor(ForgeArt.DIVIDER);
-        g.fillRect(MARGIN + 10, DETAIL_TOP + DIVIDER_OFFSET, CONTENT_W - 20, 2);
+        g.fillRect(MARGIN + 10, panelAnchoredToBottom(DIVIDER_OFFSET), CONTENT_W - 20, 2);
         g.setFont(Fonts.bold(12));
         g.setColor(ProceduralArt.accentColor(PALETTE));
         TextPainter.draw(g, strings.get(StringKey.UPGRADES_ATTRIBUTE_SUMMARY), MARGIN + 4,
-                DETAIL_TOP + SUMMARY_OFFSET);
-        double rowY = DETAIL_TOP + STATS_OFFSET;
+                panelAnchoredToBottom(SUMMARY_OFFSET));
+        double rowY = panelAnchoredToBottom(STATS_OFFSET);
         double pipX = MARGIN + 170;
         for (StatRow row : statRows) {
             ForgeArt.statIcon(row.stat()).paint(g, MARGIN + 16, rowY - 4, 12,

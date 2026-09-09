@@ -15,13 +15,13 @@ import java.util.List;
  * remaining area is letterboxed. The viewport is owned by the game loop: it changes only when the
  * loop drains a {@code Resized} event (E30.a), so input mapping and rendering always agree.
  *
- * <p>While vertical extension is on (the default, {@code settings.fillScreen}), the clip of
- * {@link #apply(Graphics2D)} widens to the whole visible vertical range and the presenters
- * publish that range through {@link #publishOverscan()}, so the renderers paint sky and earth
- * where the top and bottom bars used to be — the fix for portrait phones, whose aspect is far
- * taller than 420:640. Scale and offsets are untouched, so input mapping and every UI position
- * are exactly the letterboxed ones; horizontal bars (wide desktop windows) keep the letterbox
- * fill either way.
+ * <p>While vertical extension is on (the default, {@code settings.fillScreen}), the presenters
+ * publish the visible vertical range through {@link #publishOverscan()}, so the renderers paint
+ * sky and earth where the top and bottom bars used to be — the fix for portrait phones, whose
+ * aspect is far taller than 420:640. Scale and offsets are untouched, so input mapping and every
+ * UI position are exactly the letterboxed ones; horizontal bars (wide desktop windows) keep the
+ * letterbox fill either way. The clip of {@link #apply(Graphics2D)} covers the visible range
+ * whether the option is on or not — a clip is not where that preference is enforced.
  *
  * <p>Any HiDPI transform installed by the JDK on the graphics context composes underneath the
  * transform applied by {@link #apply(Graphics2D)}; this class works purely in window (device
@@ -281,20 +281,23 @@ public final class Viewport {
 
     /**
      * Applies translate, scale and clip so subsequent drawing happens in logical coordinates.
-     * While vertical extension is on the clip covers the whole visible vertical range instead
-     * of stopping at rows 0 and 640, so renderers can paint the former bars.
+     * The clip always covers the whole visible vertical range — from {@link #visibleTopY()} to
+     * {@link #visibleBottomY()}, which is well below {@code 640} on a tall phone — so it can
+     * never cut away a screen that lays its chrome out on that range.
+     *
+     * <p>What paints into the former bars is a separate decision, and it stays with
+     * {@link #publishOverscan()}: the renderers extend sky and earth only as far as
+     * {@link Overscan} says, and that is reset while vertical extension is off. The clip
+     * therefore never turns the "fill screen" option back on; it only stops a wider clip from
+     * being the reason a control is invisible.
      *
      * @param g the graphics context in window coordinates
      */
     public void apply(Graphics2D g) {
         g.translate(offsetX, offsetY);
         g.scale(scale, scale);
-        int top = 0;
-        int bottom = Playfield.HEIGHT;
-        if (extendVertical) {
-            top = (int) Math.floor(Math.min(0, visibleTopY()));
-            bottom = (int) Math.ceil(Math.max(Playfield.HEIGHT, visibleBottomY()));
-        }
+        int top = (int) Math.floor(Math.min(0, visibleTopY()));
+        int bottom = (int) Math.ceil(Math.max(Playfield.HEIGHT, visibleBottomY()));
         g.clipRect(0, top, Playfield.WIDTH, bottom - top);
     }
 

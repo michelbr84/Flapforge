@@ -1003,6 +1003,38 @@ public enum StringKey {
     MENU_NAV_GOALS("menu.nav_goals"),
     /** Goals screen: title. */
     GOALS_TITLE("goals.title"),
+    /** Goals screen, Collections tab: the Birds row's description. */
+    GOALS_COLLECTIONS_DESC_BIRDS("goals.collections.desc.birds"),
+    /** Goals screen, Collections tab: the Abilities row's description. */
+    GOALS_COLLECTIONS_DESC_ABILITIES("goals.collections.desc.abilities"),
+    /** Goals screen, Collections tab: the Worlds row's description. */
+    GOALS_COLLECTIONS_DESC_WORLDS("goals.collections.desc.worlds"),
+    /** Goals screen, Collections tab: the Challenges row's description. */
+    GOALS_COLLECTIONS_DESC_CHALLENGES("goals.collections.desc.challenges"),
+    /** Goals screen, Collections tab: the Colours row's description. */
+    GOALS_COLLECTIONS_DESC_COSMETICS("goals.collections.desc.cosmetics"),
+    /** Goals screen, Collections tab: the Achievements row's description. */
+    GOALS_COLLECTIONS_DESC_ACHIEVEMENTS("goals.collections.desc.achievements"),
+    /** Goals screen, Collections tab: the Upgrades row's description. */
+    GOALS_COLLECTIONS_DESC_UPGRADES("goals.collections.desc.upgrades"),
+    /** Goals screen, Collections tab: the Everything row's description. */
+    GOALS_COLLECTIONS_DESC_ALL("goals.collections.desc.all"),
+    /** Goals screen, Collections tab: the line under the rows. */
+    GOALS_COLLECTIONS_FOOTER("goals.collections.footer"),
+    /** Goals screen, Challenges tab: the World pair card's label. */
+    GOALS_FIELD_WORLD("goals.field.world"),
+    /** Goals screen, Challenges tab: the Tier pair card's label. */
+    GOALS_FIELD_TIER("goals.field.tier"),
+    /** Goals screen, Challenges tab: the rules row's label. */
+    GOALS_FIELD_RULES("goals.field.rules"),
+    /** Goals screen, Challenges tab: the progress row's label. */
+    GOALS_FIELD_PROGRESS("goals.field.progress"),
+    /** Goals screen, Challenges tab: the reward row's label. */
+    GOALS_FIELD_REWARD("goals.field.reward"),
+    /** Goals screen, Challenges tab: the unlock row's label. */
+    GOALS_FIELD_UNLOCK("goals.field.unlock"),
+    /** Goals screen: a floored percentage, {@code {0}} the number. */
+    GOALS_PERCENT("goals.percent"),
     /** Profile screen: title. */
     PROFILE_TITLE("profile.title"),
     /**

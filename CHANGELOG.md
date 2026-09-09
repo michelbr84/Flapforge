@@ -12,6 +12,62 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+The mobile-surface release (M14): the game now uses the screen it is given.
+Until now the 420x640 logical playfield was both the box everything was laid
+out in *and* the box the renderer clipped to, so on a tall phone it sat
+centred inside the letterbox colour — 377 dead pixels above it and 377 below
+it at 1080x2400, with the footers parked in the middle of the glass. The
+surface is now elastic: the scale is still the uniform `min(w/420, h/640)` and
+nothing is ever stretched, but the logical band the game draws in grows and
+shrinks with the device, and it ends on the physical bottom edge where the
+navigation is pinned. The hub also gains its fifth section, **Goals**.
+
+### Added
+
+- **An elastic layout surface** (M14): `ui/layout/LayoutMetrics` turns the
+  real viewport into a safe viewport and then into the bands a screen lays out
+  against — a header region, a flexible content region and the persistent
+  bottom navigation — with `contentTop()`, `contentBottom()`, `navTop()` and
+  `aboveNavHeight()`, clamped so the content region never falls under 480 rows
+  and the navigation never overlaps the header. Every hub screen re-derives its
+  bands when the metrics change, and at the classic 420x640 surface every band
+  lands on exactly the constant it replaced.
+- **Safe-area support** (M14): Android reports `systemBars ∪ cutout ∪ gestures`
+  through `MainActivity` and `AndroidHost` into the screen stack, so a gesture
+  bar or a notch lifts the navigation off the glass instead of under it.
+- **The Goals section** (M14) as the hub's fifth tab, in the Shop/Birds/Play/
+  Forge language, with the five-item navigation and **Goals** on the gold plate
+  and no redundant Back button. **Challenges** is a carousel of cards with the
+  world, tier, rules, progress, reward and unlock a challenge actually carries,
+  and a gold call to action that starts it. **Achievements** is a scrolling list
+  under a live summary, each card with its name, description and the real date
+  it was unlocked. **Milestones** is a heading, the level bar and one row per
+  metric, with current, target and remaining. **Collections** is eight rows of
+  `owned / total (percent)` plus an Everything card. Every number comes from
+  the profile or from the shipped content — the collection totals are computed
+  at runtime, so they cannot disagree with the JSON — and the tabs speak `en`
+  and `pt_BR` through sixteen new string keys.
+
+### Changed
+
+- The world picker, the run summary, the statistics and the settings no longer
+  anchor their footers to a fixed `Playfield.HEIGHT - N`. They anchor to the
+  bottom of the elastic band, and the room a tall screen frees goes to the
+  scrolling region instead of to dead letterbox.
+- On a tall screen the world cards grow to fill the list and the run summary
+  spreads its rows, rather than one gap growing.
+
+### Fixed
+
+- The statistics screen drew the long prestige value right-aligned past the
+  panel border — 471 pixels of text in a 372-pixel column, starting at x = −75
+  and overprinting its own label. It now wraps on a word boundary inside the
+  row's inner margin.
+- `GoalsScreen` did not invalidate its layout when the navigation's top moved,
+  and the Forge, the bird selection and Goals each compared only two
+  coordinates when deciding whether their metrics had changed, which could
+  leave cached hit targets stale. All three now compare the whole value.
+
 ## 0.2.3 — 2026-09-09
 
 The forge release: the Upgrades screen becomes the **Forge** — three trees,

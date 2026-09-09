@@ -41,6 +41,7 @@ import io.github.michelbr84.flapforge.ui.component.TabBar;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Tooltip;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Shape;
@@ -103,13 +104,22 @@ public final class ShopScreen implements Screen {
     public static final int MARGIN = 12;
     /** Width of the content column. */
     public static final int CONTENT_W = Playfield.WIDTH - 2 * MARGIN;
-    /** Top of the category bar. */
+    /**
+     * Top of the category bar on the classic 420x640 surface, as an offset from the surface's
+     * first visible row; the live geometry comes from {@code LayoutMetrics}.
+     */
     public static final int TABS_TOP = 52;
     /** Height of the category bar. */
     public static final int TABS_H = 32;
-    /** First visible row of the card grid. */
+    /**
+     * First visible row of the card grid on the classic 420x640 surface, as an offset from the
+     * surface's first visible row; the live geometry comes from {@code LayoutMetrics}.
+     */
     public static final int GRID_TOP = 90;
-    /** Last visible row of the card grid. */
+    /**
+     * Last visible row of the card grid on the classic 420x640 surface; on an elastic surface
+     * the grid runs to the navigation band instead.
+     */
     public static final int GRID_BOTTOM = 446;
     /** Columns of cards. */
     public static final int COLUMNS = 2;
@@ -121,11 +131,17 @@ public final class ShopScreen implements Screen {
     public static final int GAP_Y = 10;
     /** Width of one card. */
     public static final int CARD_W = (CONTENT_W - GAP_X) / COLUMNS;
-    /** Top of the detail plaque. */
+    /**
+     * Top of the detail plaque on the classic 420x640 surface; on an elastic surface it rides
+     * above the call to action, which pins to the navigation band.
+     */
     public static final int DETAIL_TOP = 452;
     /** Height of the detail plaque: room for the name and three lines under it. */
     public static final int DETAIL_H = 72;
-    /** Top of the call to action. */
+    /**
+     * Top of the call to action on the classic 420x640 surface; on an elastic surface it pins
+     * above the navigation band.
+     */
     public static final int CTA_TOP = 530;
     /** Width of the call to action. */
     public static final int CTA_W = 340;
@@ -184,6 +200,18 @@ public final class ShopScreen implements Screen {
     private String shownLanguage;
     private String emptyText = "";
     private double scroll;
+    /** The metrics the bands were last laid out from; a surface change re-derives them. */
+    private LayoutMetrics laidOut;
+    /** The category bar's top: the surface's first visible row plus the classic offset. */
+    private int tabsTop;
+    /** First visible row of the card grid. */
+    private int gridTop;
+    /** Last visible row of the card grid: pinned above the detail plaque and the navigation. */
+    private int gridBottom;
+    /** The detail plaque's top. */
+    private int detailTop;
+    /** The call to action's top: pinned above the navigation band. */
+    private int ctaTop;
     private long ticks;
     private boolean reduceShown;
 
@@ -254,7 +282,6 @@ public final class ShopScreen implements Screen {
         header = new HubHeader(null);
         header.setOutline(ProceduralArt.letterboxColor(PALETTE));
 
-        tabs.setBounds(MARGIN, TABS_TOP, CONTENT_W, TABS_H);
         tabs.setAccented(true);
         for (String id : List.of(TAB_BIRDS, TAB_ABILITIES, TAB_WORLDS, TAB_FEATURES)) {
             tabs.add(id, "").setIcon(ShopArt.tab(id));
@@ -268,17 +295,42 @@ public final class ShopScreen implements Screen {
         offers.setGap(GAP_X, GAP_Y);
 
         cta = new CtaButton("", this::activateCta);
-        cta.setBounds((Playfield.WIDTH - CTA_W) / 2.0, CTA_TOP, CTA_W, CTA_H);
 
         SectionNav.build(nav, SectionNav.SHOP, new SectionNav.Routes(this::focusFirstOffer,
-                this::openBirds, this::play, this::openForge, this::openGoals));
+                this::openBirds, this::play, this::openForge, this::openGoals),
+                screens.metrics());
         nav.button(SectionNav.BIRDS).setEnabled(context != null);
         nav.button(SectionNav.PLAY).setEnabled(context != null);
         nav.button(SectionNav.FORGE).setEnabled(context != null);
         nav.button(SectionNav.GOALS).setEnabled(context != null);
 
+        relayout();
         shownLanguage = strings.language();
         refreshTexts();
+    }
+
+    /**
+     * Derives every band from the surface's {@link LayoutMetrics}: the header and the category
+     * bar pin to {@link LayoutMetrics#contentTop()}, the call to action and the navigation pin
+     * to {@link LayoutMetrics#navTop()}, and the card grid takes everything between them — the
+     * room a tall surface frees goes to the grid, never to a dead band above the bar. At the
+     * classic 420x640 surface the offsets reproduce the fixed constants exactly.
+     */
+    private void relayout() {
+        LayoutMetrics metrics = screens.metrics();
+        laidOut = metrics;
+        int surfaceTop = metrics.contentTop();
+        int navTop = metrics.navTop();
+        tabsTop = surfaceTop + TABS_TOP;
+        gridTop = surfaceTop + GRID_TOP;
+        gridBottom = navTop - (SectionNav.TOP - GRID_BOTTOM);
+        detailTop = navTop - (SectionNav.TOP - DETAIL_TOP);
+        ctaTop = navTop - (SectionNav.TOP - CTA_TOP);
+        header.setBounds(0, surfaceTop, Playfield.WIDTH, HubHeader.HEIGHT);
+        tabs.setBounds(MARGIN, tabsTop, CONTENT_W, TABS_H);
+        cta.setBounds((Playfield.WIDTH - CTA_W) / 2.0, ctaTop, CTA_W, CTA_H);
+        SectionNav.layoutRow(nav, metrics);
+        applyScroll();
     }
 
     // ------------------------------------------------------------------ accessors
@@ -299,6 +351,16 @@ public final class ShopScreen implements Screen {
      */
     public CardGrid offerGrid() {
         return offers;
+    }
+
+    /**
+     * The live last visible row of the card grid: {@link #GRID_BOTTOM} on the classic surface,
+     * pinned above the navigation band on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public int gridBottom() {
+        return gridBottom;
     }
 
     /**
@@ -422,7 +484,7 @@ public final class ShopScreen implements Screen {
      */
     public double maxScroll() {
         return Math.max(0, CardGrid.heightFor(offers.size(), COLUMNS, CARD_H, GAP_Y)
-                - (GRID_BOTTOM - GRID_TOP));
+                - (gridBottom - gridTop));
     }
 
     /**
@@ -496,7 +558,7 @@ public final class ShopScreen implements Screen {
             ShopCard card = new ShopCard(offer.id(), "", null);
             card.setOnAction(() -> buy(offer.id()));
             card.setArt(ShopArt.of(content, offer.kind(), offer.id()));
-            card.setViewport(GRID_TOP, GRID_BOTTOM);
+            card.setViewport(gridTop, gridBottom);
             offers.add(card);
         }
         applyScroll();
@@ -918,8 +980,8 @@ public final class ShopScreen implements Screen {
     private void applyScroll() {
         double contentHeight = CardGrid.heightFor(offers.size(), COLUMNS, CARD_H, GAP_Y);
         scroll = MathUtil.clamp(scroll, 0,
-                Math.max(0, contentHeight - (GRID_BOTTOM - GRID_TOP)));
-        offers.setBounds(MARGIN, GRID_TOP - scroll, CONTENT_W, contentHeight);
+                Math.max(0, contentHeight - (gridBottom - gridTop)));
+        offers.setBounds(MARGIN, gridTop - scroll, CONTENT_W, contentHeight);
         offers.layout();
     }
 
@@ -938,10 +1000,10 @@ public final class ShopScreen implements Screen {
         if (!(ring.focused() instanceof ShopCard card)) {
             return;
         }
-        if (card.y() < GRID_TOP) {
-            scrollBy(card.y() - GRID_TOP);
-        } else if (card.y() + card.height() > GRID_BOTTOM) {
-            scrollBy(card.y() + card.height() - GRID_BOTTOM);
+        if (card.y() < gridTop) {
+            scrollBy(card.y() - gridTop);
+        } else if (card.y() + card.height() > gridBottom) {
+            scrollBy(card.y() + card.height() - gridBottom);
         }
     }
 
@@ -1093,6 +1155,10 @@ public final class ShopScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        if (!screens.metrics().equals(laidOut)) {
+            // The surface moved under the shop (a desktop window resize): re-derive the bands.
+            relayout();
+        }
         ticks++;
         toasts.tick();
         header.tick();
@@ -1110,7 +1176,7 @@ public final class ShopScreen implements Screen {
             scrollFocusIntoView();
             refreshState();
         }
-        if (input.wheel() != 0 && input.mouseY() >= GRID_TOP && input.mouseY() <= GRID_BOTTOM) {
+        if (input.wheel() != 0 && input.mouseY() >= gridTop && input.mouseY() <= gridBottom) {
             scrollBy(-input.wheel() * (double) WHEEL_STEP);
         }
         UiNode under = ring.nodeAt(input.mouseX(), input.mouseY());
@@ -1148,19 +1214,19 @@ public final class ShopScreen implements Screen {
         tabs.render(g);
 
         Shape unclipped = g.getClip();
-        g.clipRect(0, GRID_TOP, Playfield.WIDTH, GRID_BOTTOM - GRID_TOP);
+        g.clipRect(0, gridTop, Playfield.WIDTH, gridBottom - gridTop);
         offers.render(g);
         g.setClip(unclipped);
         renderScrollbar(g);
         if (!emptyText.isEmpty() && shown.isEmpty()) {
             g.setFont(Fonts.regular(14));
             g.setColor(ProceduralArt.TEXT_MUTED);
-            TextPainter.drawCentered(g, emptyText, Playfield.WIDTH / 2.0, GRID_TOP + 40.0);
+            TextPainter.drawCentered(g, emptyText, Playfield.WIDTH / 2.0, gridTop + 40.0);
         }
 
-        ProceduralArt.plaque(g, MARGIN - 4, DETAIL_TOP, CONTENT_W + 8, DETAIL_H,
+        ProceduralArt.plaque(g, MARGIN - 4, detailTop, CONTENT_W + 8, DETAIL_H,
                 ProceduralArt.ButtonState.NORMAL);
-        double baseline = DETAIL_TOP + (double) DETAIL_FIRST_BASELINE;
+        double baseline = detailTop + (double) DETAIL_FIRST_BASELINE;
         for (int i = 0; i < detailLines.size(); i++) {
             String line = detailLines.get(i);
             g.setFont(i == 0 ? Fonts.bold(13) : Fonts.regular(11));
@@ -1168,7 +1234,7 @@ public final class ShopScreen implements Screen {
                     : line.equals(strings.get(StringKey.SHOP_CANNOT_AFFORD)) ? WARN
                             : ProceduralArt.TEXT_MUTED);
             Shape textClip = g.getClip();
-            g.clipRect(MARGIN, DETAIL_TOP, CONTENT_W, DETAIL_H);
+            g.clipRect(MARGIN, detailTop, CONTENT_W, DETAIL_H);
             TextPainter.draw(g, TextPainter.ellipsise(g, line, CONTENT_W - 8), MARGIN + 4.0,
                     baseline);
             g.setClip(textClip);
@@ -1191,10 +1257,10 @@ public final class ShopScreen implements Screen {
         if (max <= 0) {
             return;
         }
-        int trackH = GRID_BOTTOM - GRID_TOP;
+        int trackH = gridBottom - gridTop;
         double contentHeight = CardGrid.heightFor(offers.size(), COLUMNS, CARD_H, GAP_Y);
         int thumbH = (int) Math.max(SCROLLBAR_MIN_H, trackH * (trackH / contentHeight));
-        int thumbY = (int) Math.round(GRID_TOP + (trackH - thumbH) * (scroll / max));
+        int thumbY = (int) Math.round(gridTop + (trackH - thumbH) * (scroll / max));
         g.setColor(SCROLLBAR);
         g.fillRoundRect(SCROLLBAR_X, thumbY, SCROLLBAR_W, thumbH, SCROLLBAR_W, SCROLLBAR_W);
     }

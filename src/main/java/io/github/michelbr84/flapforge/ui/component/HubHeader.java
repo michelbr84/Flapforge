@@ -107,8 +107,8 @@ public class HubHeader extends Panel {
     @Override
     public void render(Graphics2D g) {
         g.setFont(Fonts.bold(TITLE_SIZE));
-        TextPainter.drawOutlined(g, title, TITLE_X, TITLE_BASELINE, Align.LEFT,
-                ProceduralArt.TEXT_LIGHT, outline, 2);
+        TextPainter.drawOutlined(g, title, TITLE_X, (int) Math.round(y()) + TITLE_BASELINE,
+                Align.LEFT, ProceduralArt.TEXT_LIGHT, outline, 2);
         super.render(g);
     }
 }

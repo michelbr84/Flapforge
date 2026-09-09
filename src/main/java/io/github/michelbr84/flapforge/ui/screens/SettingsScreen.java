@@ -35,6 +35,7 @@ import io.github.michelbr84.flapforge.ui.component.Slider;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.Toggle;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
+import io.github.michelbr84.flapforge.ui.layout.LayoutMetrics;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Shape;
@@ -81,12 +82,21 @@ public final class SettingsScreen implements Screen {
 
     /** Idle ticks after the last edit before the settings file is written. */
     public static final int SAVE_IDLE_TICKS = 45;
-    /** Top of the scrolling area. */
-    public static final int VIEW_TOP = 78;
-    /** Bottom of the scrolling area: the fixed footer bar starts below it. */
-    public static final int VIEW_BOTTOM = Playfield.HEIGHT - 62;
-    /** Top of the fixed footer bar that holds "restore defaults" and "back". */
-    public static final int FOOTER_TOP = Playfield.HEIGHT - 58;
+    /**
+     * Top of the scrolling area on the classic 420x640 surface, as an offset from the surface's
+     * first visible row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int VIEW_TOP = 78;
+    /**
+     * Bottom of the scrolling area on the classic 420x640 surface, as a distance below the
+     * surface's last usable row; on an elastic surface the view grows down to it.
+     */
+    private static final int VIEW_BOTTOM = Playfield.HEIGHT - 62;
+    /**
+     * Top of the fixed footer bar on the classic 420x640 surface, as a distance below the
+     * surface's last usable row; the live geometry comes from {@code LayoutMetrics}.
+     */
+    private static final int FOOTER_TOP = Playfield.HEIGHT - 58;
     /** Height of the footer buttons. */
     public static final int FOOTER_BUTTON_H = 42;
     /** Height of one settings row. */
@@ -119,14 +129,29 @@ public final class SettingsScreen implements Screen {
             Settings.MAX_FPS_UNCAPPED, Settings.MAX_FPS_MATCH_REFRESH);
 
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
+    /** Baseline of the title on the classic 420x640 surface, from the surface's first row. */
     private static final int TITLE_BASELINE = 52;
-    /** Band kept clear of toasts so they never cover the (much wider, translated) title. */
+    /**
+     * Band kept clear of toasts so they never cover the (much wider, translated) title, as an
+     * offset from the surface's first visible row.
+     */
     private static final int TOAST_TOP_INSET = 64;
     /** Where the pointer is reported to be while it is outside the scrolling band. */
     private static final double OFF_SCREEN = -10_000;
-    private static final Color SCROLLBAR = new Color(0xF4, 0xF8, 0xF8, 0x50);
+    /**
+     * The scrollbar's colours, kept legible: a track that shows only while the content
+     * overflows, and a thumb strong enough to read against the panel behind it. A thumb that
+     * stops short of the track's end is the "there is more below" sign the faint bar never was.
+     */
+    private static final Color SCROLLBAR_TRACK = new Color(0xF4, 0xF8, 0xF8, 0x30);
+    private static final Color SCROLLBAR_THUMB = new Color(0xF4, 0xF8, 0xF8, 0xC0);
+    private static final int SCROLLBAR_W = 6;
     private static final Color CAPTURE_DIM = new Color(0, 0, 0, 0xA0);
     private static final int CAPTURE_PANEL_H = 110;
+    /** Width of the Back button of the fixed footer bar. */
+    private static final int BACK_W = 150;
+    /** Width of the Restore defaults button of the fixed footer bar. */
+    private static final int RESTORE_W = CONTENT_W - BACK_W - 8;
 
     private final ScreenManager screens;
     private final GameContext context;
@@ -166,6 +191,18 @@ public final class SettingsScreen implements Screen {
     private boolean applying;
     private EventBus.Subscription settingsSubscription;
     private int idleTicks;
+    /** The metrics the bands were last laid out from; a surface change re-derives them. */
+    private LayoutMetrics laidOut;
+    /** The title's baseline: the surface's first visible row plus the classic offset. */
+    private int titleBaseline;
+    /** The band toasts start below: the surface's first visible row plus the classic inset. */
+    private int toastTopInset;
+    /** First visible row of the scrolling area. */
+    private int viewTop;
+    /** Last visible row of the scrolling area: the surface's last usable row minus the gap. */
+    private int viewBottom;
+    /** The footer bar's top: the surface's last usable row minus the classic distance. */
+    private int footerTop;
 
     /**
      * Creates the screen for a wired application.
@@ -269,17 +306,34 @@ public final class SettingsScreen implements Screen {
 
         // The two actions a player must always be able to reach live in a fixed footer bar
         // rather than at the end of a long scroll, so Back is one click away from anywhere.
-        int backWidth = 150;
-        int restoreWidth = CONTENT_W - backWidth - 8;
         restore = new Button("", this::restoreDefaults);
         restore.setFontSize(16);
-        restore.setBounds(CONTENT_X, FOOTER_TOP, restoreWidth, FOOTER_BUTTON_H);
         footerRing.add(restore);
         back = new Button("", screens::pop);
         back.setFontSize(16);
-        back.setBounds(CONTENT_X + restoreWidth + 8, FOOTER_TOP, backWidth, FOOTER_BUTTON_H);
         footerRing.add(back);
+        relayout();
         refreshTexts();
+    }
+
+    /**
+     * Derives every band from the surface's {@link LayoutMetrics}: the title, the toast band and
+     * the top of the scrolling area pin to {@link LayoutMetrics#contentTop()}, the footer bar
+     * pins to {@link LayoutMetrics#contentBottom()}, and the scrolling area keeps its classic
+     * gap above the footer and grows down into whatever the surface frees — never into a dead
+     * band. At the classic 420x640 surface the offsets reproduce the fixed constants exactly.
+     */
+    private void relayout() {
+        LayoutMetrics metrics = screens.metrics();
+        laidOut = metrics;
+        int surfaceTop = metrics.contentTop();
+        titleBaseline = surfaceTop + TITLE_BASELINE;
+        toastTopInset = surfaceTop + TOAST_TOP_INSET;
+        viewTop = surfaceTop + VIEW_TOP;
+        viewBottom = metrics.contentBottom() - (Playfield.HEIGHT - VIEW_BOTTOM);
+        footerTop = metrics.contentBottom() - (Playfield.HEIGHT - FOOTER_TOP);
+        restore.setBounds(CONTENT_X, footerTop, RESTORE_W, FOOTER_BUTTON_H);
+        back.setBounds(CONTENT_X + RESTORE_W + 8, footerTop, BACK_W, FOOTER_BUTTON_H);
     }
 
     private ListView languageRow() {
@@ -373,7 +427,7 @@ public final class SettingsScreen implements Screen {
             setter.accept(v);
             apply();
             particles.emitUiSparkle(toggle.x() + toggle.width() - Toggle.PILL_WIDTH / 2.0,
-                    toggle.centerY() + VIEW_TOP - scroll, PALETTE.accent());
+                    toggle.centerY() + viewTop - scroll, PALETTE.accent());
         });
         toggles.put(id, toggle);
         return toggle;
@@ -605,6 +659,26 @@ public final class SettingsScreen implements Screen {
     }
 
     /**
+     * The live top of the scrolling area: {@code VIEW_TOP} on the classic surface, pinned to the
+     * surface's first visible row on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public int viewTop() {
+        return viewTop;
+    }
+
+    /**
+     * The live bottom of the scrolling area: {@code VIEW_BOTTOM} on the classic surface, pinned
+     * above the footer bar on an elastic one.
+     *
+     * @return logical pixels
+     */
+    public int viewBottom() {
+        return viewBottom;
+    }
+
+    /**
      * Where a scrolled row currently sits on screen — what a click has to aim at, which is not
      * the row's own {@code y} because the content is scrolled under a clip.
      *
@@ -613,7 +687,7 @@ public final class SettingsScreen implements Screen {
      */
     public double screenY(UiNode node) {
         Objects.requireNonNull(node, "node");
-        return node.centerY() + VIEW_TOP - scroll;
+        return node.centerY() + viewTop - scroll;
     }
 
     /**
@@ -624,7 +698,7 @@ public final class SettingsScreen implements Screen {
      */
     public boolean isRowVisible(UiNode node) {
         double y = screenY(node);
-        return y - node.height() / 2 >= VIEW_TOP && y + node.height() / 2 <= VIEW_BOTTOM;
+        return y - node.height() / 2 >= viewTop && y + node.height() / 2 <= viewBottom;
     }
 
     /**
@@ -878,6 +952,10 @@ public final class SettingsScreen implements Screen {
 
     @Override
     public void tick(InputFrame input) {
+        if (!screens.metrics().equals(laidOut)) {
+            // The surface moved under the screen (a desktop window resize): re-derive the bands.
+            relayout();
+        }
         toasts.tick();
         particles.update(1.0 / Playfield.TICK_RATE);
         if (capturing != null) {
@@ -898,7 +976,7 @@ public final class SettingsScreen implements Screen {
             UiNode activated = ring.handle(local);
             if (activated instanceof Button) {
                 particles.emitUiSparkle(activated.centerX(),
-                        activated.centerY() + VIEW_TOP - scroll, PALETTE.accent());
+                        activated.centerY() + viewTop - scroll, PALETTE.accent());
             }
             for (int i = 0; i < rows.size(); i++) {
                 UiNode row = rows.get(i);
@@ -977,12 +1055,12 @@ public final class SettingsScreen implements Screen {
                 || input.isMouseHeld(Keys.BUTTON_LEFT)
                 || input.isMouseJustReleased(Keys.BUTTON_LEFT);
         if (pointerActive) {
-            boolean inside = my >= VIEW_TOP && my <= VIEW_BOTTOM;
+            boolean inside = my >= viewTop && my <= viewBottom;
             contentMouseX = inside ? mx : OFF_SCREEN;
-            contentMouseY = inside ? my - VIEW_TOP + scroll : OFF_SCREEN;
+            contentMouseY = inside ? my - viewTop + scroll : OFF_SCREEN;
         }
         if (moved || input.isMouseJustPressed(Keys.BUTTON_LEFT)) {
-            setFooterActive(my >= FOOTER_TOP);
+            setFooterActive(my >= footerTop);
         }
         if (!footerActive && input.isJustPressed(InputAction.DOWN) && ring.focused() == lastRow) {
             setFooterActive(true);
@@ -1026,7 +1104,7 @@ public final class SettingsScreen implements Screen {
     }
 
     private double maxScroll() {
-        return Math.max(0, contentHeight - (VIEW_BOTTOM - VIEW_TOP));
+        return Math.max(0, contentHeight - (viewBottom - viewTop));
     }
 
     private void scrollFocusIntoView() {
@@ -1034,7 +1112,7 @@ public final class SettingsScreen implements Screen {
         if (focused == null) {
             return;
         }
-        double viewHeight = VIEW_BOTTOM - VIEW_TOP;
+        double viewHeight = viewBottom - viewTop;
         if (focused.y() < scroll) {
             scroll = focused.y() - ROW_GAP;
         } else if (focused.y() + focused.height() > scroll + viewHeight) {
@@ -1049,17 +1127,17 @@ public final class SettingsScreen implements Screen {
         ProceduralArt.fillBackground(g, PALETTE);
         g.setFont(Fonts.bold(34));
         TextPainter.drawOutlined(g, strings.get(StringKey.SETTINGS_TITLE),
-                Playfield.WIDTH / 2.0, TITLE_BASELINE, Align.CENTER, ProceduralArt.TEXT_LIGHT,
+                Playfield.WIDTH / 2.0, titleBaseline, Align.CENTER, ProceduralArt.TEXT_LIGHT,
                 ProceduralArt.letterboxColor(PALETTE), 2);
 
         // A panel behind the rows: the world backdrop is a bright sky with clouds drifting
         // through it, and light grey labels on top of that are unreadable.
-        ProceduralArt.panel(g, PANEL_X, VIEW_TOP - PANEL_PAD, Playfield.WIDTH - 2 * PANEL_X,
-                VIEW_BOTTOM - VIEW_TOP + 2 * PANEL_PAD);
+        ProceduralArt.panel(g, PANEL_X, viewTop - PANEL_PAD, Playfield.WIDTH - 2 * PANEL_X,
+                viewBottom - viewTop + 2 * PANEL_PAD);
 
         Shape oldClip = g.getClip();
-        g.clipRect(0, VIEW_TOP, Playfield.WIDTH, VIEW_BOTTOM - VIEW_TOP);
-        double dy = VIEW_TOP - scroll;
+        g.clipRect(0, viewTop, Playfield.WIDTH, viewBottom - viewTop);
+        double dy = viewTop - scroll;
         g.translate(0.0, dy);
         for (int i = 0; i < headers.size(); i++) {
             headers.get(i).render(g);
@@ -1071,7 +1149,7 @@ public final class SettingsScreen implements Screen {
         renderScrollbar(g);
         footerRing.render(g);
         particles.render(g);
-        toasts.render(g, TOAST_TOP_INSET);
+        toasts.render(g, toastTopInset);
         if (capturing != null) {
             renderCapture(g);
         }
@@ -1082,17 +1160,21 @@ public final class SettingsScreen implements Screen {
         if (max <= 0) {
             return;
         }
-        int trackH = VIEW_BOTTOM - VIEW_TOP;
+        int trackH = viewBottom - viewTop;
         int thumbH = (int) Math.max(24, trackH * (trackH / contentHeight));
-        int thumbY = VIEW_TOP + (int) Math.round((trackH - thumbH) * (scroll / max));
-        g.setColor(SCROLLBAR);
-        g.fillRoundRect(Playfield.WIDTH - 10, thumbY, 4, thumbH, 4, 4);
+        int thumbY = viewTop + (int) Math.round((trackH - thumbH) * (scroll / max));
+        g.setColor(SCROLLBAR_TRACK);
+        g.fillRoundRect(Playfield.WIDTH - 10 - SCROLLBAR_W, viewTop, SCROLLBAR_W, trackH,
+                SCROLLBAR_W, SCROLLBAR_W);
+        g.setColor(SCROLLBAR_THUMB);
+        g.fillRoundRect(Playfield.WIDTH - 10 - SCROLLBAR_W, thumbY, SCROLLBAR_W, thumbH,
+                SCROLLBAR_W, SCROLLBAR_W);
     }
 
     private void renderCapture(Graphics2D g) {
         Overscan.fillVisible(g, CAPTURE_DIM);
         int px = 40;
-        int py = (Playfield.HEIGHT - CAPTURE_PANEL_H) / 2;
+        int py = (viewTop + viewBottom - CAPTURE_PANEL_H) / 2;
         int pw = Playfield.WIDTH - 2 * px;
         ProceduralArt.panel(g, px, py, pw, CAPTURE_PANEL_H);
         g.setFont(Fonts.bold(20));
