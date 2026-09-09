@@ -39,7 +39,12 @@ yourself with `ff-vision`'s diff report in hand.
 - **Icons are procedural** (`render/ProceduralArt.java`, `ui/component/IconPainter.java`).
   Do not add image assets; the project is procedural-first.
 - The newest screens are the model: read `ui/screens/ShopScreen.java` and
-  `ui/screens/BirdSelectionScreen.java` first and match their structure.
+  `ui/screens/BirdSelectionScreen.java` first and match their structure. The Shop was
+  rebuilt in M12 (`v0.2.2`) into `ShopScreen` + `ShopArt` + `ShopCard` — **that three-way
+  split (screen draws, art package paints, card owns one item's layout) is the pattern to
+  copy**, not the old single-file screen.
+- `ui/component/TabBar.java` gained glyphs and a gold accent in M12. The Forge's tree tabs
+  want exactly that treatment — extend it, do not write a parallel tab widget.
 - Screens are registered by being pushed: `ui/ScreenManager.push(...)` — see
   `ui/screens/MainMenuScreen.java:389` and `ui/screens/BirdSelectionScreen.java:895`.
 - `SectionNav` already has a `FORGE` entry (`ui/component/SectionNav.java:24`).
