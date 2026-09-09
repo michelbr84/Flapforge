@@ -70,6 +70,25 @@ stat it claims on the sheet a run is started with; `ForgePersistenceTest`
 proves a tree and a level survive a restart; a perf test pins a Forge frame
 under the menu allocation budget. See `CHANGELOG.md`.
 
+## What shipped in 0.2.4
+
+The mobile-surface release (2026-09-09): the game uses the screen it is given.
+The 420x640 logical playfield was both the layout box and the clip box, so a
+tall phone centred it inside the letterbox colour with 377 dead pixels above
+and below. `ui/layout/LayoutMetrics` now turns the real viewport into a safe
+viewport and then into a header region, a flexible content region and the
+persistent bottom navigation; the scale stays the uniform `min(w/420, h/640)`
+and nothing is stretched, but the logical band grows with the device and ends
+on the physical bottom edge. Android's `systemBars`, cutout and gesture insets
+reach the stack, so a gesture bar lifts the navigation. Every hub screen
+re-derives its bands when the metrics change and reproduces the classic
+constants exactly at 420x640. The hub also gains its fifth section, **Goals**
+(M14) — Challenges as a carousel, Achievements as a scrolling list, Milestones
+as metric rows, Collections as progress rows — every value read from the
+profile or the shipped content. `AspectRatioTest` sweeps 1.48 through 21:9;
+`ResponsiveSecondaryTest` pins the four migrated screens at the classic size
+and at 1080x2400. See `CHANGELOG.md`.
+
 ## Deferred, with next-step anchors
 
 * **Leaderboards** — needs online infrastructure 1.0 does not have. `runHistory` (capped

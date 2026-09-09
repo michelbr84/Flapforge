@@ -12,6 +12,8 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+## 0.2.4 — 2026-09-09
+
 The mobile-surface release (M14): the game now uses the screen it is given.
 Until now the 420x640 logical playfield was both the box everything was laid
 out in *and* the box the renderer clipped to, so on a tall phone it sat
