@@ -51,35 +51,96 @@ class ForgeNodeCardTest {
      */
     @Test
     void withoutABadgeTheTitleKeepsTheWholeCardRoom() {
-        // The title under test must sit in the band this test measures: wider than the badge
-        // room, narrower than the card's own.
-        ForgeNodeCard card = card(TITLE, "", false);
-        int textRoom = cellWidth() - ForgeNodeCard.BADGE_INSET - textLeft();
-        BufferedImage frame = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = frame.createGraphics();
-        g.setFont(Fonts.bold(ForgeNodeCard.TITLE_SIZE));
-        int fullWidth = TextPainter.width(g, TITLE);
-        g.dispose();
-        assertTrue(fullWidth <= textRoom, () -> "the title left the card room this test"
-                + " assumes: " + fullWidth + " > " + textRoom);
-        assertEquals(TITLE, render(card), "no badge, no narrower room");
+        // No two machines hand out the same font metrics, so how wide this title is cannot be
+        // a premise — on the CI runner it is a sixth wider than it is here. What no font can
+        // move is the geometry: the badge's width and its pad come out of the title's room
+        // when there is a badge, and nothing does when there is not.
+        ForgeNodeCard withBadge = card(TITLE, PRICE, true);
+        int badgeRoom = cardRight() - ForgeNodeCard.BADGE_INSET - badgeWidth(withBadge)
+                - ForgeNodeCard.TITLE_BADGE_PAD - textLeft();
+        int wholeRoom = cardRight() - ForgeNodeCard.BADGE_INSET - textLeft();
+        assertTrue(wholeRoom > badgeRoom,
+                () -> "the card grew no room when the badge went away: " + wholeRoom
+                        + " <= " + badgeRoom);
+
+        // And the drawing agrees with the geometry: dropping the badge never cuts the name
+        // shorter, and the name it draws stops at the card's own inset, not at the badge's.
+        String drawnWithBadge = render(withBadge);
+        String drawnWhole = render(card(TITLE, "", false));
+        assertTrue(prefixOf(drawnWhole).length() >= prefixOf(drawnWithBadge).length(),
+                () -> "no badge, yet the name kept the badge's room: " + drawnWithBadge
+                        + " / " + drawnWhole);
+        int insetRight = cardRight() - ForgeNodeCard.BADGE_INSET;
+        assertTrue(textLeft() + widthOfTitle(drawnWhole) <= insetRight,
+                () -> "the name ran past the card's inset: " + widthOfTitle(drawnWhole)
+                        + " > " + wholeRoom);
+    }
+
+    /**
+     * The cut has to hold at any size the player picks (D25) — a larger text scale is the same
+     * problem a wider font is, and the CI runner's font is a sixth wider than this machine's,
+     * which is how the first version of this test passed here and failed there.
+     */
+    @Test
+    void aBiggerTextScaleStillEndsInAnEllipsisLeftOfTheBadge() {
+        double scale = Fonts.textScale();
+        try {
+            Fonts.setTextScale(Fonts.MAX_TEXT_SCALE);
+            ForgeNodeCard card = card(TITLE, PRICE, true);
+            String shown = render(card);
+            assertTrue(shown.endsWith(TextPainter.ELLIPSIS),
+                    () -> "the title was drawn whole over the badge: " + shown);
+            assertClearOfTheBadge(card, shown);
+        } finally {
+            Fonts.setTextScale(scale);
+        }
     }
 
     private void assertClearOfTheBadge(ForgeNodeCard card, String shown) {
-        BufferedImage frame = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = frame.createGraphics();
-        ProceduralArt.prepare(g);
-        g.setFont(Fonts.bold(ForgeNodeCard.TITLE_SIZE));
-        int titleRight = textLeft() + TextPainter.width(g, shown);
-        g.setFont(Fonts.bold(ForgeNodeCard.BADGE_SIZE));
-        int badgeWidth = TextPainter.width(g, PRICE)
-                + (card.hasCoinBadge() ? ForgeNodeCard.COIN_ROOM : 0);
-        int badgeLeft = UpgradeTreeScreen.MARGIN + cellWidth() - ForgeNodeCard.BADGE_INSET
-                - badgeWidth;
-        g.dispose();
+        int titleRight = textLeft() + widthOfTitle(shown);
+        int badgeLeft = cardRight() - ForgeNodeCard.BADGE_INSET - badgeWidth(card);
         assertTrue(titleRight + ForgeNodeCard.TITLE_BADGE_PAD <= badgeLeft,
                 () -> "the title ends at " + titleRight + " but the badge starts at "
                         + badgeLeft);
+    }
+
+    /** The title as drawn, with the ellipsis of a cut name taken off. */
+    private static String prefixOf(String shown) {
+        return shown.endsWith(TextPainter.ELLIPSIS)
+                ? shown.substring(0, shown.length() - TextPainter.ELLIPSIS.length())
+                : shown;
+    }
+
+    /** The width the price badge takes on a card: the price, and the coin in front of it. */
+    private static int badgeWidth(ForgeNodeCard card) {
+        BufferedImage frame = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = frame.createGraphics();
+        try {
+            ProceduralArt.prepare(g);
+            g.setFont(Fonts.bold(ForgeNodeCard.BADGE_SIZE));
+            return (int) Math.ceil(TextPainter.width(g, PRICE))
+                    + (card.hasCoinBadge() ? ForgeNodeCard.COIN_ROOM : 0);
+        } finally {
+            g.dispose();
+        }
+    }
+
+    /** The width the title's font gives a string. */
+    private static int widthOfTitle(String text) {
+        BufferedImage frame = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = frame.createGraphics();
+        try {
+            ProceduralArt.prepare(g);
+            g.setFont(Fonts.bold(ForgeNodeCard.TITLE_SIZE));
+            return (int) Math.ceil(TextPainter.width(g, text));
+        } finally {
+            g.dispose();
+        }
+    }
+
+    /** The right edge of the card's own room, before the badge's inset. */
+    private static int cardRight() {
+        return UpgradeTreeScreen.MARGIN + cellWidth();
     }
 
     /** A card in the flight tree's own cell geometry. */

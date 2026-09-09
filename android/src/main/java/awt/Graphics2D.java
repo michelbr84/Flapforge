@@ -138,6 +138,29 @@ public class Graphics2D {
     }
 
     /**
+     * Copies this context, so a nested transform can be undone without touching this one
+     * (census: the Forge header draws its scene scaled). The copy shares the canvas but owns
+     * its own matrix, clip and paint state, so nothing it does is visible here and nothing it
+     * does has to be reversed — undoing a {@code scale} with its inverse leaves a rounding
+     * residue in this context's matrix, which costs every later draw of the frame a
+     * transformed path.
+     *
+     * @return an independent context over the same canvas
+     */
+    public Graphics2D create() {
+        Graphics2D copy = new Graphics2D(canvas);
+        copy.matrix.set(matrix);
+        copy.paintState = paintState;
+        copy.font = font;
+        copy.stroke = stroke;
+        copy.antialias = antialias;
+        copy.textAntialias = textAntialias;
+        copy.nearestNeighbourImages = nearestNeighbourImages;
+        copy.clipPaths = clipPaths.length == 0 ? clipPaths : clipPaths.clone();
+        return copy;
+    }
+
+    /**
      * Sets the paint state to a solid colour (census: the dominant state call).
      *
      * @param color the colour

@@ -47,7 +47,6 @@ import io.github.michelbr84.flapforge.ui.component.Tooltip;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Shape;
-import java.awt.geom.AffineTransform;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -1206,14 +1205,20 @@ public final class UpgradeTreeScreen implements Screen {
      * @param alpha the frame's blend factor
      */
     private void renderHeader(Graphics2D g, double alpha) {
-        Shape clip = g.getClip();
-        AffineTransform original = g.getTransform();
-        g.clipRect(0, 0, Playfield.WIDTH, HEADER_H);
-        g.translate(SCENE_TX, SCENE_TY);
-        g.scale(SCENE_SCALE, SCENE_SCALE);
-        scene.render(g, alpha, MathUtil.lerp(prevBob, bob, alpha), ticks);
-        g.setTransform(original);
-        g.setClip(clip);
+        // The scene is drawn small, so it wants a nested transform — and it wants it on a
+        // copy: undoing a scale with its inverse leaves a rounding residue in the matrix, and
+        // a context that is no longer exactly axis-aligned costs every later draw of the frame
+        // a transformed path. The copy also takes the header's clip with it, so the caller's
+        // clip needs no saving either.
+        Graphics2D sceneContext = (Graphics2D) g.create();
+        try {
+            sceneContext.clipRect(0, 0, Playfield.WIDTH, HEADER_H);
+            sceneContext.translate(SCENE_TX, SCENE_TY);
+            sceneContext.scale(SCENE_SCALE, SCENE_SCALE);
+            scene.render(sceneContext, alpha, MathUtil.lerp(prevBob, bob, alpha), ticks);
+        } finally {
+            sceneContext.dispose();
+        }
         g.setFont(Fonts.bold(26));
         TextPainter.drawOutlined(g, strings.get(StringKey.UPGRADES_SCREEN_TITLE), MARGIN,
                 TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,

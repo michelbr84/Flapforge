@@ -79,6 +79,16 @@ both are green.
   `AndroidInputBridge.move()` and its drag test.
 - Changing any physics, price or reward number invalidates `docs/BALANCING.md`
   measurements. Re-measure with `./gradlew balancing -PtoolArgs="..."` in the same change.
+- **Never assert a measured text width against a literal.** Until a font is installed the
+  family is the logical `SansSerif`, so `TextPainter.width` is the runner's font, not yours:
+  CI's is ~a sixth wider and a test built on "this string is N px here" passed locally and
+  failed on `ubuntu-latest`. Assert the geometry (rooms, edges, monotonicity) or run the same
+  assertion at `Fonts.setTextScale(Fonts.MAX_TEXT_SCALE)`, which is the same problem.
+- **The Android shim has no `AffineTransform`** (`android/src/main/java/awt/`), so no
+  `getTransform`/`setTransform`. A nested transform goes on `g.create()` and is thrown away
+  with `dispose()`: undoing a `scale` with its inverse leaves a rounding residue in the
+  matrix, and a context that is no longer exactly axis-aligned costs every later draw a
+  transformed path — the Forge frame went from 27 KB to 131 KB of allocation that way.
 
 ## Docs
 
