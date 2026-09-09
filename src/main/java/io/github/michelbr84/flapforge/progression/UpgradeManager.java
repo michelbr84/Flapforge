@@ -44,6 +44,8 @@ public final class UpgradeManager {
 
     private final ProgressionManager progression;
     private final SaveTrigger save;
+    /** The tree-unlock route, built on first use and sharing this manager's write path. */
+    private UnlockManager unlocks;
 
     /**
      * Creates a manager.
@@ -260,6 +262,169 @@ public final class UpgradeManager {
             }
         }
         return true;
+    }
+
+    /**
+     * Whether the tree a node belongs to is still locked for a profile (M13).
+     *
+     * <p>A node is never an unlockable; what gates it is {@code tree:<tree>}. A locked tree cannot
+     * be bought through {@link #buy} at all, so the Forge offers the tree itself instead.
+     *
+     * @param profile the profile to ask
+     * @param treeId the bare tree id, for example {@code economy}
+     * @return {@code true} when {@code tree:<treeId>} is not in {@code profile.unlocked}
+     */
+    public static boolean isTreeLocked(PlayerProfile profile, String treeId) {
+        Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(treeId, "treeId");
+        return !profile.isUnlocked(TreeDef.NAMESPACE + treeId);
+    }
+
+    /**
+     * The unlock id of a tree.
+     *
+     * @param treeId the bare tree id
+     * @return the namespaced id, {@code tree:<treeId>}
+     */
+    public static String treeUnlockId(String treeId) {
+        Objects.requireNonNull(treeId, "treeId");
+        return TreeDef.NAMESPACE + treeId;
+    }
+
+    /**
+     * The price of opening a tree, or {@code -1} when the tree is unknown or is not for sale
+     * (M13).
+     *
+     * @param treeId the bare tree id
+     * @param content the loaded content
+     * @return the price in coins, or {@code -1}
+     */
+    public long treeUnlockPrice(String treeId, GameContent content) {
+        return unlocks().priceOf(treeUnlockId(treeId), content);
+    }
+
+    /**
+     * Whether the wallet covers opening a tree right now (M13).
+     *
+     * <p>A tree nobody owns and nobody can pay for can still be free: {@code false} is also the
+     * answer for a tree the profile already owns, because there is nothing left to buy.
+     *
+     * @param profile the profile to price against
+     * @param treeId the bare tree id
+     * @param content the loaded content
+     * @return {@code true} when the tree is for sale and either already earned or affordable
+     */
+    public boolean canAffordTreeUnlock(PlayerProfile profile, String treeId, GameContent content) {
+        if (!isTreeLocked(profile, treeId)) {
+            return false;
+        }
+        if (isTreeEarned(profile, treeId, content)) {
+            return true;
+        }
+        long price = treeUnlockPrice(treeId, content);
+        if (price < 0) {
+            return false;
+        }
+        return Wallet.of(profile).canAfford(UnlockManager.currencyOf(content), price);
+    }
+
+    /**
+     * Whether a locked tree has already been earned by playing and is only missing the bookkeeping
+     * (M13).
+     *
+     * <p>{@code tree:forge} is an {@code any_of} of {@code world_cleared wind_valley} and a
+     * {@code purchase}: the coin branch is the shortcut, not the requirement. {@link
+     * UnlockEvaluator} never reports a {@code purchase} as satisfied, so a profile that has
+     * cleared the world satisfies the tree and would be granted it by the unlock step of the next
+     * run or purchase. Until that step runs the unlock is still missing from
+     * {@code profile.unlocked} — which is exactly what a save carried over from a build that
+     * predates the tree looks like. Reading the condition here is what stops the Forge from
+     * charging 900 coins for something the player already earned.
+     *
+     * @param profile the profile to ask
+     * @param treeId the bare tree id
+     * @param content the loaded content
+     * @return {@code true} when the tree is locked but its non-purchase branch is satisfied
+     */
+    public boolean isTreeEarned(PlayerProfile profile, String treeId, GameContent content) {
+        if (!isTreeLocked(profile, treeId)) {
+            return false;
+        }
+        return unlocks().evaluator(content).evaluate(profile).contains(treeUnlockId(treeId));
+    }
+
+    /**
+     * Grants every tree unlock a profile has already earned and writes it once (M13).
+     *
+     * <p>This is the same reconciliation the unlock step of a finished run performs, run on
+     * demand and limited to trees: a screen that is about to offer {@code tree:<id>} for coins
+     * first gives away what the player has already paid for in play. It is idempotent — a profile
+     * with nothing owed produces no grant and no write — so a screen may call it whenever it
+     * rebuilds.
+     *
+     * @param profile the profile to reconcile
+     * @param content the loaded content
+     * @return the tree unlock ids granted by this call, empty when there was nothing to grant
+     */
+    public List<String> claimEarnedTrees(PlayerProfile profile, GameContent content) {
+        Objects.requireNonNull(profile, "profile");
+        List<String> granted = new ArrayList<>();
+        for (String id : unlocks().evaluator(content).evaluate(profile)) {
+            if (id.startsWith(TreeDef.NAMESPACE) && profile.unlock(id)) {
+                granted.add(id);
+            }
+        }
+        if (!granted.isEmpty()) {
+            // The same trailing step a purchase runs: a tree in the collection counters can
+            // satisfy the next unlockable, and an achievement can read the trees owned.
+            progression.applyPurchase(profile);
+            save.saveNow();
+        }
+        return Collections.unmodifiableList(granted);
+    }
+
+    /**
+     * Buys the tree unlock that lets one of its nodes be bought (M13): the same atomic route the
+     * shop uses, reached through {@link UnlockManager#purchase}.
+     *
+     * <p>The Forge is the second screen that sells a tree. Going through the same manager — rather
+     * than unlocking the profile and spending the wallet by hand — is what makes a tree bought
+     * here land in the save byte-for-byte as one bought in the shop. {@code ALREADY_OWNED} and
+     * {@code INSUFFICIENT_FUNDS} are refused before the debit, exactly as they are there.
+     *
+     * <p>A tree already earned by play is never charged for: {@link #claimEarnedTrees} runs first
+     * and, when it grants this very tree, the purchase is reported as a free {@code OK} at cost
+     * {@code 0} — the trailing pipeline has already run inside the claim, which is why the
+     * {@link ProgressionOutcome} here is {@link ProgressionOutcome#EMPTY}. That is the guard
+     * against a profile carried over from a build without the tree paying the coin shortcut for
+     * something it had already unlocked.
+     *
+     * @param profile the profile to charge and grant into
+     * @param treeId the bare tree id, for example {@code economy}
+     * @param content the loaded content
+     * @return what happened; only {@link PurchaseStatus#OK} changed the profile
+     */
+    public PurchaseResult buyTree(PlayerProfile profile, String treeId, GameContent content) {
+        if (isTreeLocked(profile, treeId)
+                && claimEarnedTrees(profile, content).contains(treeUnlockId(treeId))) {
+            return new PurchaseResult(PurchaseStatus.OK, treeUnlockId(treeId), 0, 0,
+                    Wallet.of(profile).balance(UnlockManager.currencyOf(content)),
+                    List.of(treeUnlockId(treeId)), ProgressionOutcome.EMPTY);
+        }
+        return unlocks().purchase(profile, treeUnlockId(treeId), content);
+    }
+
+    /**
+     * The unlock manager behind the tree-unlock route, sharing this manager's progression and save
+     * triggers so both routes persist identically.
+     *
+     * @return the manager
+     */
+    private UnlockManager unlocks() {
+        if (unlocks == null) {
+            unlocks = new UnlockManager(progression, save);
+        }
+        return unlocks;
     }
 
     /**

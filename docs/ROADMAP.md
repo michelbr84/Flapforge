@@ -55,6 +55,21 @@ Shop on the gold plate. What the profile has bought stays in the catalogue,
 badged owned. `WorldSwatch` is promoted out of the World Select. See
 `CHANGELOG.md`.
 
+## What shipped in 0.2.3
+
+The forge release (2026-09-09): the Upgrades screen rebuilt as the **Forge**
+(M13) — the `UpgradeTreeScreen` in five bands (compact header with the wallet
+and the forge scene, the three tree tabs, the scrolling tree viewport with
+tier pills and prerequisite elbows, the detail panel, the hub's
+`SectionNav`), the **attribute summary** with a live resolved value and a
+five-segment pip bar per stat, and **select-then-buy** through one gold call
+to action. A locked tree is sold on the spot through the same atomic route the
+shop uses. Nothing that was for sale changed: eighteen nodes, the same prices,
+the same `prereqs` graph. `ForgeStatRealityTest` proves every node moves the
+stat it claims on the sheet a run is started with; `ForgePersistenceTest`
+proves a tree and a level survive a restart; a perf test pins a Forge frame
+under the menu allocation budget. See `CHANGELOG.md`.
+
 ## Deferred, with next-step anchors
 
 * **Leaderboards** — needs online infrastructure 1.0 does not have. `runHistory` (capped

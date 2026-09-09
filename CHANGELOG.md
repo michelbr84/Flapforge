@@ -12,6 +12,69 @@ for attribution; those versions were never Flapforge releases.
 
 ## [Unreleased]
 
+## 0.2.3 — 2026-09-09
+
+The forge release: the Upgrades screen becomes the **Forge** — three trees,
+one tab each, laid out in the hub's own visual language, with a live panel
+that shows what the coins are buying in the numbers a run is started with.
+Nothing that was for sale changed hands: the same eighteen nodes, the same
+prices, the same prerequisite graph. What changed is that the player can now
+see the tree, read the attribute it moves, and buy it without guessing.
+
+### Added
+
+- The **Forge is rebuilt** (M13) as five bands. A compact header carries the
+  title, the open tree's subtitle, the wallet in its coin pill and the hub's
+  forge scene drawn small, so the place reads as the same room the main menu
+  shows. Under it the three tree tabs — Flight, Economy, Forge — with a glyph
+  each and the selected one in gold. Then the **tree viewport**: every node laid
+  out by tier as a row card under a green tier pill, with the prerequisite edges
+  drawn as light-yellow elbows whose endpoints come from the shipped `prereqs`
+  graph, scrolled by the wheel and by the focus. Then the **detail panel**: the
+  selected node's hero glyph over a gold glow, its name, level, description and
+  status in words, and one gold call to action. The hub's five-item navigation
+  closes the screen with **Forge** on the gold plate.
+- The **attribute summary** (M13): under a divider in the detail panel, every
+  stat the open tree can touch, with its live resolved value and a five-segment
+  pip bar normalised over the stat's own clamp range. It reads the very
+  `StatSheet` a run is started with, and `ForgeStatRealityTest` proves every
+  node moves every stat it claims to touch, in the direction it says.
+- **Select, then buy** (M13): activating a card only selects what the panel is
+  describing; the purchase happens through the panel's call to action, so a
+  mis-tap cannot spend. A refusal is surfaced, never swallowed — the toast says
+  why, and the wallet, the cards and the live stats stand still.
+- **A locked tree is for sale on the spot** (M13): the Forge is the second
+  screen that sells `tree:<id>`, through the same atomic route the shop uses,
+  so a tree bought here lands in the save byte-for-byte as one bought there.
+  `ForgePersistenceTest` proves it across a restart.
+- Nine new player-facing strings in `en` and `pt_BR`: the screen title, the
+  three tree subtitles, the level and tree-unlock calls to action, the maxed
+  word, the attribute-summary heading, the not-enough-coins note and the
+  select-a-node hint.
+
+### Changed
+
+- The screen no longer carries a full-width Back button; the hub's `SectionNav`
+  closes it. BACK and Escape still pop.
+- The tree scrolls by moving its cards, not the canvas, so every node stays in
+  screen coordinates and one focus ring runs from the tabs through the cards and
+  the call to action down into the navigation. A card scrolled out of the band
+  is clipped away and stops answering the pointer.
+- `UpgradeManager` grew a tree-unlock facade — `isTreeLocked`, `treeUnlockId`,
+  `treeUnlockPrice`, `canAffordTreeUnlock`, `buyTree`, `isTreeEarned` and
+  `claimEarnedTrees` — so the screen reaches one manager instead of two. No
+  constructor changed, so the hub screens and the existing tests are untouched.
+- `upgrade.glide_1.desc` said −25% while the shipped effect is −30%. Both string
+  files now say what the node does.
+
+### Fixed
+
+- A tree already earned by play is never charged for (M13). `tree:forge` is
+  `any_of[world_cleared wind_valley, purchase 900]` and `tree:economy` is
+  `any_of[level 3, purchase 120]`: a profile carried over from a build without
+  the tree could satisfy it without owning it, and the Forge would have sold
+  back for coins something the player had already unlocked.
+
 ## 0.2.2 — 2026-09-09
 
 The shop release: the Shop stops reading like a settings list and becomes a

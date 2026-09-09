@@ -394,6 +394,40 @@ class ProceduralRenderTest {
     }
 
     @Test
+    @Tag("perf")
+    void aForgeFrameStaysWithinItsAllocationBudget() {
+        // The Forge is the heaviest hub screen: a scrolling card grid, a connector web, a live
+        // stat panel with pips and a CTA that reprices on every selection. Its steady frame must
+        // still fit the menu budget, which is what proves the node cards cache their measured
+        // strings and the connector/pip geometry is not rebuilt per frame. In `perfTest` for the
+        // same reason as the two frames above.
+        com.sun.management.ThreadMXBean threads = allocationCounter();
+        assumeTrue(threads != null, "no per-thread allocation counter on this JVM");
+        Meta rich = Meta.spent();
+        Viewport viewport = new Viewport(Playfield.WIDTH, Playfield.HEIGHT, false);
+        ScreenManager screens = new ScreenManager(viewport);
+        NullPresenter presenter = new NullPresenter(screens, viewport, Playfield.WIDTH,
+                Playfield.HEIGHT);
+        screens.setPresenter(presenter);
+        screens.push(rich.upgrades(screens));
+        screens.applyPending();
+        for (int i = 0; i < 50; i++) {
+            screens.tick(InputFrame.EMPTY);
+            presenter.present(0.5); // warm up the font, glyph, string and paint caches
+        }
+        long before = threads.getCurrentThreadAllocatedBytes();
+        int frames = 300;
+        for (int i = 0; i < frames; i++) {
+            screens.tick(InputFrame.EMPTY);
+            presenter.present(0.5);
+        }
+        long perFrame = (threads.getCurrentThreadAllocatedBytes() - before) / frames;
+        System.out.println("[render] forge frame allocates " + perFrame + " bytes");
+        assertTrue(perFrame < MENU_ALLOCATION_BUDGET_BYTES, "a forge frame allocated " + perFrame
+                + " bytes, budget " + MENU_ALLOCATION_BUDGET_BYTES);
+    }
+
+    @Test
     void aManifestEntryReplacesTheProceduralBird() {
         // D18's drop-in path: with the shipped (empty) manifest the bird is drawn by
         // ProceduralArt; declaring a sheet for the id must actually change the pixels, or the
@@ -1108,6 +1142,91 @@ class ProceduralRenderTest {
                         + " look alike: histogram distance " + distance);
             }
         }
+    }
+
+    @Test
+    void theForgeSavesOneRenderPerTreeInEveryLanguage() throws IOException {
+        String original = Strings.active().language();
+        try {
+            for (String language : Strings.LANGUAGES) {
+                Strings.use(Strings.load(language));
+                for (String tree : List.of("flight", "economy", "forge")) {
+                    Meta meta = Meta.spent();
+                    // A fresh Meta per tree: the screen binds its tab selection at construction
+                    // and a tab change is what the render has to show.
+                    final UpgradeTreeScreen[] made = new UpgradeTreeScreen[1];
+                    BufferedImage frame = renderScreen(sm -> {
+                        made[0] = (UpgradeTreeScreen) meta.upgrades(sm);
+                        made[0].tabBar().select(tree);
+                        return made[0];
+                    }, 5);
+                    assertEquals(tree, made[0].treeId(), "the tab switch took in " + language);
+                    assertTrue(distinctColours(frame, 2) >= 2,
+                            "the " + tree + " tree is uniform in " + language);
+                    save(frame, "forge-" + tree + "-" + language);
+                }
+            }
+            // The other two trees must not be the same picture as the flight one, or the tabs
+            // would be changing nothing a player can see.
+            BufferedImage flight = readRender("forge-flight-en");
+            for (String tree : List.of("economy", "forge")) {
+                assertFalse(identical(readRender("forge-" + tree + "-en"), flight),
+                        "the " + tree + " tree must not look like the flight tree");
+            }
+        } finally {
+            Strings.use(Strings.load(original));
+        }
+    }
+
+    @Test
+    void theForgeSavesTheTwoStatesAWalletCanBeIn() throws IOException {
+        // The six tree renders all come from one rich profile, so every call to action in them is
+        // affordable and the refusal path is never drawn. These two are the states a reviewer
+        // cannot see otherwise: a wallet that cannot pay — the red note under a muted call to
+        // action — and a node at its cap, whose call to action reads MAXED.
+        Meta poor = Meta.spent();
+        Wallet empty = Wallet.of(poor.profile);
+        empty.spend(PlayerProfile.CURRENCY_COINS, empty.balance(PlayerProfile.CURRENCY_COINS));
+        assertEquals(0, empty.balance(PlayerProfile.CURRENCY_COINS));
+        final UpgradeTreeScreen[] broke = new UpgradeTreeScreen[1];
+        BufferedImage noCoins = renderScreen(sm -> {
+            broke[0] = (UpgradeTreeScreen) poor.upgrades(sm);
+            assertTrue(broke[0].revealNode("feather_1"), "feather_1 is on the flight tab");
+            return broke[0];
+        }, 5);
+        // The call to action stays live on purpose — pressing it is what toasts the refusal — so
+        // the state a reviewer cannot see anywhere else is the red note the panel gains.
+        assertTrue(broke[0].detailLines().contains(Strings.active().get(StringKey.UPGRADES_NO_COINS)),
+                "with no coins the panel must say so");
+        assertTrue(distinctColours(noCoins, 2) >= 2, "the refusal frame is uniform");
+        save(noCoins, "forge-no-coins-en");
+
+        Meta rich = Meta.spent();
+        int max = rich.content.upgrades().get("feather_1").maxLevel();
+        rich.profile.upgrades.put("feather_1", max);
+        final UpgradeTreeScreen[] capped = new UpgradeTreeScreen[1];
+        BufferedImage maxed = renderScreen(sm -> {
+            capped[0] = (UpgradeTreeScreen) rich.upgrades(sm);
+            assertTrue(capped[0].revealNode("feather_1"), "feather_1 is on the flight tab");
+            return capped[0];
+        }, 5);
+        assertEquals(max, rich.profile.upgradeLevel("feather_1"), "the node is at its cap");
+        assertTrue(distinctColours(maxed, 2) >= 2, "the maxed frame is uniform");
+        save(maxed, "forge-maxed-en");
+
+        assertFalse(identical(noCoins, maxed),
+                "a wallet that cannot pay and a node at its cap must not look alike");
+    }
+
+    /**
+     * Reads back a render this class wrote, for a comparison across trees.
+     *
+     * @param name the render name, without the extension
+     * @return the image
+     * @throws IOException when the file is missing
+     */
+    private static BufferedImage readRender(String name) throws IOException {
+        return ImageIO.read(RENDER_DIR.resolve(name + ".png").toFile());
     }
 
     @Test

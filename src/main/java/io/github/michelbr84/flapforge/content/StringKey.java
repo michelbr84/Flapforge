@@ -550,6 +550,26 @@ public enum StringKey {
     UPGRADES_GRANT_PASSIVE_SLOT("upgrades.grant.passive_slot"),
     /** Upgrade node: it only grants something the profile already has. */
     UPGRADES_ALREADY_OWNED("upgrades.already_owned"),
+    /** Forge screen: the name of the screen itself, whatever tree is open. */
+    UPGRADES_SCREEN_TITLE("upgrades.screen_title"),
+    /** Forge screen: the {@code flight} tree subtitle. */
+    UPGRADES_SUBTITLE_FLIGHT("upgrades.subtitle.flight"),
+    /** Forge screen: the {@code economy} tree subtitle. */
+    UPGRADES_SUBTITLE_ECONOMY("upgrades.subtitle.economy"),
+    /** Forge screen: the {@code forge} tree subtitle. */
+    UPGRADES_SUBTITLE_FORGE("upgrades.subtitle.forge"),
+    /** Forge screen: buy-one-level button, {@code {0}} is the price. */
+    UPGRADES_CTA_LEVEL("upgrades.cta.level"),
+    /** Forge screen: buy-the-tree button, {@code {0}} is the price. */
+    UPGRADES_CTA_UNLOCK_TREE("upgrades.cta.unlock_tree"),
+    /** Forge screen: the call to action of a node that owns every level. */
+    UPGRADES_CTA_MAXED("upgrades.cta.maxed"),
+    /** Forge screen: heading above the live stat rows. */
+    UPGRADES_ATTRIBUTE_SUMMARY("upgrades.attribute_summary"),
+    /** Forge screen: the wallet cannot pay for the selected thing. */
+    UPGRADES_NO_COINS("upgrades.no_coins"),
+    /** Forge screen: the detail panel before anything is selected. */
+    UPGRADES_SELECT_NODE("upgrades.select_node"),
 
     /** Shop: title. */
     SHOP_TITLE("shop.title"),

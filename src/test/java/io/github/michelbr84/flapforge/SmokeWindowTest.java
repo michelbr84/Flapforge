@@ -34,6 +34,7 @@ import io.github.michelbr84.flapforge.gameplay.run.ModifierDirector;
 import io.github.michelbr84.flapforge.gameplay.run.Run;
 import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.run.RunPhase;
+import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.input.InputAction;
 import io.github.michelbr84.flapforge.input.InputFrame;
 import io.github.michelbr84.flapforge.input.InputQueue;
@@ -1068,10 +1069,21 @@ class SmokeWindowTest {
             rig.frames(GRACE);
             assertTrue(saveShot("upgrades", rig) >= 2, "upgrade trees are uniform");
             long beforeNode = walletOf(rig);
-            driver.click(trees.nodeGrid().card("feather_1"), () -> walletOf(rig) < beforeNode);
+            // The card selects; the panel's CTA buys. Tapping the card alone only picks what the
+            // panel is describing.
+            driver.click(trees.nodeGrid().card("feather_1"),
+                    () -> "feather_1".equals(trees.currentNodeId()));
+            rig.frames(4);
+            // What the panel says gravity is before the buy: a panel that does not move when a
+            // node is bought is a panel showing a number nothing reads.
+            String gravityBefore = trees.statRow(StatId.GRAVITY).value();
+            driver.click(trees.ctaButton(), () -> walletOf(rig) < beforeNode);
             rig.frames(10);
             assertEquals(1, rig.save.profile().upgradeLevel("feather_1"), "the node was bought");
             assertEquals(beforeNode - 50, walletOf(rig));
+            assertFalse(gravityBefore.equals(trees.statRow(StatId.GRAVITY).value()),
+                    "the live stat panel must show the gravity the node just bought, not "
+                            + gravityBefore);
 
             // Menu -> Shop.
             driver.tap(KeyEvent.VK_ESCAPE, () -> rig.screens.top() == menu);

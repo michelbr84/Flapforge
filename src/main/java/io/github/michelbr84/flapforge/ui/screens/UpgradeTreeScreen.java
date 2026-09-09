@@ -10,7 +10,9 @@ import io.github.michelbr84.flapforge.content.defs.GrantType;
 import io.github.michelbr84.flapforge.content.defs.StatModifierDef;
 import io.github.michelbr84.flapforge.content.defs.TreeDef;
 import io.github.michelbr84.flapforge.content.defs.UpgradeDef;
+import io.github.michelbr84.flapforge.core.MathUtil;
 import io.github.michelbr84.flapforge.core.Playfield;
+import io.github.michelbr84.flapforge.gameplay.run.RunMode;
 import io.github.michelbr84.flapforge.gameplay.stats.StatId;
 import io.github.michelbr84.flapforge.gameplay.stats.StatSheet;
 import io.github.michelbr84.flapforge.input.InputAction;
@@ -22,6 +24,7 @@ import io.github.michelbr84.flapforge.progression.RunLoadout;
 import io.github.michelbr84.flapforge.progression.UpgradeManager;
 import io.github.michelbr84.flapforge.progression.Wallet;
 import io.github.michelbr84.flapforge.render.Fonts;
+import io.github.michelbr84.flapforge.render.ParticleSystem;
 import io.github.michelbr84.flapforge.render.ProceduralArt;
 import io.github.michelbr84.flapforge.render.TextPainter;
 import io.github.michelbr84.flapforge.render.TextPainter.Align;
@@ -31,19 +34,21 @@ import io.github.michelbr84.flapforge.ui.Screen;
 import io.github.michelbr84.flapforge.ui.ScreenManager;
 import io.github.michelbr84.flapforge.ui.UiCues;
 import io.github.michelbr84.flapforge.ui.UiNode;
-import io.github.michelbr84.flapforge.ui.component.Button;
 import io.github.michelbr84.flapforge.ui.component.CardGrid;
+import io.github.michelbr84.flapforge.ui.component.CtaButton;
 import io.github.michelbr84.flapforge.ui.component.CurrencyDisplay;
+import io.github.michelbr84.flapforge.ui.component.IconPainter;
+import io.github.michelbr84.flapforge.ui.component.NavBar;
+import io.github.michelbr84.flapforge.ui.component.SectionNav;
 import io.github.michelbr84.flapforge.ui.component.TabBar;
 import io.github.michelbr84.flapforge.ui.component.Toast;
 import io.github.michelbr84.flapforge.ui.component.ToastLayer;
 import io.github.michelbr84.flapforge.ui.component.Tooltip;
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.Stroke;
+import java.awt.Shape;
+import java.awt.geom.AffineTransform;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -53,26 +58,34 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * The three upgrade trees (D13, E21, E31.f, M4): the screen where coins become physics.
+ * The Forge (M13 rebuild): three upgrade trees, one tab each, where coins become physics.
  *
- * <p>One tab per tree, one card per node, laid out by the node's {@code tier} with a line drawn
- * from every prerequisite to the node it opens, so the shape of the tree is visible rather than
- * implied. A card states everything the decision needs: the owned level against the maximum, what
- * one level does in words ({@code -3% Gravity}), the price of the next level, and which of the
- * five states it is in — the tree is locked, a prerequisite is missing, it is affordable, it is
- * maxed, or its only grant is something the profile already owns and buying it would change
- * nothing. A node whose effects no system reads before M5 says so on the card and on its stat row
- * (E19) instead of advertising a number that moves nothing.
+ * <p>The screen is five bands. A compact header (0&ndash;100) carries the title, the open tree's
+ * subtitle, the wallet in its coin pill and the hub's forge scene drawn small, so the place
+ * reads as the same room the main menu shows. Under it (100&ndash;140) the three tree tabs wear
+ * their glyph and the gold accent. The tree viewport (140&ndash;330) lays each tree's nodes out
+ * by {@code tier} as two columns of row cards under green tier pills, with the prerequisite
+ * edges drawn as light-yellow elbows under the cards, endpoints taken from the shipped
+ * {@code prereqs} graph. The detail panel (330&ndash;582) shows the selected node &mdash; hero
+ * glyph over a gold glow, name, level, description, its status in words, the call to action and
+ * the red not-enough-coins note &mdash; then a divider and the attribute summary: every stat the
+ * tree can touch, its live resolved value and a five-segment pip bar normalised over the stat's
+ * own clamp range. The section navigation (582&ndash;640) closes the screen with Forge on the
+ * gold plate, replacing the old full-width Back button; the BACK key still pops.
  *
- * <p>Buying goes through {@link UpgradeManager#buy}, which is atomic (check, debit, raise, grant,
- * propagate, save) and returns why it refused. Three things then change in the same tick: the
- * wallet readout, the card, and the live stat panel at the bottom, which reads
- * {@link RunLoadout#previewStats} — the sheet of the run that would start right now. That is the
- * whole point of the screen: the player sees the number the node moved.
+ * <p>Buying is deliberate: activating a card only <em>selects</em> it; the purchase happens
+ * through the panel's call to action, through {@link UpgradeManager#buy} for a node and
+ * {@link UpgradeManager#buyTree} for a locked tree &mdash; the same atomic routes the shop uses,
+ * so a tree bought here lands in the save byte-for-byte as one bought there. A refusal is
+ * surfaced, never swallowed: the toast says why and the wallet, the cards and the live stats
+ * stand still. Only {@link PurchaseStatus#OK} changes anything. One refusal is silent by
+ * design: a selection that is not a card of the tree that is open — left over from a previous
+ * tab, or stale — is simply not purchasable.
  *
- * <p>A locked tree shows its unlock condition in words instead of its nodes' prices, and its tab
- * is skipped by the arrows (but still clickable, because reading why it is locked is the reason to
- * go there).
+ * <p>The tree scrolls by moving its cards, not the canvas, so every node stays in screen
+ * coordinates and one focus ring runs from the tabs through the cards and the call to action
+ * down into the navigation. A card scrolled out of the band is clipped away and stops answering
+ * the pointer ({@link ForgeNodeCard#setViewport}).
  */
 public final class UpgradeTreeScreen implements Screen {
 
@@ -80,51 +93,82 @@ public final class UpgradeTreeScreen implements Screen {
     public static final int MARGIN = 12;
     /** Width of the content column. */
     public static final int CONTENT_W = Playfield.WIDTH - 2 * MARGIN;
-    /** Top of the tab bar. */
-    public static final int TABS_TOP = 46;
-    /** Height of the tab bar. */
-    public static final int TABS_H = 28;
-    /** Top of the node area. */
-    public static final int NODES_TOP = 84;
+    /** Height of the compact header band: title, subtitle, wallet, scene. */
+    public static final int HEADER_H = 100;
+    /** Top of the tree tab bar. */
+    public static final int TABS_TOP = 100;
+    /** Height of the tree tab bar. */
+    public static final int TABS_H = 40;
+    /** First visible row of the tree viewport. */
+    public static final int TREE_TOP = 140;
+    /** Last visible row of the tree viewport. */
+    public static final int TREE_BOTTOM = 330;
     /** Height of one node card. */
     public static final int NODE_H = 46;
     /** Columns of nodes per tier. */
     public static final int COLUMNS = 2;
-    /** Height of a tier label. */
+    /** Height of a tier pill band. */
     public static final int TIER_LABEL_H = 16;
+    /** Vertical gap between two card rows of the same tier. */
+    public static final int ROW_GAP = 6;
+    /** Vertical gap between two tiers. */
+    public static final int TIER_GAP = 2;
     /** Top of the detail panel. */
-    public static final int DETAIL_TOP = 384;
-    /** Height of the detail panel. */
-    public static final int DETAIL_H = 78;
-    /** Top of the live stat panel. */
-    public static final int STATS_TOP = 472;
-    /** Height of the live stat panel. */
-    public static final int STATS_H = 96;
-    /** Top of the Back button. */
-    public static final int FOOTER_TOP = Playfield.HEIGHT - 52;
-    /** Height of the Back button. */
-    public static final int FOOTER_H = 40;
+    public static final int DETAIL_TOP = 330;
+    /** Height of the detail panel: purchase half, divider, attribute summary. */
+    public static final int DETAIL_H = 252;
+    /** Logical pixels one wheel notch scrolls. */
+    public static final int WHEEL_STEP = 38;
+
+    /** Width of the header coin pill. */
+    public static final int WALLET_PILL_W = 136;
+    /** Height of the header coin pill. */
+    public static final int WALLET_PILL_H = 28;
+    /** Width of the panel's call to action plate. */
+    public static final int CTA_W = CONTENT_W - 16;
+    /** Height of the panel's call to action. */
+    public static final int CTA_H = 40;
+    /** Panel-local top of the call to action plate. */
+    public static final int CTA_OFFSET = 108;
+    /** Panel-local offset of the divider between the purchase half and the stat summary. */
+    public static final int DIVIDER_OFFSET = 154;
+    /** Panel-local baseline of the attribute summary heading. */
+    public static final int SUMMARY_OFFSET = 172;
+    /** Panel-local baseline of the first stat row. */
+    public static final int STATS_OFFSET = 188;
+    /** Baseline pitch of one stat row. */
+    public static final int STAT_PITCH = 14;
 
     private static final WorldPalette PALETTE = WorldPalette.GREEN_FIELDS;
-
-    /** The milestone the ability system — and everything the trees sell for it — arrives in. */
-    private static final String ABILITY_MILESTONE = "M5";
+    private static final int TITLE_BASELINE = 40;
+    private static final int SUBTITLE_BASELINE = 58;
+    /**
+     * Right edge the header subtitle may reach: the forge scene's bird sprite sits from here on,
+     * and the tail of a long translation must never run under it.
+     */
+    private static final int SUBTITLE_LIMIT_X = 322;
+    private static final int WALLET_PILL_X = Playfield.WIDTH - WALLET_PILL_W - 14;
+    private static final int WALLET_PILL_Y = 12;
+    private static final int PANEL_TEXT_X = MARGIN + 72;
+    private static final int HERO_CX = MARGIN + 38;
+    private static final int HERO_CY = DETAIL_TOP + 48;
+    private static final int HERO_SIZE = 46;
+    private static final int SCROLLBAR_X = Playfield.WIDTH - 8;
+    private static final int SCROLLBAR_W = 4;
+    private static final int SCROLLBAR_MIN_H = 20;
+    private static final Color SCROLLBAR = new Color(0xF4, 0xF8, 0xF8, 0x90);
 
     /**
-     * The stats no system reads before M5 (D9, E19): the ability multipliers and the two
-     * defensive counters. A node whose whole effect list is in here advertises a number the run
-     * resolves and nothing consumes, so the card and the stat row say when it starts working
-     * rather than pretending it already does.
+     * The header scene, drawn small: the island is placed so its centre-bottom lands at
+     * (350, 96), under the wallet pill, and the band ends before the tabs.
      */
-    private static final Set<StatId> M5_STATS = Collections.unmodifiableSet(EnumSet.of(
-            StatId.ABILITY_COOLDOWN_MULT, StatId.ABILITY_DURATION_MULT, StatId.SHIELD_CHARGES,
-            StatId.REVIVES));
+    private static final double SCENE_TX = 272.3;
+    private static final double SCENE_TY = -51.26;
+    private static final double SCENE_SCALE = 0.37;
+    private static final long BOB_PERIOD_TICKS = 150;
+    private static final double BOB_AMPLITUDE = 3.0;
 
-    private static final int TITLE_BASELINE = 34;
-    private static final int WALLET_W = 130;
-    private static final Color LINK = new Color(0xF5, 0xC5, 0x42, 0x88);
-    private static final Stroke LINK_STROKE = new BasicStroke(2f);
-
+    private final GameContext context;
     private final ScreenManager screens;
     private final Strings strings;
     private final GameContent content;
@@ -134,13 +178,23 @@ public final class UpgradeTreeScreen implements Screen {
     private final FocusRing ring = new FocusRing();
     private final TabBar tabs = new TabBar();
     private final CardGrid nodes = new CardGrid();
+    private final NavBar nav = new NavBar();
+    private final CtaButton cta;
     private final CurrencyDisplay wallet = new CurrencyDisplay();
     private final Tooltip tooltip = new Tooltip();
-    private final Button back;
+    private final ForgeScene scene = new ForgeScene();
     private final List<TierBand> bands = new ArrayList<>();
     private final List<Link> links = new ArrayList<>();
     private final List<String> detailLines = new ArrayList<>();
     private final List<StatRow> statRows = new ArrayList<>();
+    private final Map<String, Double> cardOffset = new LinkedHashMap<>();
+    private final IconPainter coinIcon = ForgeArt::coinGlyph;
+    private double contentHeight;
+    private double scroll;
+    private long ticks;
+    private double prevBob;
+    private double bob;
+    private boolean reduceShown;
     private String currentNodeId;
     private String treeLockedText = "";
     private String shownLanguage;
@@ -151,7 +205,7 @@ public final class UpgradeTreeScreen implements Screen {
      * @param context the application services
      */
     public UpgradeTreeScreen(GameContext context) {
-        this(Objects.requireNonNull(context, "context").screens(),
+        this(Objects.requireNonNull(context, "context"), context.screens(),
                 context.strings() != null ? context.strings() : Strings.active(),
                 context.content(), context.profile(),
                 context.canProgress()
@@ -171,6 +225,13 @@ public final class UpgradeTreeScreen implements Screen {
      */
     public UpgradeTreeScreen(ScreenManager screens, Strings strings, GameContent content,
             PlayerProfile profile, UpgradeManager upgrades, ToastLayer toasts) {
+        this(null, screens, strings, content, profile, upgrades, toasts);
+    }
+
+    private UpgradeTreeScreen(GameContext context, ScreenManager screens, Strings strings,
+            GameContent content, PlayerProfile profile, UpgradeManager upgrades,
+            ToastLayer toasts) {
+        this.context = context;
         this.screens = Objects.requireNonNull(screens, "screens");
         this.strings = Objects.requireNonNull(strings, "strings");
         this.content = Objects.requireNonNull(content, "content");
@@ -179,16 +240,34 @@ public final class UpgradeTreeScreen implements Screen {
         this.toasts = toasts == null ? new ToastLayer() : toasts;
 
         tabs.setBounds(MARGIN, TABS_TOP, CONTENT_W, TABS_H);
+        tabs.setAccented(true);
         for (TreeDef tree : content.trees()) {
-            tabs.add(tree.id(), ProgressionText.name(strings, ContentKind.TREE, tree.id()));
+            tabs.add(tree.id(), ProgressionText.name(strings, ContentKind.TREE, tree.id()))
+                    .setIcon(ForgeArt.tabIcon(tree.id()));
         }
-        tabs.setOnChange(index -> openTree(index));
-        back = new Button("", screens::pop);
-        back.setFontSize(16);
-        back.setBounds(MARGIN, FOOTER_TOP, CONTENT_W, FOOTER_H);
-        wallet.setBounds(Playfield.WIDTH - WALLET_W - 14.0, 14, WALLET_W, 26);
+        tabs.setOnChange(index -> {
+            scroll = 0;
+            rebuild();
+        });
+        nodes.setColumns(COLUMNS);
+        nodes.setGap(CardGrid.DEFAULT_GAP, ROW_GAP);
+
+        wallet.setBounds(WALLET_PILL_X + 8, WALLET_PILL_Y, WALLET_PILL_W - 16, WALLET_PILL_H);
         wallet.setAlign(Align.RIGHT);
+        wallet.setFontSize(15);
         wallet.setAmountNow(coins());
+
+        cta = new CtaButton("", this::activateCta);
+        cta.setBounds(MARGIN + 8, DETAIL_TOP + CTA_OFFSET, CTA_W, CTA_H);
+
+        SectionNav.build(nav, SectionNav.FORGE, new SectionNav.Routes(this::openShop,
+                this::openBirds, this::play, null, this::openGoals));
+        nav.button(SectionNav.SHOP).setEnabled(context != null);
+        nav.button(SectionNav.BIRDS).setEnabled(context != null);
+        nav.button(SectionNav.PLAY).setEnabled(context != null);
+        nav.button(SectionNav.GOALS).setEnabled(context != null);
+
+        rebindScene();
         shownLanguage = strings.language();
         // The first tab a player should land on is one they can actually spend in.
         tabs.selectQuietly(firstUnlockedTree());
@@ -225,25 +304,34 @@ public final class UpgradeTreeScreen implements Screen {
     }
 
     /**
-     * The node the detail panel is about.
+     * The node the detail panel and the call to action are about.
      *
-     * @return the node id, or {@code null} when the tree has none
+     * @return the node id, or {@code null} when the open tree has no nodes
      */
     public String currentNodeId() {
         return currentNodeId;
     }
 
     /**
-     * The Back button.
+     * The bottom navigation, with Forge on the gold plate.
      *
-     * @return the button
+     * @return the bar
      */
-    public Button backButton() {
-        return back;
+    public NavBar nav() {
+        return nav;
     }
 
     /**
-     * The wallet readout.
+     * The one call to action, whose verb is the selected node's state.
+     *
+     * @return the button
+     */
+    public CtaButton ctaButton() {
+        return cta;
+    }
+
+    /**
+     * The wallet readout inside the header coin pill.
      *
      * @return the display
      */
@@ -270,7 +358,8 @@ public final class UpgradeTreeScreen implements Screen {
     }
 
     /**
-     * The lines of the detail panel, in display order.
+     * The lines of the detail panel, in display order: name, level, description, then the status
+     * lines. The not-enough-coins note is the last line when present.
      *
      * @return an unmodifiable snapshot
      */
@@ -279,7 +368,8 @@ public final class UpgradeTreeScreen implements Screen {
     }
 
     /**
-     * The live stat rows: every stat the open tree can touch, with its resolved value right now.
+     * The live stat rows: every stat the open tree can touch, with its resolved value right now
+     * and its pip fill.
      *
      * @return an unmodifiable snapshot
      */
@@ -305,10 +395,59 @@ public final class UpgradeTreeScreen implements Screen {
     /**
      * The unlock condition of the open tree, in words, when it is locked.
      *
-     * @return the sentence, empty when the tree is unlocked
+     * @return the sentence, empty when the tree is open
      */
     public String treeLockedText() {
         return treeLockedText;
+    }
+
+    /**
+     * How far the tree is scrolled.
+     *
+     * @return the offset in logical pixels
+     */
+    public double scroll() {
+        return scroll;
+    }
+
+    /**
+     * How far the tree can be scrolled.
+     *
+     * @return the largest offset, {@code 0} when the tree fits
+     */
+    public double maxScroll() {
+        return Math.max(0, contentHeight - (TREE_BOTTOM - TREE_TOP));
+    }
+
+    /**
+     * How many pips of a stat row are filled: the value normalised over the stat's clamp range,
+     * five segments, rounded (M13 architecture decision).
+     *
+     * @param value the resolved value
+     * @param stat the stat
+     * @return the filled count in {@code [0, 5]}
+     */
+    public static int statPips(double value, StatId stat) {
+        return ForgeArt.pips(value, stat);
+    }
+
+    /**
+     * Selects a node and scrolls it into the viewport, the way a test — or the navigation's
+     * Shop item — reaches a card that sits below the fold.
+     *
+     * @param nodeId the node id
+     * @return {@code true} when the open tree shows that node
+     */
+    public boolean revealNode(String nodeId) {
+        CardGrid.Card card = nodes.card(nodeId);
+        if (card == null) {
+            return false;
+        }
+        ring.focus(card);
+        currentNodeId = card.id();
+        scrollFocusIntoView();
+        refreshState();
+        return true;
     }
 
     /**
@@ -328,11 +467,30 @@ public final class UpgradeTreeScreen implements Screen {
     private int firstUnlockedTree() {
         List<TreeDef> trees = content.trees().all();
         for (int i = 0; i < trees.size(); i++) {
-            if (profile.isUnlocked(trees.get(i).unlockableId())) {
+            if (!UpgradeManager.isTreeLocked(profile, trees.get(i).id())) {
                 return i;
             }
         }
         return 0;
+    }
+
+    /**
+     * The subtitle of the open tree, from its own key.
+     *
+     * @return the sentence, empty for a tree without a subtitle key
+     */
+    private String subtitle() {
+        String treeId = tabs.selectedId();
+        if ("flight".equals(treeId)) {
+            return strings.get(StringKey.UPGRADES_SUBTITLE_FLIGHT);
+        }
+        if ("economy".equals(treeId)) {
+            return strings.get(StringKey.UPGRADES_SUBTITLE_ECONOMY);
+        }
+        if ("forge".equals(treeId)) {
+            return strings.get(StringKey.UPGRADES_SUBTITLE_FORGE);
+        }
+        return "";
     }
 
     // ------------------------------------------------------------------ building
@@ -340,70 +498,72 @@ public final class UpgradeTreeScreen implements Screen {
     /** Re-reads every label from the string table (a language switch, D25). */
     public void refreshTexts() {
         wallet.setFormat(strings.get(StringKey.HUD_COINS));
-        back.setText(strings.get(StringKey.COMMON_BACK));
         for (TabBar.Tab tab : tabs.tabs()) {
             tab.setLabel(ProgressionText.name(strings, ContentKind.TREE, tab.id()));
         }
+        nav.button(SectionNav.SHOP).setText(strings.get(StringKey.MENU_SHOP));
+        nav.button(SectionNav.BIRDS).setText(strings.get(StringKey.MENU_BIRDS));
+        nav.button(SectionNav.PLAY).setText(strings.get(StringKey.MENU_PLAY));
+        nav.button(SectionNav.FORGE).setText(strings.get(StringKey.MENU_NAV_FORGE));
+        nav.button(SectionNav.GOALS).setText(strings.get(StringKey.MENU_NAV_GOALS));
         shownLanguage = strings.language();
         rebuild();
-    }
-
-    /**
-     * Switches to another tree.
-     *
-     * @param index the tab index
-     */
-    private void openTree(int index) {
-        if (index >= 0) {
-            rebuild();
-        }
     }
 
     /**
      * Rebuilds the node cards, the prerequisite links and the focus ring for the open tree.
      */
     public void rebuild() {
-        String treeId = tabs.selectedId();
+        String keep = currentNodeId;
         nodes.clear();
         bands.clear();
         links.clear();
+        cardOffset.clear();
         ring.clear();
         ring.add(tabs);
-        if (treeId == null) {
-            ring.add(back);
-            refreshState();
-            return;
-        }
-        // Group the tree's nodes by tier, keeping content order inside a tier.
-        Map<Integer, List<UpgradeDef>> byTier = new LinkedHashMap<>();
-        for (UpgradeDef node : content.upgrades()) {
-            if (node.tree().equals(treeId)) {
-                byTier.computeIfAbsent(node.tier(), key -> new ArrayList<>()).add(node);
+        String treeId = tabs.selectedId();
+        if (treeId != null) {
+            // Group the tree's nodes by tier, keeping content order inside a tier.
+            Map<Integer, List<UpgradeDef>> byTier = new LinkedHashMap<>();
+            for (UpgradeDef node : content.upgrades()) {
+                if (node.tree().equals(treeId)) {
+                    byTier.computeIfAbsent(node.tier(), key -> new ArrayList<>()).add(node);
+                }
             }
-        }
-        double y = NODES_TOP;
-        double cellWidth = (CONTENT_W - CardGrid.DEFAULT_GAP * (COLUMNS - 1)) / (double) COLUMNS;
-        for (Map.Entry<Integer, List<UpgradeDef>> entry : byTier.entrySet()) {
-            bands.add(new TierBand(entry.getKey(),
-                    strings.format(StringKey.UPGRADES_TIER, entry.getKey()), y));
-            y += TIER_LABEL_H;
-            List<UpgradeDef> tierNodes = entry.getValue();
-            for (int i = 0; i < tierNodes.size(); i++) {
-                UpgradeDef def = tierNodes.get(i);
-                CardGrid.Card card = new CardGrid.Card(def.id(), "", null);
-                card.setOnAction(() -> buy(def.id()));
-                int col = i % COLUMNS;
-                int row = i / COLUMNS;
-                card.setBounds(MARGIN + col * (cellWidth + CardGrid.DEFAULT_GAP),
-                        y + row * (NODE_H + 6.0), cellWidth, NODE_H);
-                nodes.add(card);
-                ring.add(card);
+            double cellWidth = (CONTENT_W - CardGrid.DEFAULT_GAP * (COLUMNS - 1))
+                    / (double) COLUMNS;
+            double y = 0;
+            for (Map.Entry<Integer, List<UpgradeDef>> entry : byTier.entrySet()) {
+                bands.add(new TierBand(strings.format(StringKey.UPGRADES_TIER, entry.getKey()),
+                        y));
+                y += TIER_LABEL_H;
+                List<UpgradeDef> tierNodes = entry.getValue();
+                for (int i = 0; i < tierNodes.size(); i++) {
+                    UpgradeDef def = tierNodes.get(i);
+                    ForgeNodeCard card = new ForgeNodeCard(def.id(), "", () -> select(def.id()));
+                    card.setGlyph(ForgeArt.nodeIcon(def));
+                    card.setViewport(TREE_TOP, TREE_BOTTOM);
+                    int col = i % COLUMNS;
+                    int row = i / COLUMNS;
+                    card.setBounds(MARGIN + col * (cellWidth + CardGrid.DEFAULT_GAP),
+                            y + row * (NODE_H + ROW_GAP), cellWidth, NODE_H);
+                    cardOffset.put(def.id(), card.y());
+                    nodes.add(card);
+                    ring.add(card);
+                }
+                int rows = (tierNodes.size() + COLUMNS - 1) / COLUMNS;
+                y += rows * (NODE_H + ROW_GAP) + TIER_GAP;
             }
-            int rows = (tierNodes.size() + COLUMNS - 1) / COLUMNS;
-            y += rows * (NODE_H + 6.0) + 4;
+            contentHeight = Math.max(0, y - TIER_GAP);
+            buildLinks(treeId);
+        } else {
+            contentHeight = 0;
         }
-        ring.add(back);
-        buildLinks(treeId);
+        applyScroll();
+        ring.add(cta);
+        nav.registerFocusables(ring);
+        currentNodeId = keep != null && nodes.card(keep) != null ? keep
+                : nodes.size() == 0 ? null : nodes.cards().get(0).id();
         refreshState();
     }
 
@@ -417,39 +577,32 @@ public final class UpgradeTreeScreen implements Screen {
             if (!def.tree().equals(treeId)) {
                 continue;
             }
-            CardGrid.Card target = nodes.card(def.id());
-            if (target == null) {
-                continue;
-            }
             for (String prereq : def.prereqs()) {
-                CardGrid.Card source = nodes.card(prereq);
-                if (source != null) {
-                    links.add(new Link(source, target));
+                if (nodes.card(prereq) != null) {
+                    links.add(new Link(prereq, def.id()));
                 }
             }
         }
     }
 
     /**
-     * Rebuilds everything that depends on the profile: every card's level, price and state, the
-     * detail panel and the live stat panel.
+     * Refreshes every card, the lock sentence, the detail panel, the call to action and the
+     * wallet from the profile.
      */
     public void refreshState() {
         String treeId = tabs.selectedId();
-        boolean treeUnlocked = treeId != null
-                && profile.isUnlocked(TreeDef.NAMESPACE + treeId);
+        boolean treeLocked = treeId == null || UpgradeManager.isTreeLocked(profile, treeId);
         treeLockedText = "";
-        if (treeId != null && !treeUnlocked) {
+        if (treeId != null && treeLocked) {
             TreeDef tree = content.trees().get(treeId);
-            treeLockedText = strings.format(StringKey.UPGRADES_TREE_LOCKED,
-                    ProgressionText.unlockText(strings, content, tree.unlock(), profile));
-        }
-        for (int i = 0; i < tabs.size(); i++) {
-            TabBar.Tab tab = tabs.tabs().get(i);
-            tab.setEnabled(profile.isUnlocked(TreeDef.NAMESPACE + tab.id()));
+            long price = upgrades == null ? -1 : upgrades.treeUnlockPrice(treeId, content);
+            treeLockedText = strings.format(StringKey.UPGRADES_TREE_LOCKED, price >= 0
+                    ? ProgressionText.price(strings, price)
+                    : ProgressionText.unlockText(strings, content, tree.unlock(), profile));
         }
         long balance = coins();
-        for (CardGrid.Card card : nodes.cards()) {
+        for (CardGrid.Card gridCard : nodes.cards()) {
+            ForgeNodeCard card = (ForgeNodeCard) gridCard;
             UpgradeDef def = content.upgrades().get(card.id());
             int level = profile.upgradeLevel(def.id());
             boolean maxed = level >= def.maxLevel();
@@ -460,32 +613,29 @@ public final class UpgradeTreeScreen implements Screen {
             // The card carries the short form; the detail panel below repeats it with the "per
             // level" the card has no room for.
             card.setSubtitle(strings.format(StringKey.UPGRADES_LEVEL, level, def.maxLevel())
-                    + "  " + shortEffectText(def) + soonSuffix(def));
-            card.setLocked(!treeUnlocked || !missing.isEmpty());
-            card.setDimmed(treeUnlocked && missing.isEmpty() && !maxed && !redundant
+                    + " • " + shortEffectText(def));
+            card.setLocked(treeLocked || !missing.isEmpty());
+            card.setDimmed(!treeLocked && missing.isEmpty() && !maxed && !redundant
                     && balance < next);
-            card.setSelected(level > 0);
+            card.setSelected(card.id().equals(currentNodeId));
             if (maxed) {
                 card.setBadge(strings.get(StringKey.UPGRADES_MAXED), false);
             } else if (redundant) {
                 // Its only grant is already owned, so buying it would be a pure loss; the
                 // purchase path refuses it and the card has to say why.
                 card.setBadge(strings.get(StringKey.UPGRADES_ALREADY_OWNED), false);
-            } else if (!treeUnlocked) {
-                card.setBadge("", false);
-            } else if (!missing.isEmpty()) {
+            } else if (treeLocked || !missing.isEmpty()) {
+                // A locked card has no price the player can act on: the padlock speaks.
                 card.setBadge("", false);
             } else {
                 card.setBadge(Long.toString(next), true);
             }
-            card.setTooltip(tooltipFor(def, level, maxed, redundant, next, missing, treeUnlocked,
+            card.setTooltip(tooltipFor(def, level, maxed, redundant, next, missing, treeLocked,
                     balance));
-        }
-        if (currentNodeId == null || nodes.card(currentNodeId) == null) {
-            currentNodeId = nodes.size() == 0 ? null : nodes.cards().get(0).id();
         }
         wallet.setAmount(balance);
         buildDetail();
+        refreshCta();
         buildStats();
     }
 
@@ -522,7 +672,7 @@ public final class UpgradeTreeScreen implements Screen {
      * The same phrase without the {@code per level} suffix, for the node card.
      *
      * <p>The card clips its text at the badge column, so the suffix is what gets cut off in the
-     * middle of a word ({@code -3% Gravity per leve}); the detail panel carries the full form.
+     * middle of a word; the detail panel carries the full form.
      *
      * @param def the node
      * @return the phrase
@@ -547,51 +697,6 @@ public final class UpgradeTreeScreen implements Screen {
             out.append(grantText(grant));
         }
         return out.toString();
-    }
-
-    /**
-     * The milestone a node's effects start being read in (E19), or {@code null} when the run
-     * already reads them.
-     *
-     * <p>Seven of the eighteen nodes sell ability cooldowns, ability durations, shield charges,
-     * revives or an ability/slot grant. The stat pipeline resolves all of them today and no
-     * system consumes any of them until M5, so the screen has to say so instead of showing a
-     * number that changes nothing.
-     *
-     * @param def the node
-     * @return {@code "M5"}, or {@code null}
-     */
-    private String milestoneOf(UpgradeDef def) {
-        if (content.playable(ContentKind.ABILITY)) {
-            // M5 landed: every one of these stats and grants is read by a run now.
-            return null;
-        }
-        if (!def.effectsPerLevel().isEmpty()) {
-            for (StatModifierDef effect : def.effectsPerLevel()) {
-                if (!M5_STATS.contains(effect.stat())) {
-                    return null;
-                }
-            }
-            return ABILITY_MILESTONE;
-        }
-        for (GrantDef grant : def.grants()) {
-            if (grant.type() == GrantType.ABILITY_CAP || grant.type() == GrantType.PASSIVE_SLOT) {
-                return ABILITY_MILESTONE;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * The milestone note appended to a card, or the empty string.
-     *
-     * @param def the node
-     * @return the suffix
-     */
-    private String soonSuffix(UpgradeDef def) {
-        String milestone = milestoneOf(def);
-        return milestone == null ? ""
-                : " - " + strings.format(StringKey.COMMON_SOON, milestone);
     }
 
     /**
@@ -622,20 +727,20 @@ public final class UpgradeTreeScreen implements Screen {
      * @param redundant whether buying it would grant nothing new
      * @param next the price of the next level, or {@code -1}
      * @param missing the names of the missing prerequisites
-     * @param treeUnlocked whether the tree is open
+     * @param treeLocked whether the tree is still locked
      * @param balance the coins the profile holds
      * @return the text
      */
     private String tooltipFor(UpgradeDef def, int level, boolean maxed, boolean redundant,
-            long next, List<String> missing, boolean treeUnlocked, long balance) {
+            long next, List<String> missing, boolean treeLocked, long balance) {
         StringBuilder out = new StringBuilder(
                 ProgressionText.description(strings, ContentKind.UPGRADE, def.id()));
-        out.append(" - ").append(effectText(def)).append(soonSuffix(def));
+        out.append(" - ").append(effectText(def));
         if (maxed) {
             out.append(" - ").append(strings.get(StringKey.UPGRADES_MAXED));
         } else if (redundant) {
             out.append(" - ").append(strings.get(StringKey.UPGRADES_ALREADY_OWNED));
-        } else if (!treeUnlocked) {
+        } else if (treeLocked) {
             out.append(" - ").append(treeLockedText);
         } else if (!missing.isEmpty()) {
             out.append(" - ").append(strings.format(StringKey.UPGRADES_NEEDS,
@@ -653,46 +758,111 @@ public final class UpgradeTreeScreen implements Screen {
         return out.toString();
     }
 
-    /** Fills the detail panel from the node the focus is on. */
+    /** Fills the detail panel from the selected node. */
     private void buildDetail() {
         detailLines.clear();
+        String treeId = tabs.selectedId();
+        if (treeId == null) {
+            return;
+        }
         if (currentNodeId == null) {
-            if (!treeLockedText.isEmpty()) {
-                detailLines.add(treeLockedText);
-            }
+            detailLines.add(strings.get(StringKey.UPGRADES_SELECT_NODE));
             return;
         }
         UpgradeDef def = content.upgrades().get(currentNodeId);
         int level = profile.upgradeLevel(def.id());
         boolean maxed = level >= def.maxLevel();
-        detailLines.add(ProgressionText.name(strings, ContentKind.UPGRADE, def.id())
-                + "  " + strings.format(StringKey.UPGRADES_LEVEL, level, def.maxLevel()));
-        detailLines.add(ProgressionText.description(strings, ContentKind.UPGRADE, def.id()));
-        detailLines.add(effectText(def) + soonSuffix(def));
         boolean redundant = !maxed && UpgradeManager.isRedundant(profile, def.id(), content);
-        if (maxed) {
+        List<String> missing = missingPrereqs(def);
+        boolean treeLocked = UpgradeManager.isTreeLocked(profile, treeId);
+        detailLines.add(ProgressionText.name(strings, ContentKind.UPGRADE, def.id()));
+        detailLines.add(strings.format(StringKey.UPGRADES_LEVEL, level, def.maxLevel()));
+        detailLines.add(ProgressionText.description(strings, ContentKind.UPGRADE, def.id()));
+        if (treeLocked) {
+            detailLines.add(treeLockedText);
+        } else if (maxed) {
             detailLines.add(strings.get(StringKey.UPGRADES_MAXED));
         } else if (redundant) {
             detailLines.add(strings.get(StringKey.UPGRADES_ALREADY_OWNED));
-        } else if (!treeLockedText.isEmpty()) {
-            detailLines.add(treeLockedText);
+        } else if (!missing.isEmpty()) {
+            detailLines.add(strings.format(StringKey.UPGRADES_NEEDS,
+                    String.join(", ", missing)));
         } else {
-            List<String> missing = missingPrereqs(def);
-            if (!missing.isEmpty()) {
-                detailLines.add(strings.format(StringKey.UPGRADES_NEEDS,
-                        String.join(", ", missing)));
-            } else {
-                long next = def.costOf(level + 1);
-                detailLines.add(ProgressionText.price(strings, next)
-                        + (coins() < next ? "  (" + strings.get(StringKey.SHOP_CANNOT_AFFORD)
-                        + ")" : ""));
+            detailLines.add(effectText(def));
+        }
+        // The red note only appears when a purchase route exists and the wallet is short: a
+        // blocked purchase has its blocker named in the status line instead.
+        if (treeLocked) {
+            long price = upgrades == null ? -1 : upgrades.treeUnlockPrice(treeId, content);
+            if (price >= 0 && !upgrades.canAffordTreeUnlock(profile, treeId, content)) {
+                detailLines.add(strings.get(StringKey.UPGRADES_NO_COINS));
             }
+        } else if (upgrades != null && !maxed && !redundant && missing.isEmpty()
+                && coins() < def.costOf(level + 1)) {
+            detailLines.add(strings.get(StringKey.UPGRADES_NO_COINS));
         }
     }
 
+    /** Points the call to action at the selected node, or at the locked tree. */
+    private void refreshCta() {
+        String treeId = tabs.selectedId();
+        cta.setIcon(null);
+        if (treeId == null) {
+            cta.setText(strings.get(StringKey.UPGRADES_SELECT_NODE));
+            cta.setEnabled(false);
+            return;
+        }
+        if (UpgradeManager.isTreeLocked(profile, treeId)) {
+            long price = upgrades == null ? -1 : upgrades.treeUnlockPrice(treeId, content);
+            if (price >= 0) {
+                cta.setText(strings.format(StringKey.UPGRADES_CTA_UNLOCK_TREE,
+                        Long.toString(price)));
+                cta.setIcon(coinIcon);
+                // Enabled even when the wallet is short: the refusal and the red note are how
+                // "not yet" is said, and the state machine changes nothing on a refusal.
+                cta.setEnabled(upgrades != null);
+            } else {
+                TreeDef tree = content.trees().get(treeId);
+                cta.setText(strings.format(StringKey.UPGRADES_CTA_UNLOCK_TREE,
+                        ProgressionText.unlockText(strings, content, tree.unlock(), profile)));
+                cta.setEnabled(false);
+            }
+            return;
+        }
+        if (currentNodeId == null) {
+            cta.setText(strings.get(StringKey.UPGRADES_SELECT_NODE));
+            cta.setEnabled(false);
+            return;
+        }
+        UpgradeDef def = content.upgrades().get(currentNodeId);
+        int level = profile.upgradeLevel(def.id());
+        boolean maxed = level >= def.maxLevel();
+        boolean redundant = !maxed && UpgradeManager.isRedundant(profile, def.id(), content);
+        List<String> missing = missingPrereqs(def);
+        if (maxed) {
+            cta.setText(strings.get(StringKey.UPGRADES_CTA_MAXED));
+            cta.setEnabled(false);
+            return;
+        }
+        if (redundant) {
+            cta.setText(strings.get(StringKey.UPGRADES_ALREADY_OWNED));
+            cta.setEnabled(false);
+            return;
+        }
+        if (!missing.isEmpty()) {
+            cta.setText(strings.format(StringKey.UPGRADES_NEEDS, String.join(", ", missing)));
+            cta.setEnabled(false);
+            return;
+        }
+        long next = def.costOf(level + 1);
+        cta.setText(strings.format(StringKey.UPGRADES_CTA_LEVEL, Long.toString(next)));
+        cta.setIcon(coinIcon);
+        cta.setEnabled(upgrades != null);
+    }
+
     /**
-     * Fills the live stat panel: every stat the open tree's nodes can touch, with the value the
-     * next run would resolve for it right now.
+     * Fills the attribute summary: every stat the open tree's nodes can touch, with the value
+     * the next run would resolve for it right now and its pip fill.
      */
     private void buildStats() {
         statRows.clear();
@@ -716,18 +886,81 @@ public final class UpgradeTreeScreen implements Screen {
         Set<StatId> ordered = new LinkedHashSet<>(touched);
         for (StatId stat : ordered) {
             String label = ProgressionText.statLabel(strings, stat);
-            if (M5_STATS.contains(stat) && !content.playable(ContentKind.ABILITY)) {
-                // The value is real; nothing reads it yet (E19).
-                label += " - " + strings.format(StringKey.COMMON_SOON, ABILITY_MILESTONE);
+            double value = sheet.resolve(stat);
+            statRows.add(new StatRow(stat, label, ProgressionText.number(value),
+                    ForgeArt.pips(value, stat)));
+        }
+    }
+
+    // ------------------------------------------------------------------ scrolling
+
+    /** Places the tree at the current scroll offset, clamped to what it needs. */
+    private void applyScroll() {
+        scroll = MathUtil.clamp(scroll, 0, maxScroll());
+        for (CardGrid.Card card : nodes.cards()) {
+            Double offset = cardOffset.get(card.id());
+            if (offset != null) {
+                card.setPosition(card.x(), TREE_TOP - scroll + offset);
             }
-            statRows.add(new StatRow(stat, label, ProgressionText.number(sheet.resolve(stat))));
+        }
+    }
+
+    /**
+     * Scrolls by a delta and re-places the cards.
+     *
+     * @param delta logical pixels, positive to move the content up
+     */
+    private void scrollBy(double delta) {
+        scroll += delta;
+        applyScroll();
+    }
+
+    /** Brings the focused card fully inside the band, if it is a card at all. */
+    private void scrollFocusIntoView() {
+        if (!(ring.focused() instanceof ForgeNodeCard card)) {
+            return;
+        }
+        if (card.y() < TREE_TOP) {
+            scrollBy(card.y() - TREE_TOP);
+        } else if (card.y() + card.height() > TREE_BOTTOM) {
+            scrollBy(card.y() + card.height() - TREE_BOTTOM);
         }
     }
 
     // ------------------------------------------------------------------ actions
 
     /**
-     * Buys the next level of a node and says what happened.
+     * Selects a node: the detail panel and the call to action turn to it. Buying never happens
+     * here — that is the call to action's job, so one tap can never spend unread coins.
+     *
+     * @param nodeId the node id
+     */
+    private void select(String nodeId) {
+        currentNodeId = nodeId;
+        refreshState();
+    }
+
+    /** What the one call to action does: unlock the tree, or buy the selected node's level. */
+    private void activateCta() {
+        String treeId = tabs.selectedId();
+        if (treeId != null && UpgradeManager.isTreeLocked(profile, treeId)) {
+            unlockTree(treeId);
+            return;
+        }
+        // The selection must be a card of the tree that is open right now: one left over from a
+        // previously open tab, or a stale id, is not purchasable and is refused quietly.
+        if (currentNodeId == null || nodes.card(currentNodeId) == null) {
+            return;
+        }
+        UpgradeDef def = content.upgrades().get(currentNodeId);
+        if (!def.tree().equals(treeId)) {
+            return;
+        }
+        buy(currentNodeId);
+    }
+
+    /**
+     * Buys the next level of the selected node and says what happened.
      *
      * @param nodeId the node id
      */
@@ -742,11 +975,38 @@ public final class UpgradeTreeScreen implements Screen {
             toasts.push(strings.format(StringKey.TOAST_UPGRADED,
                     ProgressionText.name(strings, ContentKind.UPGRADE, nodeId), result.level()),
                     Toast.Kind.INFO);
+            rebindScene();
         } else {
             toasts.push(strings.format(StringKey.TOAST_PURCHASE_FAILED, refusal(result.status())),
                     Toast.Kind.WARNING);
         }
         refreshState();
+    }
+
+    /**
+     * Buys the open tree's unlock through {@link UpgradeManager#buyTree} — the same atomic route
+     * the shop sells the tree through — and says what happened.
+     *
+     * @param treeId the bare tree id
+     */
+    private void unlockTree(String treeId) {
+        if (upgrades == null) {
+            refreshState();
+            return;
+        }
+        PurchaseResult result = upgrades.buyTree(profile, treeId, content);
+        if (result.ok()) {
+            toasts.push(strings.format(StringKey.TOAST_PURCHASED,
+                    ProgressionText.unlockableName(strings, content,
+                            UpgradeManager.treeUnlockId(treeId))), Toast.Kind.INFO);
+            // The cards' locked and available rendering is produced by rebuild(), so a fresh
+            // unlock re-lays the grid it just opened; rebuild ends in refreshState().
+            rebuild();
+        } else {
+            toasts.push(strings.format(StringKey.TOAST_PURCHASE_FAILED, refusal(result.status())),
+                    Toast.Kind.WARNING);
+            refreshState();
+        }
     }
 
     /**
@@ -763,15 +1023,55 @@ public final class UpgradeTreeScreen implements Screen {
                 return treeLockedText.isEmpty() ? strings.get(StringKey.COMMON_LOCKED)
                         : treeLockedText;
             case MISSING_PREREQ:
-                return strings.format(StringKey.UPGRADES_NEEDS,
-                        String.join(", ", missingPrereqs(content.upgrades().get(currentNodeId))));
+                return currentNodeId == null ? strings.get(StringKey.COMMON_LOCKED)
+                        : strings.format(StringKey.UPGRADES_NEEDS, String.join(", ",
+                                missingPrereqs(content.upgrades().get(currentNodeId))));
             case MAX_LEVEL:
                 return strings.get(StringKey.UPGRADES_MAXED);
             case ALREADY_OWNED:
                 return strings.get(StringKey.UPGRADES_ALREADY_OWNED);
+            case LEVEL_CAPPED:
+                return strings.get(StringKey.SHOP_ABILITY_CAPPED);
+            case NOT_FOR_SALE:
+            case UNKNOWN_ID:
             default:
                 return strings.get(StringKey.COMMON_LOCKED);
         }
+    }
+
+    // ------------------------------------------------------------------ navigation
+
+    /** Opens the shop, replacing this section rather than stacking on top of it. */
+    private void openShop() {
+        if (context != null) {
+            screens.replace(new ShopScreen(context));
+        }
+    }
+
+    /** Opens the bird selection, replacing this section. */
+    private void openBirds() {
+        if (context != null) {
+            screens.replace(new BirdSelectionScreen(context));
+        }
+    }
+
+    /** Opens the goals, replacing this section. */
+    private void openGoals() {
+        if (context != null) {
+            screens.replace(new GoalsScreen(context));
+        }
+    }
+
+    /**
+     * Starts the run the hub would start. The mode picker lives on the Birds screen, so the
+     * forge plays the standard run in the profile's own world and tier.
+     */
+    private void play() {
+        if (context == null) {
+            return;
+        }
+        ContentRunFactory source = new ContentRunFactory(content, RunMode.STANDARD, () -> profile);
+        screens.push(new GameScreen(context, source, SeedSequence.random()));
     }
 
     // ------------------------------------------------------------------ behaviour
@@ -783,17 +1083,32 @@ public final class UpgradeTreeScreen implements Screen {
         screens.setLetterboxRgb(PALETTE.letterbox());
         tooltip.hide();
         wallet.setAmountNow(coins());
+        if (upgrades != null) {
+            // A profile carried over from an older build can have earned a tree in play without
+            // owning it (its condition is an any_of with a purchase branch, which the evaluator
+            // never reports as satisfied). Granting it here — the one reconciliation this screen
+            // performs, and one that can write the save — keeps the panel from advertising a
+            // coin price for something the player already earned. It never runs from tick or
+            // paint.
+            upgrades.claimEarnedTrees(profile, content);
+        }
+        rebindScene();
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
         } else {
-            refreshState();
+            rebuild();
         }
     }
 
     @Override
     public void tick(InputFrame input) {
+        ticks++;
+        prevBob = bob;
+        bob = bobAt(ticks);
         toasts.tick();
         wallet.tick();
+        applyReduceFlashing(ParticleSystem.defaultReduceFlashing());
+        cta.setTicks(ticks);
         InputFrame frame = input;
         if (tabs.tick(input)) {
             // The press that changed the tab must not also move the focus into the tree below.
@@ -804,9 +1119,15 @@ public final class UpgradeTreeScreen implements Screen {
         UiNode focused = ring.focused();
         if (focused != before && focused instanceof CardGrid.Card card) {
             currentNodeId = card.id();
-            buildDetail();
+            scrollFocusIntoView();
+            refreshState();
         }
-        updateTooltip(input);
+        if (input.wheel() != 0 && input.mouseY() >= TREE_TOP && input.mouseY() <= TREE_BOTTOM) {
+            scrollBy(-input.wheel() * (double) WHEEL_STEP);
+        }
+        UiNode under = ring.nodeAt(input.mouseX(), input.mouseY());
+        UiNode target = under != null ? under : ring.focused();
+        tooltip.update(target, target instanceof CardGrid.Card card ? card.tooltip() : "");
         if (!strings.language().equals(shownLanguage)) {
             refreshTexts();
         }
@@ -817,14 +1138,34 @@ public final class UpgradeTreeScreen implements Screen {
     }
 
     /**
-     * Points the tooltip at the node under the pointer, or at the focused one.
+     * Fans a change of the accessibility setting out to the two things on this screen that
+     * pulse.
      *
-     * @param input the tick input
+     * @param reduce whether luminance pulses are capped
      */
-    private void updateTooltip(InputFrame input) {
-        UiNode under = ring.nodeAt(input.mouseX(), input.mouseY());
-        UiNode target = under != null ? under : ring.focused();
-        tooltip.update(target, target instanceof CardGrid.Card card ? card.tooltip() : "");
+    private void applyReduceFlashing(boolean reduce) {
+        if (reduce == reduceShown) {
+            return;
+        }
+        reduceShown = reduce;
+        cta.setReduceFlashing(reduce);
+        scene.setReduceFlashing(reduce);
+    }
+
+    /**
+     * Points the scene at the profile's current forge stage: every owned level feeds
+     * {@link ForgeScene#stageOf}, so the illustration grows with the tree it advertises.
+     */
+    private void rebindScene() {
+        scene.bind(PALETTE, content, profile,
+                ForgeScene.stageOf(profile.upgradeLevelsTotal()), profile.prestigeCount > 0);
+    }
+
+    private static double bobAt(long tick) {
+        long t = tick % BOB_PERIOD_TICKS;
+        double half = BOB_PERIOD_TICKS / 2.0;
+        double wave = t < half ? t / half : (BOB_PERIOD_TICKS - t) / half;
+        return -BOB_AMPLITUDE / 2 + BOB_AMPLITUDE * wave;
     }
 
     // ------------------------------------------------------------------ rendering
@@ -833,87 +1174,180 @@ public final class UpgradeTreeScreen implements Screen {
     public void render(Graphics2D g, double alpha) {
         ProceduralArt.prepare(g);
         ProceduralArt.fillBackground(g, PALETTE);
-        g.setFont(Fonts.bold(26));
-        TextPainter.drawOutlined(g, strings.get(StringKey.UPGRADES_TITLE), MARGIN,
-                TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,
-                ProceduralArt.letterboxColor(PALETTE), 2);
-        wallet.render(g);
+
+        renderHeader(g, alpha);
         tabs.render(g);
 
-        g.setFont(Fonts.bold(12));
-        g.setColor(ProceduralArt.accentColor(PALETTE));
+        Shape unclipped = g.getClip();
+        g.clipRect(0, TREE_TOP, Playfield.WIDTH, TREE_BOTTOM - TREE_TOP);
         for (TierBand band : bands) {
-            TextPainter.draw(g, band.label(), MARGIN, band.y() + TIER_LABEL_H - 4);
+            ForgeArt.drawTierPill(g, MARGIN, TREE_TOP - scroll + band.y(), band.label());
         }
-        Stroke old = g.getStroke();
-        g.setStroke(LINK_STROKE);
-        g.setColor(LINK);
-        for (Link link : links) {
-            link.render(g);
-        }
-        g.setStroke(old);
+        renderLinks(g);
         nodes.render(g);
+        g.setClip(unclipped);
+        renderScrollbar(g);
 
-        ProceduralArt.panel(g, MARGIN - 4, DETAIL_TOP, CONTENT_W + 8, DETAIL_H);
-        double baseline = DETAIL_TOP + 16.0;
-        for (int i = 0; i < detailLines.size(); i++) {
-            g.setFont(i == 0 ? Fonts.bold(13) : Fonts.regular(11));
-            g.setColor(i == 0 ? ProceduralArt.TEXT_LIGHT : ProceduralArt.TEXT_MUTED);
-            TextPainter.draw(g, detailLines.get(i), MARGIN, baseline);
-            baseline += i == 0 ? 16 : 14;
-        }
+        renderDetail(g);
 
-        ProceduralArt.panel(g, MARGIN - 4, STATS_TOP, CONTENT_W + 8, STATS_H);
-        double rowY = STATS_TOP + 16.0;
-        g.setFont(Fonts.bold(12));
-        g.setColor(ProceduralArt.accentColor(PALETTE));
-        TextPainter.draw(g, strings.get(StringKey.BIRDS_BREAKDOWN), MARGIN, rowY);
-        rowY += 16;
-        for (StatRow row : statRows) {
-            g.setFont(Fonts.regular(11));
-            g.setColor(ProceduralArt.TEXT_MUTED);
-            TextPainter.draw(g, row.label(), MARGIN, rowY);
-            g.setColor(ProceduralArt.TEXT_LIGHT);
-            TextPainter.draw(g, row.value(), MARGIN + (double) CONTENT_W - 4, rowY, Align.RIGHT);
-            rowY += 14;
-        }
-
-        back.render(g);
+        nav.render(g);
         tooltip.render(g);
-        toasts.render(g);
+        // Below the tab band, not inside it: a purchase toast right-aligned to the top-right
+        // corner would otherwise park exactly on the Forge tab for its whole life. The top card
+        // row is the lesser harm — a tab is a control, a card is content.
+        toasts.render(g, TABS_TOP + TABS_H);
     }
 
-    /** One tier heading of the open tree. */
-    private record TierBand(int tier, String label, double y) {
+    /**
+     * Draws the compact header: the small forge scene, the title, the open tree's subtitle and
+     * the wallet in its coin pill, which is drawn over the scene so the two never fight.
+     *
+     * @param g the context
+     * @param alpha the frame's blend factor
+     */
+    private void renderHeader(Graphics2D g, double alpha) {
+        Shape clip = g.getClip();
+        AffineTransform original = g.getTransform();
+        g.clipRect(0, 0, Playfield.WIDTH, HEADER_H);
+        g.translate(SCENE_TX, SCENE_TY);
+        g.scale(SCENE_SCALE, SCENE_SCALE);
+        scene.render(g, alpha, MathUtil.lerp(prevBob, bob, alpha), ticks);
+        g.setTransform(original);
+        g.setClip(clip);
+        g.setFont(Fonts.bold(26));
+        TextPainter.drawOutlined(g, strings.get(StringKey.UPGRADES_SCREEN_TITLE), MARGIN,
+                TITLE_BASELINE, Align.LEFT, ProceduralArt.TEXT_LIGHT,
+                ProceduralArt.letterboxColor(PALETTE), 2);
+        g.setFont(Fonts.regular(11));
+        g.setColor(ForgeArt.SUBTITLE_INK);
+        TextPainter.draw(g, TextPainter.ellipsise(g, subtitle(), SUBTITLE_LIMIT_X - MARGIN),
+                MARGIN, SUBTITLE_BASELINE);
+        ForgeArt.drawCoinPill(g, WALLET_PILL_X, WALLET_PILL_Y, WALLET_PILL_W, WALLET_PILL_H);
+        wallet.render(g);
     }
 
-    /** One prerequisite edge, drawn from the bottom of a node to the top of the node it opens. */
-    private record Link(CardGrid.Card from, CardGrid.Card to) {
-
-        /**
-         * Draws the edge.
-         *
-         * @param g the context
-         */
-        void render(Graphics2D g) {
-            int x1 = (int) Math.round(from.centerX());
-            int y1 = (int) Math.round(from.y() + from.height());
-            int x2 = (int) Math.round(to.centerX());
-            int y2 = (int) Math.round(to.y());
-            int mid = (y1 + y2) / 2;
-            g.drawLine(x1, y1, x1, mid);
-            g.drawLine(x1, mid, x2, mid);
-            g.drawLine(x2, mid, x2, y2);
+    /**
+     * Draws the prerequisite edges from the cards' live bounds, so they follow the scroll.
+     *
+     * @param g the context, clipped to the tree viewport
+     */
+    private void renderLinks(Graphics2D g) {
+        for (Link link : links) {
+            CardGrid.Card from = nodes.card(link.from());
+            CardGrid.Card to = nodes.card(link.to());
+            if (from == null || to == null) {
+                continue;
+            }
+            ForgeArt.drawConnector(g, from.centerX(), from.y() + from.height(),
+                    to.centerX(), to.y());
         }
     }
 
     /**
-     * One line of the live stat panel.
+     * Draws the thumb that says the tree has more below, and only then.
+     *
+     * @param g the context
+     */
+    private void renderScrollbar(Graphics2D g) {
+        double max = maxScroll();
+        if (max <= 0) {
+            return;
+        }
+        int trackH = TREE_BOTTOM - TREE_TOP;
+        int thumbH = (int) Math.max(SCROLLBAR_MIN_H, trackH * (trackH / contentHeight));
+        int thumbY = (int) Math.round(TREE_TOP + (trackH - thumbH) * (scroll / max));
+        g.setColor(SCROLLBAR);
+        g.fillRoundRect(SCROLLBAR_X, thumbY, SCROLLBAR_W, thumbH, SCROLLBAR_W, SCROLLBAR_W);
+    }
+
+    /**
+     * Draws the detail panel: hero, name, level, description, status lines, call to action, the
+     * red note, then the divider and the attribute summary.
+     *
+     * @param g the context
+     */
+    private void renderDetail(Graphics2D g) {
+        ForgeArt.drawDetailPanel(g, MARGIN - 4, DETAIL_TOP, CONTENT_W + 8, DETAIL_H);
+        IconPainter hero = null;
+        if (currentNodeId != null && detailLines.size() > 1) {
+            hero = ForgeArt.nodeIcon(content.upgrades().get(currentNodeId));
+        }
+        ForgeArt.drawHero(g, HERO_CX, HERO_CY, HERO_SIZE, hero);
+
+        int fullRoom = Playfield.WIDTH - MARGIN - 8;
+        if (detailLines.size() == 1) {
+            // A tree without nodes: the placeholder is the whole panel's message.
+            g.setFont(Fonts.regular(13));
+            g.setColor(ProceduralArt.TEXT_MUTED);
+            TextPainter.drawCentered(g, detailLines.get(0), Playfield.WIDTH / 2.0,
+                    DETAIL_TOP + DETAIL_H / 2.0 + 4);
+        } else if (!detailLines.isEmpty()) {
+            g.setFont(Fonts.bold(18));
+            g.setColor(ProceduralArt.TEXT_LIGHT);
+            TextPainter.draw(g, TextPainter.ellipsise(g, detailLines.get(0),
+                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, DETAIL_TOP + 24);
+            g.setFont(Fonts.regular(12));
+            g.setColor(ProceduralArt.TEXT_MUTED);
+            TextPainter.draw(g, TextPainter.ellipsise(g, detailLines.get(1),
+                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, DETAIL_TOP + 42);
+            g.setColor(ProceduralArt.TEXT_LIGHT);
+            TextPainter.draw(g, TextPainter.ellipsise(g, detailLines.get(2),
+                    fullRoom - PANEL_TEXT_X), PANEL_TEXT_X, DETAIL_TOP + 60);
+            // The status lines sit under the hero, on the panel's text column like the lines
+            // above — the red not-enough-coins note among them — clear of the call to action's
+            // plate below.
+            double baseline = DETAIL_TOP + 86;
+            String noCoins = strings.get(StringKey.UPGRADES_NO_COINS);
+            for (int i = 3; i < detailLines.size(); i++) {
+                String line = detailLines.get(i);
+                boolean red = line.equals(noCoins);
+                g.setFont(Fonts.regular(11));
+                g.setColor(red ? ForgeArt.NO_COINS_RED : ProceduralArt.TEXT_LIGHT);
+                TextPainter.draw(g, TextPainter.ellipsise(g, line, fullRoom - PANEL_TEXT_X),
+                        PANEL_TEXT_X, baseline);
+                baseline += STAT_PITCH;
+            }
+        }
+
+        cta.render(g);
+
+        g.setColor(ForgeArt.DIVIDER);
+        g.fillRect(MARGIN + 10, DETAIL_TOP + DIVIDER_OFFSET, CONTENT_W - 20, 2);
+        g.setFont(Fonts.bold(12));
+        g.setColor(ProceduralArt.accentColor(PALETTE));
+        TextPainter.draw(g, strings.get(StringKey.UPGRADES_ATTRIBUTE_SUMMARY), MARGIN + 4,
+                DETAIL_TOP + SUMMARY_OFFSET);
+        double rowY = DETAIL_TOP + STATS_OFFSET;
+        double pipX = MARGIN + 170;
+        for (StatRow row : statRows) {
+            ForgeArt.statIcon(row.stat()).paint(g, MARGIN + 16, rowY - 4, 12,
+                    ProceduralArt.TEXT_LIGHT);
+            g.setFont(Fonts.regular(10));
+            g.setColor(ProceduralArt.TEXT_LIGHT);
+            TextPainter.draw(g, row.label(), MARGIN + 30, rowY);
+            ForgeArt.drawPipBar(g, pipX, rowY - 3.5, 130, row.pips());
+            g.setFont(Fonts.bold(11));
+            TextPainter.draw(g, row.value(), MARGIN + CONTENT_W - 8, rowY, Align.RIGHT);
+            rowY += STAT_PITCH;
+        }
+    }
+
+    /** One tier heading of the open tree, at its offset inside the scrolled content. */
+    private record TierBand(String label, double y) {
+    }
+
+    /** One prerequisite edge, drawn from the bottom of a node to the top of the node it opens. */
+    private record Link(String from, String to) {
+    }
+
+    /**
+     * One line of the attribute summary.
      *
      * @param stat the stat
      * @param label its translated name
      * @param value its resolved value right now
+     * @param pips how many pip segments its fill shows
      */
-    public record StatRow(StatId stat, String label, String value) {
+    public record StatRow(StatId stat, String label, String value, int pips) {
     }
 }
